@@ -1,0 +1,57 @@
+{
+  "name": "dsh-growth-workbench",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Growth workbench for DeepSeek Harness: conversation-header button + right-sidebar panels for new-media ops, ecommerce and marketing — accounts, topics, platform variants, calendar, metrics ledgers, products, feedback, campaigns, SOP, glossary and copy rules, all backed by your Obsidian vault.",
+  "scripts": {
+    "test": "node test/lib.test.js && node test/data-safety.test.js && node test/rules.test.js && node test/security.test.mjs && node test/static.test.mjs && node test/e2e.mjs && node test/p0a.test.mjs && node test/v2.test.mjs && node test/migration.test.mjs && node test/push.test.mjs && node test/links.test.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib/**/*.js",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "author": "Neon088",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Neon088/dsh-growth-workbench.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "growth",
+    "ecommerce",
+    "marketing",
+    "obsidian",
+    "workbench"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.1"
+  }
+}
