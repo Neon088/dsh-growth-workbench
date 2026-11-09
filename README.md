@@ -1,49 +1,95 @@
 # dsh-growth-workbench
 
-DeepSeek Harness 的新媒体运营工作台插件。
+DeepSeek Harness 的新媒体运营工作台插件，给做新媒体、电商、营销的人用。
 
-做运营的日常就是这些事：记选题、拆爆款、排内容日历、发完录数据、翻复盘。这些我原来都记在 Obsidian 里，这个插件把它们搬进了 DSH 的侧边栏——读写的就是 vault 里那几个 md 文件，Obsidian 和工作台看到的是同一份数据，不存在同步这回事。
+做运营的日常就是这些事：记选题、拆爆款、排日历、发完录数据、定期翻复盘。这些我原来都记在 Obsidian 里，这个插件把它们搬进了 DSH 的侧边栏——工作台和 Obsidian 读写的是同一批 md 文件，没有第二份副本，也不存在同步这回事。
 
-装完是空的，数据自己填。
+装完是空的，只建目录骨架和几张空模板，数据自己填。
 
 ## 有什么
 
-会话头部有个「工作台」按钮，点开是右侧栏（右侧栏不可用就退回浮层）。四个页签：
+会话头部有个「工作台」按钮，点开是右侧栏（右侧栏打不开时会退回浮层）。顶栏有全局搜索、设置和刷新。四个页签对应四类工作，每张卡都能在设置里单独关掉：
 
-- 运营 — 账号档案、灵感箱、爆款拆解、创作台、内容日历、待回流、数据复盘
-- 电商 — 商品/竞品库、电商数据、客户反馈
-- 营销 — 营销方案
-- 通用 — SOP、术语表、文案规则
+| 页签 | 卡片 | 存在哪 | 说明 |
+| --- | --- | --- | --- |
+| 运营 | 账号档案 | `Accounts/` | 平台、账号名、定位、目标人群；选题和平台版本按 id 引用账号 |
+| 运营 | 灵感箱 | `Workbench/灵感箱.md` | 一行一条灵感，状态 新/已用/已废弃，用掉的填去向 |
+| 运营 | 内容 · 爆款拆解 | `Topics/` | 别人的爆款，一篇一个 md，frontmatter 记平台、日期、播放、点赞 |
+| 运营 | 创作台 | 选题详情面板 | 自己的选题：脚本进度、平台版本、风险自检、回流数据 |
+| 运营 | 内容日历 | `Calendar/YYYY-MM.md` | 一张月表，状态 在写/待发/已发/待回填/已归档 |
+| 运营 | 待回流 | — | 发了的版本逐天录数据，数据录入只有这一个入口 |
+| 运营 | 内容数据复盘 | `Data/回流台账/YYYY-MM.md` | 按平台版本看播放、赞藏、评论、转发 |
+| 电商 | 商品 / 竞品库 | `Products/` | frontmatter 档案，勾 2–4 个并排对比 |
+| 电商 | 电商数据复盘 | `Data/*.md` | GMV、流量、转化率、ROI、环比 |
+| 电商 | 客户反馈库 | `Feedback/客户反馈.md` | 渠道、情感、标签、状态，负面未处理亮红条 |
+| 营销 | 营销方案库 | `Campaigns/` | 平台、状态、起止、预算、目标 |
+| 通用 | SOP 树 | `SOP/` | 目录树直接读写；vault 根下没有 SOP/ 时以整个 vault 为根 |
+| 通用 | 术语表 | `Workbench/指标与黑话.md` | 中英名、领域、标签、备注 |
+| 通用 | 文案规则 / 语调库 | `CopyRules/rules.md` | 硬规则 / 软规则 / 待观察，计数表自动重算 |
 
-卡片能在设置里单独关掉。
+导入的 CSV 存 `Data/csv/`；每次写回之前在 `Workbench/.backups/` 留一份 `.bak`。所有目录名都能改（首次引导页或 `~/.dsh-growth/config.json`），不存在的目录会自动建。
 
-一篇选题要拆几个平台发的场景做了版本管理：每个平台版本自己走 在写 → 待发 → 已发 → 待回填 → 已归档 这条流程，高风险版本发布前要过 7 项自检。发完去「待回流」录数据，都进 `Data/回流台账/` 按月记账。
+## 一篇选题拆几个平台发
+
+这是 v2 的主要场景。一篇主选题可以拆出多个平台版本，每个版本自己走 在写 → 待发 → 已发 → 待回填 → 已归档 的流程，有自己的风险等级和发布前 7 项自检——高风险版本 7 项全过才能发，标了「禁发」的不允许发布。
+
+文件这么放：主选题在 `Topics/<标题>.md`（frontmatter 带稳定 id 和来源链接），平台版本在 `Workbench/平台版本/<masterId>/<平台>-<账号>.md`，指标记在 `Data/回流台账/YYYY-MM.md`。同一天同一版本重复录会覆盖旧行，不会越记越多。同一选题的抖音版本和小红书版本各存各的，互不干扰。
+
+老数据不用手工搬：设置页有「v2 数据迁移」，先预检再执行，给老选题补稳定 id、给已有平台的选题建一个平台版本空壳。只增不删，跑几遍结果都一样。
 
 ## 装
 
-需要 Node 22+ 和 DSH 0.2.0-rc.1 以上。
+需要 Node 22+（或 24），DSH 0.2.0-rc.1 以上。
 
-clone 下来之后：
-
-```
+```powershell
+# clone 下来后用 DSH 的插件命令装（路径换成你的）
 dsh plugin --profile desktop add <仓库路径>
+
+# 或者没有 dsh 命令时，脚本直装
+node install.mjs
 ```
 
-没有 dsh 命令的话，`node install.mjs` 也行。
-
-装完重启 DSH、刷新页面，第一次点开按钮会引导填 vault 根目录。
+装完重启 DSH、刷新页面，会话头部出现「工作台」按钮。第一次点开会引导填 vault 根目录，填完各板块目录骨架自动建好。
 
 ## 出问题了
 
-DSH 桌面版碰到加载不了的插件会整个起不来。这时候跑 `node rollback.mjs`（或双击 run-rollback.bat）把插件从 profile 里卸干净，应用就能正常打开，vault 数据不受影响。
+DSH 桌面版只要有一个插件加载失败就整个起不来。真遇到了跑 `node rollback.mjs`（或双击 run-rollback.bat），它会把 desktop profile 恢复成没装过这个插件的样子，应用就能正常打开。vault 里的数据不受影响，重装也不用重新填路径。
+
+## 数据这块
+
+- 写回都带冲突检测：Obsidian 那边改过之后工作台不会覆盖，会报冲突让你自己决定
+- 删除先备份再删，备份在 `Workbench/.backups/`
+- 所有路径限制在 vault 里面，绝对路径和 `..` 一律拒绝，也只碰 `.md` 和 `.csv`
+- 事件推送只发文件指纹不发内容，客户端收到后自己重读
+- 外链只有 http/https/mailto 会渲染成可点击
 
 ## 开发
 
-```
+```powershell
 npm test
 ```
 
-（沙箱环境里 `node --test` 会报 EPERM，逐个跑 `node test/*.mjs` 没问题。）
+逐个跑 11 个测试文件：lib、data-safety、rules、security、static 是单元和静态守卫，e2e、p0a 是端到端，v2、migration 覆盖平台版本和迁移，push、links 是不依赖浏览器的离线验证。沙箱环境里 `node --test` 会报 EPERM，逐个 `node test/*.mjs` 没问题。改完 JS 记得 `node --check index.js client.js`。
+
+## 目录
+
+| 文件 | 干嘛的 |
+| --- | --- |
+| `index.js` | Host 侧入口：注册 `/api/dsh-growth/*` 路由、14 张卡、配置引导 |
+| `client.js` | 浏览器侧入口：头部按钮、右侧栏页签、各卡片界面 |
+| `lib/vault.js` | vault 直连：路径校验、sha1 冲突检测、备份、Obsidian URI 跳转 |
+| `lib/table.js` | Markdown 表格的解析、校验、原子写 |
+| `lib/frontmatter.js` | frontmatter 笔记集合引擎，Topics/Campaigns/Products/Accounts 共用 |
+| `lib/domain.js` | v2 领域层：主选题 × 平台版本 × 指标台账，不碰 HTTP 和界面 |
+| `lib/migrate.js` | 老数据迁移，只增不删可重跑 |
+| `lib/csv.js` | CSV 导入与存档 |
+| `lib/rules.js` | 文案规则库的解析和渲染 |
+| `lib/platforms.js` | 平台名归一，别名收敛成规范名 |
+| `lib/agent-tool.js` | 把写回暴露成 agent 能调用的对话侧工具 |
+| `lib/client-shared.js`、`lib/coreutil-promise.js` | 卡片分包共用作用域、竞态防护 |
+| `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 安装、卸载救急、双击救急 |
+| `cordis.patch.yml` | 默认配置（vault 根、各板块目录名） |
+| `tools/asar.mjs` | 开发辅助：查看和提取 app.asar 里的文件 |
 
 ## 协议
 
