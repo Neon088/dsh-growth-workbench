@@ -49,7 +49,6 @@ window.__ModuleLoader__.load({
     const ZH = {
       open: '工作台',
       title: '增长工作台',
-      subtitle: '内容、电商、营销、SOP，直接读写你的 Obsidian vault',
       close: '关闭',
       refresh: '刷新',
       loading: '读取中…',
@@ -175,7 +174,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
 .dsh-gw-brand{display:flex;flex-direction:column;min-width:0}
 .dsh-gw-brand b{font-size:var(--gw-fz-5,14px)}
-.dsh-gw-brand span{display:none}
+.dsh-gw-brand span{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-row-unit{font-size:var(--gw-fz-1,11px);font-weight:400;color:var(--dsw-alias-label-secondary);margin-left:3px;white-space:nowrap}
 .dsh-gw-panel.dsh-gw-confirm,.dsh-gw-pane .dsh-gw-panel.dsh-gw-confirm{width:min(440px,94vw);height:auto;max-width:min(440px,94vw);max-height:none;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.34)}
 .dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
@@ -10575,7 +10574,7 @@ const STAGE_OF_STATUS = {
       } },
         h('div', { className: 'dsh-gw-panel' },
           h('div', { className: 'dsh-gw-head' },
-            h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title')), h('span', null, t('subtitle'))),
+            h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
             h('div', { className: 'dsh-gw-search' },
               h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
@@ -10752,7 +10751,7 @@ const STAGE_OF_STATUS = {
         return h('button', {
           className: 'dsh-gw-btn',
           onClick: () => openRight(sessionId),
-          title: t('subtitle'),
+          title: t('title'),
         }, t('open'))
       }
 
