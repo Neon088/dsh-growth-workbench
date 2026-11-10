@@ -221,11 +221,10 @@ test('table: 解析失败保护（怪表格不改原文件）', async () => {
   const table = glossary()
   const before = await readFile(file, 'utf8')
   const added = await table.add(file, { zh: 'CPA', en: 'cost per action' })
-  // 表头对不上：parse 得到 0 行，写入会覆盖——先确认行为是「写入」而非静默损坏表头之外的句子。
-  assert.equal(added.ok, true)
-  const after = await readFile(file, 'utf8')
-  assert.match(after, /CPA/)
-  assert.notEqual(before, after)
+  // 表头对不上不能当成空表覆盖；真实验收是拒写且逐字保留。
+  assert.equal(added.ok, false)
+  assert.equal(added.code, 'invalid_table')
+  assert.equal(await readFile(file, 'utf8'), before)
 })
 
 test('table: legacy 多格式还原（5列/6列/7列老日历都读得对）', async () => {

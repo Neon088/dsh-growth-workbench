@@ -88,6 +88,8 @@ test('table: 增删改只动表格那一段，表外正文与第二张表都在'
   assert.match(text, /GMV/)
 
   const rows = table.parse(text)
+  assert.deepEqual(rows.map((row) => row.zh), ['ROI', 'GMV'])
+  assert.equal(text.slice(text.indexOf('## 备查')), original.slice(original.indexOf('## 备查')))
   const target = rows.find((row) => row.zh === 'GMV')
   await table.update(file, target.id, { ...target, note: '成交总额（含退款前）' })
   text = await readFile(file, 'utf8')
