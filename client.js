@@ -182,12 +182,13 @@ window.__ModuleLoader__.load({
 .dsh-gw-panel.dsh-gw-confirm,.dsh-gw-pane .dsh-gw-panel.dsh-gw-confirm{width:min(440px,94vw);height:auto;max-width:min(440px,94vw);max-height:none;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.34)}
 .dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
 .dsh-gw-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
-.dsh-gw-search{flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
-.dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-search{position:relative;flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
+.dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 26px 0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tabs{display:flex;gap:8px;padding:8px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;min-width:0}
 .dsh-gw-tablist{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
 .dsh-gw-tabs .dsh-gw-search{flex:none;min-width:0;width:168px;margin-left:auto}
 .dsh-gw-tabs .dsh-gw-search input{height:26px}
+.dsh-gw-search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);z-index:1}
 .dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tab[data-on=true]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);box-shadow:inset 0 -2px 0 var(--gw-warm)}
 .dsh-gw-body{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:12px 14px 16px;display:flex;flex-direction:column;min-width:0}
@@ -10619,7 +10620,14 @@ const STAGE_OF_STATUS = {
             h('div', { className: 'dsh-gw-tablist' },
               WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
             h('div', { className: 'dsh-gw-search' },
-              h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) }))),
+              h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) }),
+              query === '' ? null : h('button', {
+                type: 'button',
+                className: 'dsh-gw-ibtn dsh-gw-search-clear',
+                title: '清除已输入的内容',
+                'aria-label': '清除已输入的内容',
+                onClick: () => { setQuery(''); searchRef.current?.focus() },
+              }, h(Icon, { name: 'close', size: 12 })))),
           h(CrumbSlot.Provider, { value: crumbSlot },
             h('div', { className: 'dsh-gw-body', ref: bodyRef }, body())),
           toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', role: toast.isError === true ? 'alert' : 'status', 'aria-live': toast.isError === true ? 'assertive' : 'polite', style: { margin: '0 14px 12px' } }, toast.message),
