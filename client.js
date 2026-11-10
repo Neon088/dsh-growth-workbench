@@ -213,6 +213,9 @@ window.__ModuleLoader__.load({
 .dsh-gw-row-title{font-weight:500;display:flex;gap:6px;align-items:center;min-width:0}
 .dsh-gw-row-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-row-meta{margin-top:2px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dsh-gw-account-row .dsh-gw-row-name{flex:0 1 auto;max-width:60%}
+.dsh-gw-account-flags{display:inline-flex;align-items:center;gap:4px;flex:none}
+.dsh-gw-account-acts{display:flex;align-items:center;gap:8px;flex:none}
 .dsh-gw-check-list{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 2px}
 .dsh-gw-check-item{display:inline-flex;align-items:center;gap:5px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);cursor:pointer}
 .dsh-gw-check-item input{accent-color:var(--gw-warm)}
@@ -2245,7 +2248,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     }
 
     function ListFilter({ filter, setFilter, placeholder }) {
-      // 放大镜常驻面包屑行右端：点一下就地展开一个小输入框，既不换位置、也不再冒出「搜索」标题。
+      // 放大镜钉在最右不动：点一下，输入框从它左边展开，也不再冒出「搜索」标题。
       const crumbSlot = React.useContext(CrumbSlot)
       const [expanded, setExpanded] = React.useState(false)
       const inputRef = React.useRef(null)
@@ -2258,14 +2261,6 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         if (String(filter ?? '').trim() !== '') setExpanded(true)
       }, [filter])
       const control = h('span', { className: 'dsh-gw-listfilter' },
-        h('button', {
-          type: 'button',
-          className: 'dsh-gw-ibtn dsh-gw-listfilter-btn',
-          title: placeholder ?? '过滤列表',
-          'aria-label': placeholder ?? '过滤列表',
-          'aria-expanded': expanded ? 'true' : 'false',
-          onClick: () => setExpanded((prev) => !prev),
-        }, h(Icon, { name: 'search', size: 14 })),
         expanded === false ? null : h('input', {
           ref: inputRef,
           className: 'dsh-gw-listfilter-input',
@@ -2275,7 +2270,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           onBlur: () => { if (String(filter ?? '').trim() === '') setExpanded(false) },
           onKeyDown: (event) => { if (event.key === 'Escape') { setFilter(''); setExpanded(false) } },
         }),
-        expanded === false || String(filter ?? '').trim() === '' ? null : h('button', { type: 'button', className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })))
+        expanded === false || String(filter ?? '').trim() === '' ? null : h('button', { type: 'button', className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })),
+        h('button', {
+          type: 'button',
+          className: 'dsh-gw-ibtn dsh-gw-listfilter-btn',
+          title: placeholder ?? '过滤列表',
+          'aria-label': placeholder ?? '过滤列表',
+          'aria-expanded': expanded ? 'true' : 'false',
+          onClick: () => setExpanded((prev) => !prev),
+        }, h(Icon, { name: 'search', size: 14 })))
       return crumbSlot !== null && createPortal !== null ? createPortal(control, crumbSlot) : control
     }
 
@@ -6569,18 +6572,17 @@ const STAGE_OF_STATUS = {
               ].filter((part) => part !== '')
               const platformText = String(record.front?.platform ?? '')
               const statusText = String(record.front?.status ?? '启用')
-              // 账号档案是「固定设置」页：第一行 账号名+描述，第二行 状态/平台 Pill，
-              // 排期动作钉在行最右。以前平台混在 meta 文本里、状态 Pill 和按钮挤在右侧，
-              // 配置项和内容描述看不出层级。
-              return h('div', { key: record.path, className: 'dsh-gw-row' },
+              // 账号档案是「固定设置」页：第一行 账号名 + 状态/平台标签 + 排期动作，
+              // 第二行用灰字写定位/人群/备注。标签紧跟名字，别再单独掉一行。
+              return h('div', { key: record.path, className: 'dsh-gw-row dsh-gw-account-row' },
                 h('div', { className: 'dsh-gw-row-main', onClick: () => setOpenPath(record.path) },
                   h('div', { className: 'dsh-gw-row-title' },
                     h('span', { className: 'dsh-gw-row-name' }, String(record.front?.name ?? record.title)),
-                    descParts.length === 0 ? null : h('span', { className: 'dsh-gw-row-desc' }, '：' + descParts.join(' / '))),
-                  h('div', { className: 'dsh-gw-account-flags' },
-                    h(Pill, { tone: ACCOUNT_STATUS_TONE[statusText] ?? '' }, statusText),
-                    platformText === '' ? null : h(Pill, { tone: '', title: '平台' }, platformText))),
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flex: 'none' } },
+                    h('span', { className: 'dsh-gw-account-flags' },
+                      h(Pill, { tone: ACCOUNT_STATUS_TONE[statusText] ?? '' }, statusText),
+                      platformText === '' ? null : h(Pill, { tone: '', title: '平台' }, platformText))),
+                  descParts.length === 0 ? null : h('div', { className: 'dsh-gw-row-meta' }, descParts.join(' · '))),
+                h('div', { className: 'dsh-gw-account-acts' },
                   h('button', {
                     className: 'dsh-gw-row-act',
                     title: '用这个账号排一条内容',
