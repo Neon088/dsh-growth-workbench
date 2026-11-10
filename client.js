@@ -1027,7 +1027,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 「看排期」跳过来时，和该选题相关的排期条目高亮，一眼找到。 */
 .dsh-gw-cal-item.is-hl{outline:1px solid var(--dsw-alias-link);font-weight:600}
 .dsh-gw-row-hl{box-shadow:inset 0 0 0 1px var(--dsw-alias-link);background:color-mix(in srgb,var(--dsw-alias-link) 8%,transparent)}
-.dsh-gw-catselect{flex:1;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 6px;font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-catselect{flex:0 1 auto;min-width:0;max-width:100%;width:auto;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 6px;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-combo{position:relative;display:flex;align-items:center;flex:1 1 auto;width:100%;min-width:0;min-height:30px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));color:var(--dsw-alias-label-primary,inherit);font-size:var(--gw-fz-3,12.5px);font-family:inherit;gap:4px}
 .dsh-gw-combo:focus-within{border-color:var(--dsw-alias-link);outline:none}
 /* 已选中的值：一个个小胶囊，悬停才冒出 × */
