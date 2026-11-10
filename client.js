@@ -175,9 +175,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
 .dsh-gw-brand{display:flex;flex-direction:column;min-width:0}
 .dsh-gw-brand b{font-size:var(--gw-fz-5,14px)}
-.dsh-gw-brand span{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
-.dsh-gw-pane .dsh-gw-brand span{display:none}
-.dsh-gw-panel:has(.dsh-gw-body[data-narrow=true]) .dsh-gw-brand span{display:none}
+.dsh-gw-brand span{display:none}
 .dsh-gw-row-unit{font-size:var(--gw-fz-1,11px);font-weight:400;color:var(--dsw-alias-label-secondary);margin-left:3px;white-space:nowrap}
 .dsh-gw-panel.dsh-gw-confirm,.dsh-gw-pane .dsh-gw-panel.dsh-gw-confirm{width:min(440px,94vw);height:auto;max-width:min(440px,94vw);max-height:none;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.34)}
 .dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
@@ -10497,18 +10495,15 @@ const STAGE_OF_STATUS = {
             h('div', { className: 'dsh-gw-row-meta' }, row.meta)),
           h('div', { className: 'dsh-gw-row-num' }, String(row.num),
             row.unit === undefined || row.unit === null || row.unit === '' ? null : h('span', { className: 'dsh-gw-row-unit' }, row.unit)))
-        const nodes = [h(Sect, { key: 'hint' }, (WORKSPACES.find((item) => item.id === workspace)?.hint ?? '') + ' · 点一行进卡片')]
-        const warnRows = rows.filter((row) => row.tone === 'warn')
-        if (warnRows.length > 0) nodes.push(h(Sect, { key: 'stage-warn' }, '待处理 · ' + warnRows.length + ' 项'))
-        warnRows.forEach((row) => nodes.push(rowNode(row)))
-        const rest = rows.filter((row) => row.tone !== 'warn')
+        const nodes = []
         STAGE_ORDER.forEach((stage) => {
-          const inStage = rest.filter((row) => row.stage === stage)
+          const inStage = rows.filter((row) => row.stage === stage)
           if (inStage.length === 0) return
           nodes.push(h(Sect, { key: 'stage-' + stage }, stage))
-          inStage.forEach((row) => nodes.push(rowNode(row)))
+          inStage.filter((row) => row.tone === 'warn').forEach((row) => nodes.push(rowNode(row)))
+          inStage.filter((row) => row.tone !== 'warn').forEach((row) => nodes.push(rowNode(row)))
         })
-        const unmapped = rest.filter((row) => STAGE_ORDER.indexOf(row.stage) === -1)
+        const unmapped = rows.filter((row) => STAGE_ORDER.indexOf(row.stage) === -1)
         if (unmapped.length > 0) {
           nodes.push(h(Sect, { key: 'stage-other' }, '其他'))
           unmapped.forEach((row) => nodes.push(rowNode(row)))
