@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Growth workbench for DeepSeek Harness: conversation-header button + right-sidebar panels for new-media ops, ecommerce and marketing — accounts, topics, platform variants, calendar, metrics ledgers, products, feedback, campaigns, SOP, glossary and copy rules, all backed by your Obsidian vault.",
   "scripts": {
-    "test": "node test/lib.test.js && node test/data-safety.test.js && node test/rules.test.js && node test/security.test.mjs && node test/static.test.mjs && node test/e2e.mjs && node test/p0a.test.mjs && node test/v2.test.mjs && node test/migration.test.mjs && node test/push.test.mjs && node test/links.test.mjs"
+    "test": "node test/run-tests.mjs",
+    "test:browser": "node test/browser-safety.test.mjs"
   },
   "exports": {
     ".": "./index.js",
@@ -18,7 +19,11 @@
     "cordis.patch.yml",
     "lib/**/*.js",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "install.mjs",
+    "rollback.mjs",
+    "run-rollback.bat"
   ],
   "dsh": {
     "bundle": {

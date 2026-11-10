@@ -45,31 +45,59 @@ DeepSeek Harness 的新媒体运营工作台插件，给做新媒体、电商、
 # clone 下来后用 DSH 的插件命令装（路径换成你的）
 dsh plugin --profile desktop add <仓库路径>
 
-# 或者没有 dsh 命令时，脚本直装
+# 没有 dsh 命令时，先看脚本准备改什么
 node install.mjs
+
+# 同一次运行中展示计划，输入 Y 后才应用这份计划
+node install.mjs --confirm
+
+# 不用 desktop profile 的话，明确指定目录
+node install.mjs --profile "D:\DSH\profiles\my-profile" --confirm
+
+# 跨两次调用：预览输出 fingerprint，再绑定该指纹执行
+node install.mjs --profile "D:\DSH\profiles\my-profile" --json
+node install.mjs --profile "D:\DSH\profiles\my-profile" --apply --expected-plan <预览中的64位指纹>
 ```
 
-装完重启 DSH、刷新页面，会话头部出现「工作台」按钮。第一次点开会引导填 vault 根目录，填完各板块目录骨架自动建好。
+脚本默认只预览，不会隐式安装依赖或重启应用。执行时先暂存新版、备份改动的配置和旧目录；预览后文件又被改过会拒绝覆盖。开发环境已经连到当前源码的目录链接会保留，但仍会检查 profile 里的注册。
+
+装完重启 DSH、刷新页面，会话头部出现「工作台」按钮。第一次点开会引导填 vault 根目录，填完各板块目录骨架自动建好。改源码不等于已经更新了运行中的宿主：客户端热重载还取决于对应构建 watcher，Host 侧代码要重新加载后才生效。
 
 ## 出问题了
 
-DSH 桌面版只要有一个插件加载失败就整个起不来。真遇到了跑 `node rollback.mjs`（或双击 run-rollback.bat），它会把 desktop profile 恢复成没装过这个插件的样子，应用就能正常打开。vault 里的数据不受影响，重装也不用重新填路径。
+插件加载失败可能让 DSH 无法正常打开。先跑 `node rollback.mjs` 看预览，再确认执行 `node rollback.mjs --apply`；双击 `run-rollback.bat` 也会先预览、再问是否继续。其它 profile 用 `--profile` 指定。
+
+回滚只移除增长工作台的精确注册项，不重置其它插件。改动的配置和旧插件入口留在所选 profile 的 `.dsh-growth-backups/`，开发目录链接只隔离链接本身。vault 笔记和增长工作台的用户配置都保留。复杂 YAML 无法安全定位时会整次拒写，不会先改一半再报成功。这个脚本不是通用的 DSH 修复器，回滚后是否能启动仍要实际检查。
 
 ## 数据这块
 
-- 写回都带冲突检测：Obsidian 那边改过之后工作台不会覆盖，会报冲突让你自己决定
+- 编辑器保存和版本删除用读取时的 sha1 检查冲突，不自动拿新指纹强行重试
+- 只改正文时保留原来的 YAML；策划字段只发字段补丁，不把平台脚本写进主选题
+- 同一文件的写入排队；备份失败就停下，创建新笔记不覆盖已有文件
+- Markdown 台账只读写对应的主表，副表保留；主表有歧义会拒绝修改
 - 删除先备份再删，备份在 `Workbench/.backups/`
 - 所有路径限制在 vault 里面，绝对路径和 `..` 一律拒绝，也只碰 `.md` 和 `.csv`
-- 事件推送只发文件指纹不发内容，客户端收到后自己重读
+- 事件推送只发文件指纹不发内容，客户端收到后自己重读；未保存草稿不会被旧读取结果覆盖
 - 外链只有 http/https/mailto 会渲染成可点击
+
+列表接口会返回筛选后的总数、分页位置和是否还有后续；关联旧记录也可以按完整路径或稳定 ID 读取。刷新时编辑器保持挂载，保存失败会留下草稿和重试入口。
 
 ## 开发
 
 ```powershell
+node --check index.js
+node --check client.js
 npm test
+
+# 另跑真实 React / Chrome 的隔离页面验证
+npm run test:browser
 ```
 
-逐个跑 11 个测试文件：lib、data-safety、rules、security、static 是单元和静态守卫，e2e、p0a 是端到端，v2、migration 覆盖平台版本和迁移，push、links 是不依赖浏览器的离线验证。沙箱环境里 `node --test` 会报 EPERM，逐个 `node test/*.mjs` 没问题。改完 JS 记得 `node --check index.js client.js`。
+默认逐个跑 15 个测试文件。每个子进程的 home 和临时目录都独立放在 `test/.artifacts/unit/`，避免启动日志落到真实用户目录；运行前后还会核对源码指纹。lib、data-safety、rules、security、static 检查库和静态约束；e2e、p0a 用临时 vault 和模拟 Host 请求，不是浏览器端到端测试。v2、migration 检查平台版本和迁移，push、links 验证离线行为。backend-regressions、backend-pagination 补数据安全和列表边界，client-behavior 检查延迟响应、事件和保存队列，profile-maintenance 用临时 profile 检查安装回滚。跳过的个别用例会明说，不当成已验证。
+
+浏览器测试另跑，因为需要机器上已有的 Playwright、React 和 Chrome。它只使用内存中的模拟 API 和独立浏览器目录，不访问运行中的 DSH、不读写真实 vault，也不自动下载依赖。已有工具不在 desktop profile 时，可用 `GROWTH_TEST_PROFILE` 和 `GROWTH_TEST_CHROME` 指定；证据保存在 `test/.artifacts/browser/`。缺少工具或某个场景失败不能算浏览器通过，最终还要在实际宿主里验收。
+
+Windows 受限环境可能不允许 `node --test` 的进程管道，测试脚本因此顺序执行各文件。客户端仍是单个入口：宿主加载器不能解析客户端相对模块，不要直接把卡片拆成相对 import。
 
 ## 目录
 
@@ -86,8 +114,11 @@ npm test
 | `lib/rules.js` | 文案规则库的解析和渲染 |
 | `lib/platforms.js` | 平台名归一，别名收敛成规范名 |
 | `lib/agent-tool.js` | 把写回暴露成 agent 能调用的对话侧工具 |
-| `lib/client-shared.js`、`lib/coreutil-promise.js` | 卡片分包共用作用域、竞态防护 |
-| `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 安装、卸载救急、双击救急 |
+| `lib/client-shared.js`、`lib/coreutil-promise.js` | 旧拆包实验的保留文件，当前客户端不调用 |
+| `lib/profile-maintenance.js` | 安装回滚计划、精确配置修改、备份和并发检查 |
+| `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 先预览再确认的安装与回滚入口 |
+| `test/run-tests.mjs` | 隔离 home、临时目录和源码指纹的顺序回归入口 |
+| `test/browser-safety.test.mjs` | 真实 React / Chrome 隔离页面验证 |
 | `cordis.patch.yml` | 默认配置（vault 根、各板块目录名） |
 | `tools/asar.mjs` | 开发辅助：查看和提取 app.asar 里的文件 |
 

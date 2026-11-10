@@ -7,3 +7,7 @@ __pycache__/
 # ??? artifact,????
 .ref/
 .split-removals.json
+
+# Local browser verification artifacts and temporary test fixtures
+test/.artifacts/
+test/.tmp/

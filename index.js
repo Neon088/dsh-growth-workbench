@@ -14,7 +14,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 import { createTable, TableValidationError } from './lib/table.js'
-import { createVaultStore, VaultError, sectionsOf } from './lib/vault.js'
+import { createVaultStore, VaultError, sectionsOf, withFileWriteLock, atomicWriteFile, normalizeVaultSubdir, assertPathInsideRoot } from './lib/vault.js'
 import * as rules from './lib/rules.js'
 import * as fm from './lib/frontmatter.js'
 import * as csv from './lib/csv.js'
@@ -165,10 +165,17 @@ function readJsonBody(req) {
 }
 
 async function atomicWrite(file, text) {
-  await mkdir(join(file, '..'), { recursive: true })
-  const temp = file + '.tmp-' + process.pid
-  await writeFile(temp, text, 'utf8')
-  await rename(temp, file)
+  return withFileWriteLock(file, () => atomicWriteFile(file, text))
+}
+
+function pageBounds({ offset, limit } = {}, defaultLimit = 300) {
+  const integer = (value, fallback) => {
+    if (value === undefined || value === null || String(value).trim() === '') return fallback
+    const number = Number(value)
+    return Number.isFinite(number) ? Math.floor(number) : fallback
+  }
+  return { offset: Math.min(Math.max(integer(offset, 0), 0), Number.MAX_SAFE_INTEGER),
+    limit: Math.min(Math.max(integer(limit, defaultLimit), 1), 1000) }
 }
 
 function safeFileName(input, fallback = '未命名') {
@@ -371,7 +378,11 @@ export function apply(ctx, config) {
   }
 
   function dirOf(key) {
-    return join(vaultRoot(), cfg(key))
+    return join(vaultRoot(), normalizeVaultSubdir(cfg(key)))
+  }
+
+  function createWorkbenchTable(spec) {
+    return createTable({ ...spec, validatePath: (file) => vault.assertInsidePath(file) })
   }
 
   /**
@@ -452,23 +463,14 @@ export function apply(ctx, config) {
   }
 
   function dirNameOf(kind) {
-    if (kind === 'topics') return cfg('topicsDir')
-    if (kind === 'campaigns') return cfg('campaignsDir')
-    if (kind === 'products') return cfg('productsDir')
-    if (kind === 'accounts') return cfg('accountsDir')
-    return cfg('dataDir')
+    const key = { topics: 'topicsDir', campaigns: 'campaignsDir', products: 'productsDir', accounts: 'accountsDir' }[kind] ?? 'dataDir'
+    return normalizeVaultSubdir(cfg(key))
   }
 
-  // discover() 有 3 秒缓存：某个目录还没出现在缓存里时（刚建的、刚写的新文件），
-  // 立刻失效重扫一次，否则「建完立刻列表」会看见空目录。
+  // 插件写入已经主动 invalidate；外部目录发现保留原有 3 秒 TTL。
+  // 空板块不反复清空全库缓存，且此处只返回该目录的笔记。
   async function listNotesUnder(dir) {
-    let { notes } = await vault.discover()
-    const known = notes.some((note) => note.path.startsWith(dir + '/'))
-    if (!known) {
-      vault.invalidate()
-      notes = (await vault.discover()).notes
-    }
-    return notes
+    return (await vault.discover()).notes.filter((note) => dir === '' || note.path.startsWith(dir + '/'))
   }
 
   // 一段 markdown 里有没有「实质内容」：模板脚手架（空的 bullet、引导 blockquote、
@@ -527,58 +529,65 @@ export function apply(ctx, config) {
   }
 
   function makeCollection(kind, { schema, sort, template, autoId = false }) {
-    return {
-      kind,
-      schema,
-      sort,
-      template,
+    let indexedVault = null
+    const parsedIndex = new Map()
+    const collection = {
+      kind, schema, sort, template,
       dirName: () => dirNameOf(kind),
-      async list({ filters = {}, sortField = sort, desc = true, limit = 200 } = {}) {
+      // 全索引供关联与统计使用；不是偷偷提高 UI limit。分页在过滤后单独进行。
+      async all({ filters = {}, sortField = sort, desc = true, q = '', includeVariants = true } = {}) {
+        if (indexedVault !== vault) { parsedIndex.clear(); indexedVault = vault }
         const dir = dirNameOf(kind)
         const notes = await listNotesUnder(dir)
         const paths = [...new Set(notes.map((note) => note.path).filter((path) => path.startsWith(dir + '/')))]
-        // 脚本进度现在看平台版本里的「## 版本脚本」。一次把版本全读出来按
-        // masterId 分组，免得每篇选题各扫一遍版本目录。
+        const pathSet = new Set(paths)
+        for (const path of parsedIndex.keys()) if (!pathSet.has(path)) parsedIndex.delete(path)
         const variantsByMaster = new Map()
-        if (kind === 'topics') {
-          for (const variant of await domain.listVariants('')) {
+        if (kind === 'topics' && includeVariants) {
+          for (const variant of await domain.listVariants('', { includeMetrics: false })) {
             const key = String(variant.front?.masterId ?? '')
             if (!variantsByMaster.has(key)) variantsByMaster.set(key, [])
             variantsByMaster.get(key).push(variant)
           }
         }
+        const needle = String(q ?? '').trim().toLowerCase()
         const records = []
         for (const path of paths) {
           let note
-          try {
-            note = await vault.readNote(path)
-          } catch {
-            continue
+          try { note = await vault.readCachedNote(path) } catch { continue }
+          let cached = parsedIndex.get(path)
+          if (cached?.sha1 !== note.sha1) {
+            const parsed = fm.splitNote(note.text)
+            cached = { sha1: note.sha1, parsed, preview: parsed.body.split('\n')
+              .filter((line) => line.trim() !== '' && !line.startsWith('#')).join(' ').slice(0, 140) }
+            parsedIndex.set(path, cached)
           }
-          const parsed = fm.splitNote(note.text)
+          const parsed = cached.parsed
+          if (needle !== '' && ![note.title, path, ...Object.values(parsed.front), parsed.body]
+            .some((value) => String(value ?? '').toLowerCase().includes(needle))) continue
           const id = kind === 'topics' ? topicIdOf(parsed.front, path) : ''
-          records.push({
-            path,
-            title: note.title,
-            mtimeMs: note.mtimeMs,
-            sha1: note.sha1,
-            front: parsed.front,
-            ...(kind === 'topics' ? { id } : {}),
-            // 列表里带上正文：我的选题点「创作」换一条时，详情页拿它当首屏，
-            // 不用等 /topics/record 回来才画，换笔记就不会闪一下白。
-            // 选题正文很小（几百字），200 篇也就几百 KB，只在 topics 这一种集合上带。
-            ...(kind === 'topics' ? { body: parsed.body } : {}),
-            // 我的选题要按脚本进度显示；版本那边已经读过了，选题这里顺手算掉，
-            // 前端就不用再逐篇拉 record。其它集合不背这个字段。
-            ...(kind === 'topics' ? { script: scriptProgressWith(variantsByMaster.get(id) ?? [], parsed.body) } : {}),
-            preview: parsed.body
-              .split('\n')
-              .filter((line) => line.trim() !== '' && !line.startsWith('#'))
-              .join(' ')
-              .slice(0, 140),
-          })
+          records.push({ path, title: note.title, mtimeMs: note.mtimeMs, sha1: note.sha1, front: { ...parsed.front },
+            ...(kind === 'topics' ? { id, body: parsed.body,
+              script: scriptProgressWith(variantsByMaster.get(id) ?? [], parsed.body) } : {}), preview: cached.preview })
         }
-        return fm.sortRecords(fm.filterRecords(records, filters), sortField, desc).slice(0, limit)
+        return fm.sortRecords(fm.filterRecords(records, filters), sortField, desc)
+      },
+      async query(options = {}) {
+        const bounds = pageBounds(options, 200)
+        const records = await collection.all(options)
+        const page = records.slice(bounds.offset, bounds.offset + bounds.limit)
+        return { records: page, total: records.length, ...bounds, truncated: bounds.offset + page.length < records.length }
+      },
+      // 保持领域层/工具的旧 array 契约，新的 HTTP 调用使用 query 的明确 metadata。
+      async list(options = {}) { return (await collection.query(options)).records },
+      async findById(input) {
+        const id = String(input ?? '').trim()
+        if (id === '') throw new VaultError('缺少记录 ID', 'bad_request')
+        const records = await collection.all({ includeVariants: false })
+        const hits = records.filter((record) => String(record.id ?? record.front?.id ?? '') === id)
+        if (hits.length > 1) throw new VaultError('多个记录使用同一 ID，不能猜选：' + id, 'conflict')
+        if (hits.length === 0) throw new VaultError('记录不存在：' + id, 'not_found')
+        return hits[0]
       },
       async create(input) {
         const front = fm.normalizeFront(schema, input)
@@ -593,23 +602,26 @@ export function apply(ctx, config) {
       async read(path) {
         const note = await vault.readNote(path)
         const parsed = fm.splitNote(note.text)
-        return { ...note, front: parsed.front, body: parsed.body, ...(kind === 'topics' ? { id: topicIdOf(parsed.front, path) } : {}) }
+        return { ...note, front: parsed.front, body: parsed.body, ...(kind === 'topics' ? { id: topicIdOf(parsed.front, note.path) } : {}) }
       },
-      async update(path, { front: frontInput, body, expectedSha1 }) {
+      async update(path, { front: frontInput, body, expectedSha1 } = {}) {
         const note = await vault.readNote(path)
         const parsed = fm.splitNote(note.text)
-        // 只改正文时前端可能传 {}（例如「回流台账」这种没有 frontmatter 的自由笔记）。
-        // 空对象不能当成“清空全部字段”去做 schema 校验，否则必填项会误报。
-        const frontTouched = frontInput !== undefined
-          && !(frontInput !== null && typeof frontInput === 'object' && Object.keys(frontInput).length === 0)
-        const nextFront = frontTouched
-          ? fm.normalizeFront(schema, { ...parsed.front, ...frontInput })
-          : parsed.front
-        if (autoId && String(nextFront.id ?? '').trim() === '') nextFront.id = newTopicId()
+        const patch = fm.normalizeFrontPatch(schema, frontInput, parsed.front)
+        if (autoId) {
+          const id = topicIdOf(parsed.front, note.path)
+          if (Object.prototype.hasOwnProperty.call(patch, 'id') && patch.id !== id
+            && !(String(parsed.front.id ?? '').trim() === '' && patch.id === '')) {
+            throw new VaultError('记录 ID 是稳定身份，不能通过属性编辑修改', 'bad_field')
+          }
+          // 正文-only 不改原 YAML；属性编辑/显式迁移再持久化原有 fallback 身份。
+          if (String(parsed.front.id ?? '').trim() === '' && Object.keys(patch).length > 0) patch.id = id
+        }
         const nextBody = body === undefined ? parsed.body : String(body)
-        return vault.writeNote(path, fm.buildNote(nextFront, nextBody, note.text), { expectedSha1 })
+        return vault.writeNote(path, fm.buildNote(patch, nextBody, note.text), { expectedSha1: expectedSha1 || note.sha1 })
       },
     }
+    return collection
   }
 
   function build() {
@@ -617,13 +629,16 @@ export function apply(ctx, config) {
       vault = null
       return
     }
+    for (const key of Object.keys(DEFAULT_DIRS)) {
+      if (key !== 'vaultRoot' && key !== 'pluginDataDir') normalizeVaultSubdir(cfg(key))
+    }
     vault = createVaultStore({
       vaultRoot: vaultRoot(),
       sopDir: sopDirValue(),
       backupDir: join(vaultRoot(), cfg('workbenchDir'), '.backups'),
     })
 
-    tables.glossary = createTable({
+    tables.glossary = createWorkbenchTable({
       header: ['中文', '英文', '领域', '标签', '备注'],
       keys: ['zh', 'en', 'domain', 'tags', 'note'],
       idKeys: ['zh', 'en'],
@@ -631,7 +646,7 @@ export function apply(ctx, config) {
       intro: '> 运营 / 电商 / 营销常用指标与黑话，一张表。',
       label: '术语',
     })
-    tables.ideas = createTable({
+    tables.ideas = createWorkbenchTable({
       header: ['日期', '来源', '来源URL', '内容', '状态', '去向'],
       keys: ['date', 'source', 'sourceUrl', 'content', 'status', 'outcome'],
       // 老表有两种：4 列（没有「去向」）和 5 列（没有「来源URL」）。补列发生在算 id 之前，
@@ -647,7 +662,7 @@ export function apply(ctx, config) {
     })
     // 老反馈表有两种：8 列（还没有「来源」）和 6 列（还没有处理意见/处理结果）。
     // 读到老行时按列数把缺的列补成空，idKeys 仍是日期+内容，老行 id 不变。
-    tables.feedback = createTable({
+    tables.feedback = createWorkbenchTable({
       header: ['日期', '渠道', '来源', '情感', '内容', '标签', '处理意见', '处理结果', '状态'],
       keys: ['date', 'channel', 'source', 'sentiment', 'content', 'tags', 'advice', 'resolution', 'status'],
       idKeys: ['date', 'content'],
@@ -944,7 +959,7 @@ export function apply(ctx, config) {
     if (stem === '') {
       return { ok: false, code: 'bad_request', message: 'topicPath 只有目录没有文件名：' + clean }
     }
-    const records = await collections.topics.list({ limit: 5000 })
+    const records = await collections.topics.all({ includeVariants: false })
     const exact = records.filter((record) => (record.path.split('/').pop() ?? '') === base)
     if (exact.length === 1) return { ok: true, path: exact[0].path }
     if (exact.length > 1) {
@@ -967,7 +982,7 @@ export function apply(ctx, config) {
   // 服务端一次算完，前端不要再自己过滤一遍 —— 两个地方各算一次，迟早算出两个数。
   async function pendingGapsOf() {
     if (domain === null) return { variants: [], gaps: [], total: 0 }
-    const masters = (await collections.topics.list({ limit: 1000 }))
+    const masters = (await collections.topics.all({ includeVariants: false }))
       .filter((record) => !String(record.path ?? '').startsWith('Topics/测试/'))
     const masterIdOf = (master) => String(master.id ?? master.front?.id ?? '')
     const masterById = new Map(masters.map((master) => [masterIdOf(master), master]))
@@ -1035,7 +1050,7 @@ export function apply(ctx, config) {
     if (domain === null) return { ok: false, reason: '还没连接 vault' }
     const topicPath = String(entry.topicPath ?? '').trim()
     if (topicPath === '') return { ok: false, reason: '这条没挂选题笔记' }
-    const masters = await collections.topics.list({ limit: 1000 })
+    const masters = await collections.topics.all({ includeVariants: false })
     const master = masters.find((record) => String(record.path ?? '') === topicPath)
     if (master === undefined) return { ok: false, reason: '找不到选题笔记：' + topicPath }
     const platform = normalizePlatform(String(entry.platform ?? ''))
@@ -1150,7 +1165,7 @@ export function apply(ctx, config) {
   // 选题榜：内容线按播放排，带货线按 ROI。播放/赞/评/转全部来自回流台账。
   async function topicBoards() {
     requireVault()
-    const topics = await collections.topics.list({ limit: 500 })
+    const topics = await collections.topics.all({ includeVariants: false })
     // 平台版本台账里有更细的互动数据：按主选题取最新一条，补足评论/转发维度。
     const latestMetric = await latestMetricByMaster()
     const scored = topics.map((record) => {
@@ -1175,7 +1190,7 @@ export function apply(ctx, config) {
     })
     const content = scored.filter((item) => item.measured).sort((a, b) => b.views - a.views || b.likes - a.likes)
     const unmeasured = scored.filter((item) => !item.measured)
-    const data = await collections.data.list({ limit: 500 })
+    const data = await collections.data.all({ includeVariants: false })
     const roi = data.map((record) => ({
       path: record.path,
       title: String(record.title ?? ''),
@@ -1198,7 +1213,7 @@ export function apply(ctx, config) {
     return {
       month: target,
       file: join(dirOf('calendarDir'), target + '.md'),
-      table: createTable({
+      table: createWorkbenchTable({
         header: ['日期', '平台', '主题', '状态', '备注', '链接', '选题笔记', '商品档案', '选题ID', '版本ID', '账号'],
         keys: ['date', 'platform', 'topic', 'status', 'note', 'link', 'topicPath', 'productPath', 'topicId', 'variantId', 'account'],
         // 老月份的表有好几种列数，按单元格数挑补列规则（缺的列插回它原来的位置）：
@@ -1240,37 +1255,68 @@ export function apply(ctx, config) {
   // date+platform+topic 算 id，改一次「主题」就会换一行；补上之后 id 就稳定了。
   async function calendarRowWithTopicId(row) {
     const next = { ...(row ?? {}) }
-    if (String(next.topicId ?? '').trim() !== '') return next
+    const id = String(next.topicId ?? '').trim()
     const raw = String(next.topicPath ?? '').trim()
-    if (raw === '') return next
-    try {
+    let topic = null
+    if (id !== '') {
+      try { topic = await collections.topics.findById(id) } catch (error) {
+        if (error.code !== 'not_found') throw error
+      }
+    }
+    if (raw !== '') {
       const target = await resolveTopicPath(raw)
       if (target.ok === true) {
-        const topic = await collections.topics.read(target.path)
-        next.topicId = topic.id
+        const linked = await collections.topics.read(target.path)
+        if (topic !== null && topic.id !== linked.id) throw new VaultError('日历选题 ID 与路径指向不同笔记', 'bad_field')
+        topic = linked
       }
-    } catch {
-      // 关联不到选题就保持空值，不阻塞日历本身的保存。
     }
+    if (topic !== null) { next.topicId = topic.id; next.topicPath = topic.path }
+    // 未关联的独立日历行仍可保存；可识别的关联必须写完整规范路径。
     return next
   }
 
-  // 选题排期反查：扫一遍所有日历表，给每篇选题找到最早排上去的那一条。
-  // 选题列表/详情用它把「排期」按钮直接带到已经排好的那天，而不是永远落在今天。
-  // 以文件名（尾段）为键：日历里存的路径偶尔和实际笔记路径有出入，尾段一致就算命中。
+  // 按稳定 ID / 完整路径建索引，跨目录同名绝不能仅凭尾段认领。
   async function topicsScheduleIndex() {
     const map = new Map()
-    const months = await calendarMonths()
-    for (const month of months) {
+    const notes = await listNotesUnder(dirNameOf('topics'))
+    const paths = new Set(notes.map((note) => note.path))
+    const leaves = new Map()
+    for (const path of paths) {
+      const leaf = path.split('/').pop()
+      if (!leaves.has(leaf)) leaves.set(leaf, [])
+      leaves.get(leaf).push(path)
+    }
+    const put = (key, hit) => {
+      if (key === '') return
+      const previous = map.get(key)
+      if (previous === undefined || hit.date < previous.date) map.set(key, hit)
+    }
+    for (const month of await calendarMonths()) {
       const cal = calendarTableFor(month)
       const state = await cal.table.read(cal.file)
       for (const entry of state.entries ?? []) {
-        const key = String(entry.topicPath ?? '').trim().replace(/\\/g, '/').split('/').pop() ?? ''
-        if (key === '' || !key.toLowerCase().endsWith('.md')) continue
-        if (!map.has(key)) map.set(key, { month, date: String(entry.date ?? '').slice(0, 10), status: String(entry.status ?? '') })
+        const date = String(entry.date ?? '').slice(0, 10)
+        if (date === '') continue
+        const hit = { month, date, status: String(entry.status ?? '') }
+        const id = String(entry.topicId ?? '').trim()
+        if (id !== '') put('id:' + id, hit)
+        let path = String(entry.topicPath ?? '').trim().replace(/^\[\[|\]\]$/g, '').split('\\|')[0].replace(/\\/g, '/')
+        if (path !== '' && !path.toLowerCase().endsWith('.md')) path += '.md'
+        if (!paths.has(path)) {
+          const candidates = path.includes('/') ? [] : leaves.get(path) ?? []
+          path = candidates.length === 1 ? candidates[0] : ''
+        }
+        if (path !== '') put('path:' + path, hit)
       }
     }
     return map
+  }
+
+  function scheduleForTopic(record, index) {
+    const path = String(record?.path ?? '').replace(/\\/g, '/')
+    const id = String(record?.id ?? record?.front?.id ?? '')
+    return index.get('path:' + path) ?? (id === '' ? undefined : index.get('id:' + id))
   }
 
   // 「同选题 + 同平台 + 某个版本」才是现在日历里的一行。
@@ -1348,6 +1394,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
 
   async function readRulesState() {
     if (rulesPath === '') throw new VaultError('还没配置 vault 根目录', 'bad_request')
+    await vault.assertInsidePath(rulesPath)
     let text
     try {
       text = await readFile(rulesPath, 'utf8')
@@ -1398,8 +1445,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // （列目录/写文件本身都会 mkdir，这里兜的是「读一个空板块」的场景——
     //  discover 对缺失目录返回 missing，用户看到的却是「找不到路径」。）
     const dirKeys = ['workbenchDir', 'copyRulesDir', 'topicsDir', 'campaignsDir', 'dataDir', 'feedbackDir', 'productsDir', 'accountsDir', 'calendarDir']
+    for (const key of dirKeys) await vault.assertInsidePath(dirOf(key))
     for (const key of dirKeys) {
-      const dir = cfg(key).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      const dir = normalizeVaultSubdir(cfg(key))
       if (dir === '' || dir === '.') continue
       try {
         await mkdir(join(vaultRoot(), dir), { recursive: true })
@@ -1415,6 +1463,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     ]
     for (const seed of seeds) {
       try {
+        await vault.assertInsidePath(seed.file)
         await mkdir(join(seed.file, '..'), { recursive: true })
         await writeFile(seed.file, seed.text, { encoding: 'utf8', flag: 'wx' })
       } catch (error) {
@@ -1455,10 +1504,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     const cal = calendarTableFor(thisMonth())
     const [calendar, topics, campaigns, products, dataRecords] = await Promise.all([
       cal.table.read(cal.file),
-      collections.topics.list({ limit: 500 }),
-      collections.campaigns.list({ limit: 500 }),
-      collections.products.list({ limit: 500 }),
-      collections.data.list({ limit: 500 }),
+      collections.topics.all({ includeVariants: false }),
+      collections.campaigns.all({ includeVariants: false }),
+      collections.products.all({ includeVariants: false }),
+      collections.data.all({ includeVariants: false }),
     ])
     // 回流台账也躺在 Data/ 下，但它记的是「按平台版本按天」的明细，不是周期复盘。
     // 不过滤的话首页「电商数据复盘」的条数会被台账文件撑大（3 个周期会显示成 5 条）。
@@ -1511,7 +1560,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
   async function handle(req, route, url) {
     const method = req.method ?? 'GET'
     const q = (key) => String(url.searchParams.get(key) ?? '')
-    const body = ['POST', 'PUT', 'PATCH'].includes(method) ? await readJsonBody(req) : {}
+    const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? await readJsonBody(req) : {}
 
     if (route === '' || route === 'ping') return { ping: true, version: PKG_VERSION }
 
@@ -1567,18 +1616,22 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
 
     if (route === 'config' && method === 'PUT') {
       const root = await assertVaultRoot(body?.vaultRoot)
-      // pluginDataDir 单独处理：它决定 config.json 存在哪里，要等旧位置写完之后再生效。
       const nextDataDir = String(body?.pluginDataDir ?? '').trim()
+      const nextDirs = {}
+      const removeSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
+      // 全部校验完再改内存/落盘；子目录不能利用 ../ 或链接绕过 vault 边界。
+      for (const key of Object.keys(DEFAULT_DIRS)) {
+        if (key === 'vaultRoot' || key === 'pluginDataDir') continue
+        const supplied = typeof body?.[key] === 'string' ? body[key].trim() : ''
+        const raw = supplied || (key === 'sopDir' && removeSop ? '' : String(cfg(key) ?? ''))
+        const dir = raw === '' ? '' : normalizeVaultSubdir(raw, { allowEmpty: false })
+        if (supplied !== '') nextDirs[key] = dir
+        if ((root || vaultRoot()) !== '') await assertPathInsideRoot(root || vaultRoot(), join(root || vaultRoot(), dir))
+      }
       delete userConfig.pluginDataDir
       if (root !== '') userConfig.vaultRoot = root
-      for (const key of Object.keys(DEFAULT_DIRS)) {
-        if (key === 'pluginDataDir') continue
-        if (typeof body?.[key] !== 'string') continue
-        const value = String(body[key]).trim()
-        if (value !== '') userConfig[key] = value
-        // sopDir 允许清空：清空后自动跟随 vault（优先用 vault 里的 SOP/）。
-        else if (key === 'sopDir') delete userConfig.sopDir
-      }
+      Object.assign(userConfig, nextDirs)
+      if (removeSop) delete userConfig.sopDir
       await saveUserConfig()
       if (nextDataDir !== '') {
         userConfig.pluginDataDir = nextDataDir
@@ -1619,14 +1672,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const wanted = String(id ?? '').trim()
       // 直接按 ID 打开主选题时允许命中 Topics/测试/（测试笔记也要能看平台版本）；
       // 只有列表 / 矩阵 / 队列这些聚合视图才过滤测试数据。
-      const records = await collections.topics.list({ limit: 1000 })
-      const hit = records.find((record) => String(record.id ?? record.front?.id ?? '') === wanted)
-      if (hit === undefined) throw new VaultError('主选题不存在：' + wanted, 'not_found')
-      return hit
+      return collections.topics.findById(wanted)
     }
 
     if (v2[0] === 'state' && v2.length === 1 && method === 'GET') {
-      const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
+      const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
       return {
         version: 2,
         statuses: VARIANT_STATUSES,
@@ -1640,9 +1690,24 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     if (v2[0] === 'migration' && v2.length === 2 && v2[1] === 'apply' && method === 'POST') {
       return { migration: await migrator.apply({ dryRun: body?.dryRun === true }) }
     }
+    function groupVariants(variants) {
+      const groups = new Map()
+      for (const variant of variants) {
+        const id = String(variant.front?.masterId ?? '')
+        if (!groups.has(id)) groups.set(id, [])
+        groups.get(id).push(variant)
+      }
+      return groups
+    }
+
     if (v2[0] === 'masters' && v2.length === 1 && method === 'GET') {
-      const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
-      for (const master of masters) master.variants = await domain.variantSummary(master.id)
+      const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
+      const grouped = groupVariants(await domain.listVariants('', { includeMetrics: false }))
+      for (const master of masters) {
+        const variants = grouped.get(String(master.id)) ?? []
+        const counts = Object.fromEntries(VARIANT_STATUSES.map((status) => [status, variants.filter((variant) => variant.status === status).length]))
+        master.variants = { total: variants.length, counts }
+      }
       return { masters }
     }
     if (v2[0] === 'masters' && v2.length === 1 && method === 'POST') {
@@ -1697,11 +1762,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       // 免得把 Obsidian 里刚改过的版本删掉。主选题不动。
       const variant = await domain.getVariant(v2[1])
       const latest = await vault.readNote(variant.path)
-      const expected = String(body?.expectedSha1 ?? '').trim()
+      const expected = String(body?.expectedSha1 ?? (q('expectedSha1') || q('sha1'))).trim()
       if (expected !== '' && expected !== latest.sha1) {
         throw new VaultError('这个平台版本在别处被改过（Obsidian 里？），刷新后再删', 'conflict')
       }
-      await vault.deleteNote(variant.path, { expectedSha1: latest.sha1 })
+      await vault.deleteNote(variant.path, { expectedSha1: expected || latest.sha1 })
       vault.invalidate()
       return { deleted: variant.path }
     }
@@ -1721,13 +1786,14 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (v2[0] === 'matrix' && v2.length === 1 && method === 'GET') {
       const month = q('month') || thisMonth()
-      const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
+      const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
       // 日期只有一个真源：内容日历。没排期的版本不进月视图 ——
       // 没有排期的版本不进月视图：以前空日期每个月都放进来，同一个版本被数了十二遍。
       const schedule = await variantScheduleIndex()
       const rows = []
+      const grouped = groupVariants(await domain.listVariants())
       for (const master of masters) {
-        const all = await domain.listVariants(master.id)
+        const all = grouped.get(String(master.id)) ?? []
         const variants = all.filter((variant) => {
           const date = scheduledDateOf(variant, schedule, samePlatformCount(all, variant))
           return date !== '' && date.startsWith(month)
@@ -1740,11 +1806,12 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (v2[0] === 'queue' && v2.length === 1 && method === 'GET') {
       const month = q('month') || thisMonth()
-      const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
+      const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
       const schedule = await variantScheduleIndex()
       const items = []
+      const grouped = groupVariants(await domain.listVariants())
       for (const master of masters) {
-        const variants = await domain.listVariants(master.id)
+        const variants = grouped.get(String(master.id)) ?? []
         for (const variant of variants) {
           // 全量发布队列：只要这个月排了期，不管它现在是「选题 / 创作中 / 待审 /
           // 已排期 / 已发 / 数据回流」，都要出现在日历的发布队列里。
@@ -1764,19 +1831,24 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 数据按版本记，不按选题记 —— 同一条选题在抖音和 小红书 的数字本来就不一样，
     // 写进同一篇选题笔记的 views/likes 只会互相覆盖（旧接口就吃过这个亏）。
     if (v2[0] === 'pending' && v2.length === 1 && method === 'GET') {
-      const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
+      const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
       const masterById = new Map(masters.map((master) => [String(master.id ?? master.front?.id ?? ''), master]))
       const items = []
       // 「已排/未排发布」以内容日历为准：把同选题+同平台的排期挂上，和我的选题列表同一口径。
       const schedule = await variantScheduleIndex()
       const allVariants = await domain.listVariants()
+      const siblingCounts = new Map()
+      for (const variant of allVariants) {
+        const key = JSON.stringify([String(variant.front?.masterId ?? ''), normalizePlatform(variant.front?.platform)])
+        siblingCounts.set(key, (siblingCounts.get(key) ?? 0) + 1)
+      }
 
       for (const variant of allVariants) {
         if (!['已发', '待回填'].includes(variant.status)) continue
         const master = masterById.get(String(variant.front?.masterId ?? ''))
         // 主选题被删或落在测试目录的版本不往这里列：没有标题的行点了也没处去。
         if (master === undefined) continue
-        variant.schedule = scheduleForVariant(variant, schedule, allVariants.filter((item) => String(item.front?.masterId ?? '') === String(variant.front?.masterId ?? '') && normalizePlatform(item.front?.platform) === normalizePlatform(variant.front?.platform)).length)
+        variant.schedule = scheduleForVariant(variant, schedule, siblingCounts.get(JSON.stringify([String(variant.front?.masterId ?? ''), normalizePlatform(variant.front?.platform)])) ?? 0)
         items.push({
           master: { id: master.id, title: master.title, path: master.path },
           variant,
@@ -1788,7 +1860,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (v2[0] === 'ledger' && v2.length === 1 && method === 'GET') {
       const month = q('month').trim()
-      const masters = await collections.topics.list({ limit: 1000 })
+      const masters = await collections.topics.all({ includeVariants: false })
       const masterById = new Map(masters.map((master) => [String(master.id ?? master.front?.id ?? ''), master]))
       const variants = await domain.listVariants()
       const variantById = new Map(variants.map((variant) => [String(variant.id), variant]))
@@ -1952,17 +2024,17 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         defaults: () => ({ date: today(), channel: '', source: '', sentiment: '', content: '', tags: '', advice: '', resolution: '', status: '未处理' }),
       },
     }
-    if (route in simpleTables) {
+    if (Object.prototype.hasOwnProperty.call(simpleTables, route)) {
       const spec = simpleTables[route]
-      // 「在 Obsidian 中打开」需要一个能交给 uriFor 的相对路径。
       const specPath = relToVault(spec.file())
       if (method === 'GET') {
         const state = await spec.table().read(spec.file())
-        return { entries: state.entries, exists: state.exists, warning: state.warning, path: specPath }
+        return { entries: state.entries, exists: state.exists, warning: state.warning, code: state.code, path: specPath, sha1: state.sha1 ?? '' }
       }
-      if (method === 'POST') return requireTable(await spec.table().add(spec.file(), { ...spec.defaults(), ...body }))
-      if (method === 'PUT') return requireTable(await spec.table().update(spec.file(), String(body?.id ?? ''), body))
-      if (method === 'DELETE') return requireTable(await spec.table().remove(spec.file(), q('id')))
+      const options = { expectedSha1: String(body?.expectedSha1 ?? (q('expectedSha1') || q('sha1'))).trim() }
+      if (method === 'POST') return requireTable(await spec.table().add(spec.file(), { ...spec.defaults(), ...body }, options))
+      if (method === 'PUT') return requireTable(await spec.table().update(spec.file(), String(body?.id ?? ''), body, options))
+      if (method === 'DELETE') return requireTable(await spec.table().remove(spec.file(), q('id'), options))
     }
 
     // 同名笔记只有「类型相同」才复用；同名但类型不同（拆解 vs 选题）另建一篇。
@@ -2056,6 +2128,8 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         month: cal.month,
         entries: normalizeCalendarEntries(state.entries),
         exists: state.exists,
+        warning: state.warning,
+        code: state.code,
         sha1: state.sha1,
         path: calPath,
         platforms: platformOptions(known),
@@ -2063,7 +2137,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (route === 'calendar' && method === 'POST') {
       const cal = calendarTableFor(body?.month)
-      return { month: cal.month, ...(await requireTable(await cal.table.add(cal.file, await calendarRowWithTopicId(body)))) }
+      return { month: cal.month, ...(await requireTable(await cal.table.add(cal.file, await calendarRowWithTopicId(body), { expectedSha1: body?.expectedSha1 }))) }
     }
     if (route === 'calendar' && method === 'PUT') {
       const cal = calendarTableFor(body?.month)
@@ -2092,7 +2166,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // POST /v2/variants/:id/metrics，只写回流台账。
     if (route === 'calendar' && method === 'DELETE') {
       const cal = calendarTableFor(q('month'))
-      return { month: cal.month, ...(await requireTable(await cal.table.remove(cal.file, q('id')))) }
+      return { month: cal.month, ...(await requireTable(await cal.table.remove(cal.file, q('id'), { expectedSha1: body?.expectedSha1 ?? (q('expectedSha1') || q('sha1')) }))) }
     }
 
     for (const kind of ['topics', 'campaigns', 'products', 'accounts', 'data']) {
@@ -2100,15 +2174,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       if (route === kind + '/list' && method === 'GET') {
         const filters = {}
         for (const [key, value] of url.searchParams) {
-          if (['sort', 'desc', 'limit'].includes(key)) continue
+          if (['sort', 'desc', 'limit', 'offset', 'q'].includes(key) || key.startsWith('f_')) continue
           filters[key] = value
         }
-        const records = await collection.list({
-          filters,
-          sortField: q('sort') || collection.sort,
-          desc: q('desc') !== 'false',
-          limit: Math.min(Number(q('limit') || 300), 1000),
-        })
+        for (const [key, value] of url.searchParams) if (key.startsWith('f_') && key.length > 2) filters[key.slice(2)] = value
+        const page = await collection.query({ filters, q: q('q'), sortField: q('sort') || collection.sort,
+          desc: q('desc') !== 'false', ...pageBounds({ offset: q('offset'), limit: q('limit') }, 300) })
+        const records = page.records
         // 选题列表附带排期信息：前端「排期」按钮好直接跳到已排的那一天。
         if (kind === 'topics') {
           const scheduleIndex = await topicsScheduleIndex()
@@ -2116,22 +2188,22 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
           // front.views 现在永远为空（旧回写接口已删），前端不要再读它。
           const latestMetric = await latestMetricByMaster()
           for (const record of records) {
-            const key = String(record?.path ?? '').split('/').pop() ?? ''
-            const hit = scheduleIndex.get(key)
+            const hit = scheduleForTopic(record, scheduleIndex)
             if (hit !== undefined) record.schedule = hit
             record.stage = topicStageOf(record.front?.status, hit?.status)
             const metric = latestMetric.get(String(record.id ?? record.front?.id ?? ''))
             if (metric !== undefined) record.metrics = metric
           }
         }
-        return { records, schema: collection.schema }
+        return { ...page, records, schema: collection.schema }
       }
       if (route === kind + '/create' && method === 'POST') return { created: await collection.create(body) }
       if (route === kind + '/record' && method === 'GET') {
-        const record = await collection.read(q('path'))
+        const path = q('path') || (await collection.findById(q('id'))).path
+        const record = await collection.read(path)
         if (kind === 'topics' && record?.path) {
           const scheduleIndex = await topicsScheduleIndex()
-          const hit = scheduleIndex.get(String(record.path).split('/').pop() ?? '')
+          const hit = scheduleForTopic(record, scheduleIndex)
           if (hit !== undefined) record.schedule = hit
           record.stage = topicStageOf(record.front?.status, hit?.status)
           const metric = (await latestMetricByMaster()).get(String(record.id ?? record.front?.id ?? ''))
@@ -2184,14 +2256,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         : csv.guessMapping(header, fields)
       const records = csv.applyMapping(rows, mapping, { numericFields: ['gmv', 'traffic', 'conv', 'roi', 'mom'] })
       const archiveDir = join(dirOf('dataDir'), 'csv')
-      const archive = join(archiveDir, 'import-' + today() + '-' + safeFileName(body?.name ?? 'data', 'data').replace(/\s+/g, '_') + '.csv')
+      const archive = join(archiveDir, 'import-' + today() + '-' + safeFileName(body?.name ?? 'data', 'data').replace(/\s+/g, '_') + '-' + randomBytes(8).toString('hex') + '.csv')
+      await vault.assertInsidePath(archive)
       await mkdir(archiveDir, { recursive: true })
-      const flattened = rows.slice(1).map((row) => {
-        const record = {}
-        header.forEach((name, index) => { record[name] = row[index] ?? '' })
-        return record
-      })
-      await writeFile(archive, '\uFEFF' + csv.toCsv(header, flattened), 'utf8')
+      // 归档保存提交的原文：不能用重复表头做 object key，再序列化丢掉列。
+      await withFileWriteLock(archive, () => writeFile(archive, raw, { encoding: 'utf8', flag: 'wx' }))
       return { mapping, header, records, count: records.length, archive }
     }
 
@@ -2203,54 +2272,65 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
 
     if (route === 'rules' && method === 'PUT') {
-      const current = await readRulesState()
-      if (typeof body?.expectedSha1 === 'string' && body.expectedSha1 !== '' && body.expectedSha1 !== current.sha1) {
-        throw new VaultError('规则文件在别处被改过（Obsidian 里？），刷新后再保存', 'conflict')
-      }
-      let nextText
-      if (typeof body?.text === 'string' && body.text.trim() !== '') {
-        nextText = body.text
-      } else if (Array.isArray(body?.items)) {
-        const parsed = rules.parseRules(current.text)
-        const merged = parsed.items
-          .map((item) => {
-            const incoming = body.items.filter((entry) => entry?.id === item.id).pop()
-            if (incoming === undefined) return item
-            if (incoming.remove === true) return null
-            return {
-              ...item,
-              section: incoming.section ?? item.section,
-              title: incoming.title ?? item.title,
-              fields: { ...item.fields, ...(incoming.fields ?? {}) },
-            }
-          })
-          .filter((item) => item !== null)
-        for (const incoming of body.items) {
-          if (incoming?.remove === true) continue
-          if (merged.some((item) => item.id === incoming?.id)) continue
-          const normalized = rules.normalizeRule(incoming, { existingIds: merged.map((item) => item.id) })
-          if (!normalized.ok) throw new VaultError(normalized.error, 'bad_field')
-          merged.push(normalized.item)
+      return withFileWriteLock(rulesPath, async () => {
+        const current = await readRulesState()
+        if (typeof body?.expectedSha1 === 'string' && body.expectedSha1 !== '' && body.expectedSha1 !== current.sha1) {
+          throw new VaultError('规则文件在别处被改过（Obsidian 里？），刷新后再保存', 'conflict')
         }
-        nextText = rules.renderRules({ structure: parsed.structure, items: merged })
-      } else {
-        throw new VaultError('要么给 text，要么给 items', 'bad_request')
-      }
-      nextText = rules.refreshCounts(nextText, rules.parseRules(nextText).items)
-      try {
-        await writeFile(rulesPath + '.bak', current.text, 'utf8')
-      } catch (error) {
-        if (error?.code !== 'ENOENT') throw new VaultError('备份失败，未写入：' + describe(error), 'backup_failed')
-      }
-      await atomicWrite(rulesPath, nextText)
-      const parsedNext = rules.parseRules(nextText)
-      return {
-        sha1: rules.sha1Of(nextText),
-        items: parsedNext.items,
-        counts: rules.countsOf(parsedNext.items),
-        nextId: rules.nextRuleId(parsedNext.items),
-        nextIds: nextIdsOf(parsedNext.items),
-      }
+        let nextText
+        if (typeof body?.text === 'string' && body.text.trim() !== '') {
+          nextText = body.text
+        } else if (Array.isArray(body?.items)) {
+          const parsed = rules.parseRules(current.text)
+          const merged = parsed.items
+            .map((item) => {
+              const incoming = body.items.filter((entry) => entry?.id === item.id).pop()
+              if (incoming === undefined) return item
+              if (incoming.remove === true) return null
+              return {
+                ...item,
+                section: incoming.section ?? item.section,
+                title: incoming.title ?? item.title,
+                fields: { ...item.fields, ...(incoming.fields ?? {}) },
+              }
+            })
+            .filter((item) => item !== null)
+          for (const incoming of body.items) {
+            if (incoming?.remove === true) continue
+            if (merged.some((item) => item.id === incoming?.id)) continue
+            const normalized = rules.normalizeRule(incoming, { existingIds: merged.map((item) => item.id) })
+            if (!normalized.ok) throw new VaultError(normalized.error, 'bad_field')
+            merged.push(normalized.item)
+          }
+          nextText = rules.renderRules({ structure: parsed.structure, items: merged })
+        } else {
+          throw new VaultError('要么给 text，要么给 items', 'bad_request')
+        }
+        nextText = rules.refreshCounts(nextText, rules.parseRules(nextText).items)
+        await vault.assertInsidePath(rulesPath + '.bak')
+        try {
+          await atomicWriteFile(rulesPath + '.bak', current.text)
+        } catch (error) {
+          throw new VaultError('备份失败，未写入：' + describe(error), 'backup_failed')
+        }
+        await atomicWriteFile(rulesPath, nextText, { beforeCommit: async () => {
+          await vault.assertInsidePath(rulesPath)
+          let latest
+          try { latest = await readFile(rulesPath, 'utf8') } catch (error) {
+            if (error?.code === 'ENOENT') throw new VaultError('规则文件已在别处删除，未写入', 'conflict')
+            throw error
+          }
+          if (rules.sha1Of(latest) !== current.sha1) throw new VaultError('规则文件在保存前已被修改，未写入', 'conflict')
+        } })
+        const parsedNext = rules.parseRules(nextText)
+        return {
+          sha1: rules.sha1Of(nextText),
+          items: parsedNext.items,
+          counts: rules.countsOf(parsedNext.items),
+          nextId: rules.nextRuleId(parsedNext.items),
+          nextIds: nextIdsOf(parsedNext.items),
+        }
+      })
     }
 
     if (route === 'open-obsidian' && method === 'POST') {
@@ -2269,7 +2349,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const raw = await resolveNotePath(body?.path)
       if (raw === '') throw new VaultError('不确定要删除哪篇：路径为空', 'bad_request')
       const latest = await vault.readNote(raw)
-      const expected = String(body?.expectedSha1 ?? '').trim()
+      const expected = String(body?.expectedSha1 ?? (q('expectedSha1') || q('sha1'))).trim()
       if (expected !== '' && expected !== latest.sha1) {
         throw new VaultError('这篇在别处被改过（Obsidian 里？），刷新后再删', 'conflict')
       }
@@ -2468,7 +2548,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       for (const [id, dirKey] of [['topics', 'topicsDir'], ['campaigns', 'campaignsDir'], ['products', 'productsDir'], ['data', 'dataDir']]) {
         let count = 0
         try {
-          count = (await collections[id].list({ limit: 1000 })).length
+          count = (await collections[id].all({ includeVariants: false })).length
         } catch {
           count = 0
         }
@@ -2540,10 +2620,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       if (resolved === '') throw new VaultError('不确定要写哪篇：路径为空', 'bad_path')
       const note = await vault.readNote(resolved)
       const parsed = fm.splitNote(note.text)
-      const nextFront = patch.front === undefined ? parsed.front : { ...parsed.front, ...patch.front }
+      const nextFront = patch.front ?? {}
       const nextBody = patch.body === undefined ? parsed.body : String(patch.body)
-      const text = patch.text === undefined ? fm.buildNote(nextFront, nextBody) : String(patch.text)
-      const written = await vault.writeNote(resolved, text, { expectedSha1: patch.expectedSha1 })
+      const text = patch.text === undefined ? fm.buildNote(nextFront, nextBody, note.text) : String(patch.text)
+      const written = await vault.writeNote(resolved, text, { expectedSha1: patch.expectedSha1 || note.sha1 })
       vault.invalidate()
       return { path: resolved, sha1: written.sha1 ?? '', mtimeMs: written.mtimeMs ?? 0 }
     },

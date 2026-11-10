@@ -26,6 +26,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     // 卡片里的放大镜借这个插槽挂到面包屑行右端，不再自己占一条筛选项。
     const CrumbSlot = React.createContext(null)
+    // 每个实际面板自己的草稿/刷新作用域；不与其它侧栏实例共享可变的文档状态。
+    const DraftContext = React.createContext(null)
+    const RefreshContext = React.createContext(0)
+    const modalStack = []
 
     /**
      * 本机时区的「今天」，YYYY-MM-DD。
@@ -148,7 +152,7 @@ window.__ModuleLoader__.load({
     const get = (path) => call(path)
     const post = (path, body) => call(path, { method: 'POST', body })
     const put = (path, body) => call(path, { method: 'PUT', body })
-    const del = (path) => call(path, { method: 'DELETE' })
+    const del = (path, body) => call(path, { method: 'DELETE', ...(body === undefined ? {} : { body }) })
 
     /* ────────────── 样式 ────────────── */
 
@@ -1202,9 +1206,79 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       }, children)
     }
 
-    function ErrorBar({ error }) {
+    function installModalFocus(root, onEscape, doc = document, host = window) {
+      const opener = doc.activeElement
+      modalStack.push(root)
+      const top = () => modalStack[modalStack.length - 1] === root
+      const focusable = () => Array.from(root.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'))
+        .filter((node) => !node.hidden && (typeof node.getClientRects !== 'function' || node.getClientRects().length > 0))
+      const first = () => root.querySelector('[data-modal-default]') ?? focusable()[0] ?? root
+      const onKey = (event) => {
+        if (!top()) return
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+          onEscape()
+        } else if (event.key === 'Tab') {
+          const nodes = focusable()
+          const start = nodes[0] ?? root, end = nodes[nodes.length - 1] ?? root
+          if (!root.contains(doc.activeElement) || (event.shiftKey ? doc.activeElement === start : doc.activeElement === end)) {
+            event.preventDefault()
+            ;(event.shiftKey ? end : start).focus()
+          }
+        }
+      }
+      const onFocus = () => { if (top() && !root.contains(doc.activeElement)) first().focus() }
+      host.addEventListener('keydown', onKey, true)
+      doc.addEventListener('focusin', onFocus, true)
+      first().focus()
+      return () => {
+        host.removeEventListener('keydown', onKey, true)
+        doc.removeEventListener('focusin', onFocus, true)
+        const index = modalStack.indexOf(root)
+        if (index >= 0) modalStack.splice(index, 1)
+        const remaining = modalStack[modalStack.length - 1]
+        if (remaining && (!opener || !remaining.contains(opener))) (remaining.querySelector('button:not([disabled])') ?? remaining).focus()
+        else if (opener && opener.isConnected !== false && typeof opener.focus === 'function') opener.focus()
+      }
+    }
+    function ModalShell({ label, onEscape, panelClass, zIndex, children }) {
+      const root = React.useRef(null)
+      const escape = React.useRef(onEscape)
+      escape.current = onEscape
+      React.useLayoutEffect(() => installModalFocus(root.current, () => escape.current?.()), [])
+      return h('div', { className: 'dsh-gw-veil', style: { zIndex: zIndex ?? 9900 }, onMouseDown: (event) => {
+        event.stopPropagation()
+        if (event.target === event.currentTarget) escape.current?.()
+      } }, h('div', { ref: root, className: 'dsh-gw-panel ' + (panelClass ?? 'dsh-gw-confirm'), role: 'dialog', 'aria-modal': 'true', 'aria-label': label, tabIndex: -1 }, children))
+    }
+    let fieldSerial = 0
+    function useStableFieldId(prefix = 'dsh-gw-field') {
+      const id = React.useRef(null)
+      if (id.current === null) id.current = prefix + '-' + (++fieldSerial)
+      return id.current
+    }
+    function associateField(children, id, labelId) {
+      let firstId = null, serial = 0
+      const walk = (nodes) => React.Children.map(nodes, (child) => {
+        if (!React.isValidElement(child)) return child
+        if (['input','select','textarea','button'].includes(child.type) || typeof child.type === 'function') {
+          const controlId = child.props.id ?? id + '-' + serial++
+          if (firstId === null) firstId = controlId
+          return React.cloneElement(child, { id: controlId, 'aria-labelledby': child.props['aria-labelledby'] ?? labelId })
+        }
+        if (child.props.children !== undefined) return React.cloneElement(child, {}, walk(child.props.children))
+        return child
+      })
+      const controls = walk(children)
+      return { controls, controlId: firstId ?? id }
+    }
+
+    function ErrorBar({ error, onRetry }) {
       if (error === null || error === undefined) return null
-      return h('p', { className: 'dsh-gw-err' }, String(error.message ?? error))
+      return h('div', { className: 'dsh-gw-err', role: 'alert' },
+        h('span', null, String(error.message ?? error)),
+        typeof onRetry === 'function' ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: onRetry, style: { marginLeft: 8 } }, '重试') : null)
     }
 
     function Empty({ children }) {
@@ -1235,8 +1309,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         return h('div', { key: 'l' + index, className: 'dsh-gw-diff-line', 'data-only': only }, line === '' ? '\u00a0' : line)
       })
 
-      return h('div', { className: 'dsh-gw-veil', style: { zIndex: 9500 } },
-        h('div', { className: 'dsh-gw-panel dsh-gw-conflict' },
+      return h(ModalShell, { label: '文档版本冲突', panelClass: 'dsh-gw-conflict', zIndex: 9950, onEscape: () => onResolve('cancel') },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' },
               h('b', null, '这篇在 Obsidian 里也被改过'),
@@ -1258,12 +1331,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           h('div', { className: 'dsh-gw-actions', style: { padding: '0 14px 14px' } },
             h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', onClick: () => onResolve('mine') }, '用我的（覆盖磁盘）'),
             h('button', { className: 'dsh-gw-btn', onClick: () => onResolve('theirs') }, '用他的（放弃我的改动）'),
-            h('button', { className: 'dsh-gw-btn', onClick: () => onResolve('cancel') }, '先不处理'))),
+            h('button', { className: 'dsh-gw-btn', 'data-modal-default': true, onClick: () => onResolve('cancel') }, '先不处理')),
       )
     }
 
     function Field({ label, children }) {
-      return h('div', { className: 'dsh-gw-field' }, h('label', null, label), children)
+      const id = useStableFieldId()
+      const labelId = id + '-label'
+      const linked = associateField(children, id, labelId)
+      return h('div', { className: 'dsh-gw-field' }, h('label', { id: labelId, htmlFor: linked.controlId }, label), linked.controls)
     }
 
     /**
@@ -1643,17 +1719,258 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     /* ────────────── 各卡片的取数 hook ────────────── */
 
-    function useAsync(loader, deps) {
-      const [state, setState] = React.useState({ loading: true, data: null, error: null, version: 0 })
-      const reload = React.useCallback(() => setState((prev) => ({ ...prev, loading: true, error: null, version: prev.version + 1 })), [])
+    // 单入口宿主不解析相对模块：这些纯控制器留在实际使用的 client 工厂内，离线测试抽取真函数。
+    function createReadEpoch() {
+      let epoch = 0
+      let sequence = 0
+      return {
+        begin(identity) { return { identity, epoch, sequence: ++sequence } },
+        current(ticket, identity) { return ticket.identity === identity && ticket.epoch === epoch && ticket.sequence === sequence },
+        invalidate() { epoch += 1; sequence += 1 },
+      }
+    }
+
+    function createCoalescedReader(read, accept, onError) {
+      let stopped = false
+      let epoch = 0
+      let running = null
+      let queued = false
+      async function drain() {
+        do {
+          queued = false
+          const generation = epoch
+          try {
+            const value = await read()
+            if (!stopped && generation === epoch) accept(value)
+          } catch (error) {
+            if (!stopped && generation === epoch && typeof onError === 'function') onError(error)
+          }
+        } while (queued && !stopped)
+      }
+      const controller = {
+        tick() {
+          if (stopped) return Promise.resolve()
+          if (running !== null) { queued = true; return running }
+          running = Promise.resolve().then(drain).finally(() => {
+            running = null
+            // A trigger can arrive after drain's last loop but before this finalizer.
+            if (queued && !stopped) controller.tick()
+          })
+          return running
+        },
+        invalidate() { epoch += 1; queued = false },
+        stop() { stopped = true; epoch += 1; queued = false },
+      }
+      return controller
+    }
+
+    function createDraftRegistry(confirm, onBusy) {
+      const entries = new Map()
+      return {
+        register(owner, read) {
+          entries.set(owner, read)
+          return () => { if (entries.get(owner) === read) entries.delete(owner) }
+        },
+        isBusy() { return Array.from(entries.values(), (read) => read()).some((state) => state?.busy === true) },
+        allow(message) {
+          const states = Array.from(entries.values(), (read) => read())
+          if (states.some((state) => state?.busy === true)) {
+            if (typeof onBusy === 'function') onBusy()
+            return false
+          }
+          if (!states.some((state) => state === true || state?.dirty === true)) return true
+          return confirm(message || '还有没保存的改动，确定离开吗？\n\n改过的内容会丢。') === true
+        },
+      }
+    }
+
+    function useDraftGuard(dirty, busy = false) {
+      const registry = React.useContext(DraftContext)
+      const latest = React.useRef(null)
+      latest.current = { dirty: dirty === true, busy: busy === true }
       React.useEffect(() => {
-        let alive = true
-        loader()
-          .then((data) => { if (alive) setState((prev) => ({ ...prev, loading: false, data, error: null })) })
-          .catch((error) => { if (alive) setState((prev) => ({ ...prev, loading: false, error })) })
-        return () => { alive = false }
-      }, [state.version, ...deps])
-      return { ...state, reload, setData: (data) => setState((prev) => ({ ...prev, data })) }
+        if (registry === null) return undefined
+        return registry.register(Symbol('draft'), () => latest.current)
+      }, [registry])
+      return (message) => registry === null
+        ? (!busy && (!dirty || window.confirm(message || '还有没保存的改动，确定放弃吗？')))
+        : registry.allow(message)
+    }
+
+    function createFieldPatchQueue(readBaseline, write, onSaved) {
+      let tail = Promise.resolve()
+      let stopped = false
+      const enqueue = (patch) => {
+        const task = tail.then(async () => {
+          if (stopped) return null
+          const baseline = readBaseline()
+          const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => String(baseline.front?.[key] ?? '') !== String(value)))
+          if (Object.keys(changed).length === 0) return null
+          const response = await write({ front: changed, expectedSha1: String(baseline.sha1 ?? '') })
+          if (!stopped) onSaved(changed, response)
+          return response
+        })
+        // 失败不能毒化队列，下一项仍按最后成功保存的基线发出，调用者仍收到原始拒绝。
+        tail = task.catch(() => {})
+        return task
+      }
+      return { save: (key, value) => enqueue({ [key]: value }), savePatch: enqueue, stop() { stopped = true } }
+    }
+
+    function pageQuery(path, offset, query) {
+      const [route, raw = ''] = String(path).split('?')
+      const params = new URLSearchParams(raw)
+      params.set('offset', String(offset))
+      params.set('q', String(query ?? '').trim())
+      return route + '?' + params.toString()
+    }
+    function mergeRecordPage(previous, page, offset) {
+      const incoming = page?.records ?? []
+      const records = offset === 0 ? [] : [...(previous?.records ?? [])]
+      const positions = new Map(records.map((record, index) => [String(record.path ?? record.front?.id ?? record.id ?? record.title), index]))
+      for (const record of incoming) {
+        const key = String(record.path ?? record.front?.id ?? record.id ?? record.title)
+        if (positions.has(key)) records[positions.get(key)] = record
+        else { positions.set(key, records.length); records.push(record) }
+      }
+      const nextOffset = Number(page?.offset ?? offset) + incoming.length
+      if (page?.truncated === true && nextOffset <= offset) throw new Error('分页来源没有前进，已停止；请刷新重试')
+      const total = Number(page?.total)
+      return { ...page, records, offset: 0, total: page?.total !== undefined && Number.isFinite(total) ? total : null,
+        truncated: page?.truncated === true, nextOffset }
+    }
+    function usePagedList(path, loader = get) {
+      const refresh = React.useContext(RefreshContext)
+      const [query, setQueryState] = React.useState('')
+      const [state, setState] = React.useState({ data: null, loading: true, error: null, request: 0, offset: 0 })
+      const reads = React.useRef(null)
+      if (reads.current === null) reads.current = createReadEpoch()
+      const loaderRef = React.useRef(loader)
+      loaderRef.current = loader
+      const refreshSeen = React.useRef(refresh)
+      const scope = path + '|' + query.trim()
+      const scopeRef = React.useRef(scope)
+      scopeRef.current = scope
+      React.useEffect(() => {
+        const changedRefresh = refreshSeen.current !== refresh
+        refreshSeen.current = refresh
+        const offset = changedRefresh ? 0 : state.offset
+        const ticket = reads.current.begin(scope)
+        const previous = state.data?._listScope === scope ? state.data : null
+        setState((prev) => ({ ...prev, loading: true, error: null }))
+        const timer = setTimeout(() => {
+        Promise.resolve().then(() => loaderRef.current(pageQuery(path, offset, query))).then((page) => {
+          if (!reads.current.current(ticket, scopeRef.current)) return
+          const data = { ...mergeRecordPage(previous, page, offset), _listScope: scope }
+          setState((prev) => ({ ...prev, data, loading: false, error: null }))
+        }).catch((error) => {
+          if (reads.current.current(ticket, scopeRef.current)) setState((prev) => ({ ...prev, loading: false, error }))
+        })
+        }, query.trim() === '' ? 0 : 220)
+        return () => { clearTimeout(timer); reads.current.invalidate() }
+      }, [path, query, state.request, refresh])
+      const pageData = state.data?._listScope === scope ? state.data : null
+      return {
+        data: pageData, error: state.error, loading: state.loading || (pageData === null && state.error === null), query,
+        setQuery: (value) => { reads.current.invalidate(); setQueryState(String(value)); setState((prev) => ({ ...prev, offset: 0, loading: true, error: null, request: prev.request + 1 })) },
+        reload: () => { reads.current.invalidate(); setState((prev) => ({ ...prev, offset: 0, loading: true, error: null, request: prev.request + 1 })) },
+        loadMore: () => { if (state.loading || !pageData?.truncated) return; reads.current.invalidate(); setState((prev) => ({ ...prev, offset: pageData.nextOffset, loading: true, error: null, request: prev.request + 1 })) },
+        setData: (next) => { reads.current.invalidate(); setState((prev) => ({ ...prev, data: { ...(typeof next === 'function' ? next(prev.data) : next), _listScope: scope }, loading: false })) },
+      }
+    }
+    function ListPager({ list, label }) {
+      if (!list || typeof list.loadMore !== 'function') return null
+      const count = list.data?.records?.length ?? 0
+      const total = list.data?.total
+      return h('div', { className: 'dsh-gw-list-range', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, margin: '8px 0' } },
+        h('span', { className: 'dsh-gw-row-meta', role: 'status', title: '来源范围；分类与本地筛选仅针对已载入内容，可全库检索或继续载入' },
+          (label ? label + '：' : '') + '已载入 ' + count + (total === null || total === undefined ? ' 条（来源未给出总量）' : ' / ' + total + ' 条') + (list.data?.truncated ? '，还有未载入内容；本地筛选仅针对已载入范围' : '')),
+        list.externalSearch ? null : h('input', { className: 'dsh-gw-input', style: { width: 'min(220px,100%)' }, value: list.query, placeholder: '搜索全库（含旧笔记 / 正文）', 'aria-label': (label ?? '笔记') + '全库搜索', onChange: (event) => list.setQuery(event.target.value) }),
+        list.data?.truncated ? h('button', { type: 'button', className: 'dsh-gw-btn', disabled: list.loading, onClick: list.loadMore }, list.loading ? '读取中…' : '载入下一批') : null,
+        list.loading && count > 0 ? h('span', { className: 'dsh-gw-row-meta' }, '正在重新读取…') : null)
+    }
+    function useLinkedRecords(kind, records, links) {
+      const key = JSON.stringify(Array.from(new Set((links ?? []).map((link) => link?.path ? 'path=' + encodeURIComponent(link.path) : link?.id ? 'id=' + encodeURIComponent(link.id) : '').filter(Boolean))))
+      const linked = useAsync(async () => {
+        const lookups = JSON.parse(key).filter((lookup) => {
+          const [type, encoded] = lookup.split('=')
+          const value = decodeURIComponent(encoded)
+          return !records.some((record) => String(type === 'path' ? record.path : record.front?.id ?? record.id ?? '') === value)
+        })
+        const result = [], errors = []
+        let index = 0
+        await Promise.all(Array.from({ length: Math.min(4, lookups.length) }, async () => {
+          while (index < lookups.length) {
+            const lookup = lookups[index++]
+            try { const payload = await get('/' + kind + '/record?' + lookup); if (payload?.record) result.push(payload.record) }
+            catch (error) { errors.push(error) }
+          }
+        }))
+        return { records: result, errors, _linkScope: kind + '|' + key }
+      }, [kind, key])
+      const linkData = linked.data?._linkScope === kind + '|' + key ? linked.data : null
+      const map = new Map(records.map((record) => [String(record.path ?? record.front?.id), record]))
+      for (const record of linkData?.records ?? []) if (!map.has(String(record.path ?? record.front?.id))) map.set(String(record.path ?? record.front?.id), record)
+      return { records: Array.from(map.values()), error: linked.error ?? ((linkData?.errors?.length ?? 0) > 0 ? new Error('关联记录未读取：' + linkData.errors.map((error) => String(error.message ?? error)).join('；')) : null), reload: linked.reload }
+    }
+
+    function metricDraftChanged(editing) {
+      if (!editing) return false
+      if (String(editing.variantId ?? '') !== String(editing.baselineVariantId ?? editing.variantId ?? '')) return true
+      const keys = new Set([...Object.keys(editing.baseline ?? {}), ...Object.keys(editing.draft ?? {})])
+      return Array.from(keys).some((key) => String(editing.draft?.[key] ?? '') !== String(editing.baseline?.[key] ?? ''))
+    }
+
+    function documentSnapshot(identity, body, front) {
+      return { identity: String(identity), body: String(body ?? ''), front: JSON.stringify(front ?? {}) }
+    }
+    function sameDocumentSnapshot(before, after) {
+      return before.identity === after.identity && before.body === after.body && before.front === after.front
+    }
+
+    function indexBy(items, keyOf) {
+      const result = new Map()
+      for (const item of items) {
+        const key = String(keyOf(item) ?? '')
+        if (!result.has(key)) result.set(key, [])
+        result.get(key).push(item)
+      }
+      return result
+    }
+
+    function responseWarning(data) {
+      const warning = data?.warning
+      if (warning === undefined || warning === null || String(warning).trim() === '') return null
+      const error = new Error('读取警告：' + String(warning?.message ?? warning)); error.code = 'read_warning'; return error
+    }
+    function useObjectDraftGuard(value, busy = false) {
+      const baseline = React.useRef(JSON.stringify(value))
+      return useDraftGuard(JSON.stringify(value) !== baseline.current, busy)
+    }
+
+    function useAsync(loader, deps) {
+      const refresh = React.useContext(RefreshContext)
+      const reads = React.useRef(null)
+      if (reads.current === null) reads.current = createReadEpoch()
+      const [state, setState] = React.useState({ loading: true, data: null, error: null, version: 0 })
+      const invalidate = React.useCallback(() => reads.current.invalidate(), [])
+      const reload = React.useCallback(() => {
+        reads.current.invalidate()
+        setState((prev) => ({ ...prev, loading: true, error: null, version: prev.version + 1 }))
+      }, [])
+      const setData = React.useCallback((data) => {
+        reads.current.invalidate()
+        setState((prev) => ({ ...prev, loading: false, error: null, data: typeof data === 'function' ? data(prev.data) : data }))
+      }, [])
+      React.useEffect(() => {
+        const ticket = reads.current.begin('loader')
+        setState((prev) => ({ ...prev, loading: true, error: null }))
+        Promise.resolve().then(loader)
+          .then((data) => { if (reads.current.current(ticket, 'loader')) { const warning = responseWarning(data); setState((prev) => ({ ...prev, loading: false, data: warning !== null && prev.data !== null ? prev.data : data, error: warning })) } })
+          .catch((error) => { if (reads.current.current(ticket, 'loader')) setState((prev) => ({ ...prev, loading: false, error })) })
+        return () => reads.current.invalidate()
+      }, [state.version, refresh, ...deps])
+      return { ...state, reload, setData, invalidate }
     }
 
     /* ────────────── 卡片：选题 / 爆款拆解 ────────────── */
@@ -2244,10 +2561,12 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       return haystack.some((value) => String(value ?? '').toLowerCase().includes(needle))
     }
 
-    function useRecordFilter(records) {
-      const [filter, setFilter] = React.useState('')
+    function useRecordFilter(records, serverList = null) {
+      const [filter, setFilterState] = React.useState('')
+      if (serverList && typeof serverList.setQuery === 'function') serverList.externalSearch = true
+      const setFilter = (value) => { setFilterState(value); serverList?.setQuery?.(value) }
       const needle = filter.trim().toLowerCase()
-      const shown = React.useMemo(() => (needle === '' ? records : records.filter((record) => matchRecord(record, needle))), [records, needle])
+      const shown = React.useMemo(() => (serverList || needle === '' ? records : records.filter((record) => matchRecord(record, needle))), [records, needle])
       return { filter, setFilter, needle, shown }
     }
 
@@ -2301,7 +2620,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         value 是数组，onChange 收到新的数组；点外面或按 Esc 收起。
         第一个消费者是术语卡；商品卡的平台复选、台账的平台筛也复用它。
         不用 <select multiple>：原生多选要按住 Ctrl，高度也不可控。 */
-    function MultiSelect({ label, options, value, onChange, width }) {
+    function MultiSelect({ label, options, value, onChange, width, id, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
       const boxRef = React.useRef(null)
       React.useEffect(() => {
@@ -2325,7 +2644,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         onChange(picked.includes(item) ? picked.filter((one) => one !== item) : picked.concat([item]))
       }
       return h("div", { className: "dsh-gw-ms", ref: boxRef, style: width === undefined ? null : { width: width } },
-        h("button", {
+        h("button", { id, "aria-labelledby": labelledBy,
           type: "button",
           className: "dsh-gw-ms-btn" + (picked.length === 0 ? "" : " is-on"),
           onClick: () => setOpen(!open),
@@ -2443,33 +2762,30 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
      * 把它挂到表头里的 .dsh-gw-col-grip 上。拖动时相邻两列此消彼长（各留 4% 底线），
      * widths 是百分比数组，和 colgroup 的 inline width 一一对应。
      */
+    function keyboardActivate(event, action) {
+      if (event.defaultPrevented || !['Enter', ' '].includes(event.key) || event.target !== event.currentTarget) return false
+      event.preventDefault(); event.stopPropagation(); action(); return true
+    }
+    function shiftedColumnWidths(widths, index, delta) {
+      const next = [...widths], min = 4
+      if (index < 0 || index + 1 >= next.length) return next
+      const shift = Math.max(-(next[index] - min), Math.min(next[index + 1] - min, delta))
+      next[index] = Math.round((next[index] + shift) * 10) / 10; next[index + 1] = Math.round((next[index + 1] - shift) * 10) / 10
+      return next
+    }
+    function installColumnDrag(event, widths, index, setWidths, doc = document, host = window) {
+      event.preventDefault(); event.stopPropagation()
+      const table = event.currentTarget.closest('table'), startX = event.clientX
+      let active = true
+      const finish = () => { if (!active) return; active = false; doc.removeEventListener('pointermove', move); doc.removeEventListener('pointerup', finish); doc.removeEventListener('pointercancel', finish); host.removeEventListener('blur', finish); doc.body.classList.remove('dsh-gw-resizing-col') }
+      const move = (next) => { if (table?.isConnected === false) { finish(); return }; const size = table?.getBoundingClientRect().width ?? 0; if (size > 0) setWidths(shiftedColumnWidths(widths, index, (next.clientX - startX) / size * 100)) }
+      doc.addEventListener('pointermove', move); doc.addEventListener('pointerup', finish); doc.addEventListener('pointercancel', finish); host.addEventListener('blur', finish); doc.body.classList.add('dsh-gw-resizing-col')
+      return finish
+    }
     function colResizeStart(widths, setWidths) {
-      return (index) => (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const startX = event.clientX
-        const startWidths = widths
-        const table = event.currentTarget.closest('table')
-        const onMove = (moveEvent) => {
-          const width = table?.getBoundingClientRect().width ?? 0
-          if (width <= 0) return
-          const delta = ((moveEvent.clientX - startX) / width) * 100
-          const next = [...startWidths]
-          const min = 4
-          const shift = Math.max(-(next[index] - min), Math.min((next[index + 1] ?? min) - min, delta))
-          next[index] = Math.round((next[index] + shift) * 10) / 10
-          if (index + 1 < next.length) next[index + 1] = Math.round((next[index + 1] - shift) * 10) / 10
-          setWidths(next)
-        }
-        const onUp = () => {
-          document.removeEventListener('pointermove', onMove)
-          document.removeEventListener('pointerup', onUp)
-          document.body.classList.remove('dsh-gw-resizing-col')
-        }
-        document.addEventListener('pointermove', onMove)
-        document.addEventListener('pointerup', onUp)
-        document.body.classList.add('dsh-gw-resizing-col')
-      }
+      const cleanup = React.useRef(null)
+      React.useEffect(() => () => cleanup.current?.(), [])
+      return (index) => (event) => { cleanup.current?.(); cleanup.current = installColumnDrag(event, widths, index, setWidths) }
     }
 
     function Sect(props) {
@@ -2501,7 +2817,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     // 榜单行：1 位置、标题、右侧数字、可选说明。点整行打开对应笔记。
     function RankRow({ index, title, meta, value, onClick, mute }) {
-      return h('div', { className: 'dsh-gw-rank' + (mute === true ? ' is-mute' : '') + (typeof onClick === 'function' ? ' is-link' : ''), onClick },
+      return h('div', { className: 'dsh-gw-rank' + (mute === true ? ' is-mute' : '') + (typeof onClick === 'function' ? ' is-link' : ''), onClick, role: typeof onClick === 'function' ? 'button' : undefined, tabIndex: typeof onClick === 'function' ? 0 : undefined, onKeyDown: typeof onClick === 'function' ? (event) => keyboardActivate(event, onClick) : undefined },
         h('span', { className: 'dsh-gw-rank-no' }, String(index)),
         h('div', { className: 'dsh-gw-rank-main' },
           h('div', { className: 'dsh-gw-rank-title' }, title),
@@ -2522,7 +2838,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         h('th', { className: 'title' }, '标题'),
         h('th', { className: 'platform' }, '平台'),
         cols.map(([key, label]) => h('th', { key, className: 'num', 'data-active': rankBy === key ? 'true' : 'false' }, label)))
-      const rows = items.map((item, i) => h('tr', { key: item.path, onClick: () => onOpen(item.path) },
+      const rows = items.map((item, i) => h('tr', { key: item.path, tabIndex: item.path === '' ? undefined : 0, onKeyDown: (event) => keyboardActivate(event, () => onOpen(item.path)), onClick: () => onOpen(item.path) },
         h('td', { className: 'no' }, String(i + 1)),
         h('td', { className: 'title', title: item.title === '' ? item.path : item.title }, item.title === '' ? item.path : item.title),
         h('td', { className: 'platform' }, item.platform === '' ? '—' : item.platform),
@@ -2539,10 +2855,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const arrow = (key) => sortKey === key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''
       const head = h('tr', null,
         h('th', { className: 'no' }, '#'),
-        h('th', { className: 'title', style: { cursor: 'pointer' }, onClick: () => onSort('title') }, '选题' + arrow('title')),
-        h('th', { className: 'num', style: { cursor: 'pointer' }, onClick: () => onSort('platform') }, '平台' + arrow('platform')),
-        cols.map(([key, label]) => h('th', { key, className: 'num', 'data-active': sortKey === key ? 'true' : 'false', style: { cursor: 'pointer' }, onClick: () => onSort(key) }, label + arrow(key))))
-      const rows = items.map((item, i) => h('tr', { key: item.key, onClick: () => onOpen(item.path), style: { cursor: item.path === '' ? 'default' : 'pointer' } },
+        h('th', { className: 'title', style: { cursor: 'pointer' }, tabIndex: 0, 'aria-sort': sortKey === 'title' ? (sortDir === 1 ? 'ascending' : 'descending') : 'none', onKeyDown: (event) => keyboardActivate(event, () => onSort('title')), onClick: () => onSort('title') }, '选题' + arrow('title')),
+        h('th', { className: 'num', style: { cursor: 'pointer' }, tabIndex: 0, 'aria-sort': sortKey === 'platform' ? (sortDir === 1 ? 'ascending' : 'descending') : 'none', onKeyDown: (event) => keyboardActivate(event, () => onSort('platform')), onClick: () => onSort('platform') }, '平台' + arrow('platform')),
+        cols.map(([key, label]) => h('th', { key, className: 'num', 'data-active': sortKey === key ? 'true' : 'false', style: { cursor: 'pointer' }, tabIndex: 0, 'aria-sort': sortKey === key ? (sortDir === 1 ? 'ascending' : 'descending') : 'none', onKeyDown: (event) => keyboardActivate(event, () => onSort(key)), onClick: () => onSort(key) }, label + arrow(key))))
+      const rows = items.map((item, i) => h('tr', { key: item.key, tabIndex: item.path === '' ? undefined : 0, onKeyDown: (event) => keyboardActivate(event, () => onOpen(item.path)), onClick: () => onOpen(item.path), style: { cursor: item.path === '' ? 'default' : 'pointer' } },
         h('td', { className: 'no' }, String(i + 1)),
         h('td', { className: 'title', title: item.title }, item.title),
         h('td', { className: 'num' }, item.platform),
@@ -2584,11 +2900,14 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           key: label,
           className: index === 0 ? 'title' : 'num',
           style: sortable ? { cursor: 'pointer' } : undefined,
+          tabIndex: sortable ? 0 : undefined,
+          'aria-sort': sortable && sort.key === key ? (sort.dir === 1 ? 'ascending' : sort.dir === -1 ? 'descending' : 'none') : 'none',
+          onKeyDown: sortable ? (event) => keyboardActivate(event, () => toggleSort(key)) : undefined,
           onClick: sortable ? () => toggleSort(key) : undefined,
         }, label + (sortable && sort.key === key ? (sort.dir === -1 ? ' ▼' : (sort.dir === 1 ? ' ▲' : '')) : ''),
           h('span', { className: 'dsh-gw-col-grip', onPointerDown: startResize(index) }))
       }))
-      const rows = sorted.map((record) => h('tr', { key: record.path, onClick: () => onOpen(record.path) },
+      const rows = sorted.map((record) => h('tr', { key: record.path, tabIndex: 0, onKeyDown: (event) => keyboardActivate(event, () => onOpen(record.path)), onClick: () => onOpen(record.path) },
         h('td', { className: 'title' },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 } },
             h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: record.front?.period ?? record.title }, record.front?.period ?? record.title),
@@ -2643,7 +2962,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     function TopicsCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
       const [filter, setFilter] = React.useState('')
-      const list = useAsync(() => get('/topics/list?limit=200'), [])
+      const list = usePagedList('/topics/list?limit=200')
       const presetPath = preset !== null && preset !== undefined && typeof preset.path === 'string' ? preset.path : ''
       const [openPath, setOpenPath] = React.useState(presetPath === '' ? null : presetPath)
       React.useEffect(() => {
@@ -2682,6 +3001,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       // 详情视图的标签候选必须在上面先算好再 return：tagOptions 是 const，
       // 早先这条 return 写在它声明之前，打开笔记就撞上 TDZ，直接抛
       // "Cannot access 'tagOptions' before initialization"，整张卡片挂掉。
+      useObjectDraftGuard(draft, busy)
+
       if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '爆款拆解（别人的）', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify, studioRecords: allRecords })
 
       // 爆款拆解卡只放「拆解别人的案例」（type==='选题' 的是自己的选题，归我的选题）。
@@ -2712,7 +3033,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
             h('select', { className: 'dsh-gw-catselect', value: platformFilter, onChange: (event) => setPlatformFilter(event.target.value), title: '按平台筛选' },
               h('option', { value: '' }, '全部平台'),
               platformOptions([...platforms, ...allRecords.map((record) => record.front?.platform)]).map((name) => h('option', { key: name, value: name }, name))))),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }),
         // 「新建拆解」提到列表上面：先给入口，再往下翻笔记（2026-11-08 调整）。
         h(Fold, { title: '新建拆解', className: 'dsh-gw-topic-fold' },
         h('div', { className: 'dsh-gw-grid2' },
@@ -2836,7 +3158,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
      */
     // 当前打开的那张卡片有没有「没保存的改动」。Esc 和「返回卡片列表」都从这里问一句 ——
 // 以前 Esc 直接关卡片，写了一半的稿子就没了，连个提醒都没有。
-let unsavedCardGuard = null
+// 草稿守卫由 DraftContext 的面板实例持有。
 
 // 发布前的两个门槛，给行内编辑器用：禁发不能发，高风险必须先做完 7 项。
 const RISK_LEVELS = ['低', '中', '高', '禁发']
@@ -2942,16 +3264,25 @@ const STAGE_OF_STATUS = {
      * 把一个平台版本推进到某个内部状态，中间该走的格子由状态机算。
      * 日历里标「已发」、我的选题里改阶段，都走这一条：别在调用点各写一套顺序。
      */
-    async function advanceVariant(variant, to) {
-      const from = normalizeStatus(variant?.status) || '在写'
-      const steps = variantPathTo(from, to)
+    async function deleteVariantWithBaseline(variant, confirm, api = { get, del }) {
+      const id = String(variant?.id ?? '')
+      if (id === '') throw new Error('版本没有稳定 id，未删除')
+      let observed = variant, sha1 = String(variant?.sha1 ?? '')
+      const fetched = sha1 === ''
+      if (fetched) { const payload = await api.get('/v2/variants/' + encodeURIComponent(id)); observed = payload?.variant ?? payload?.record ?? variant; sha1 = String(observed?.sha1 ?? '') }
+      if (sha1 === '') throw new Error('缺少删除指纹，未发送删除；请先读取版本')
+      if (!(await confirm(observed, sha1, fetched))) return false
+      await api.del('/v2/variants/' + encodeURIComponent(id), { expectedSha1: sha1 }); return true
+    }
+
+    async function advanceVariant(variant, to, onProgress) {
+      const from = normalizeStatus(variant?.status) || '在写', steps = variantPathTo(from, to)
       if (steps === null) throw new Error('不能从「' + from + '」直接到「' + to + '」')
-      let last = null
-      for (const step of steps) {
-        const written = await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: step })
-        last = written?.variant ?? null
-      }
-      return last
+      let last = variant, committed = 0
+      try {
+        for (const step of steps) { const written = await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: step }); last = written?.variant ?? { ...last, status: step }; committed++; if (typeof onProgress === 'function') onProgress(last) }
+        return last
+      } catch (error) { error.variantProgress = { from, target: to, status: last?.status ?? from, committed }; throw error }
     }
     /**
      * 把 frontmatter 里的 tags 拆成数组。
@@ -3035,6 +3366,14 @@ const STAGE_OF_STATUS = {
       // 正在删的版本 id：删完之前那颗垃圾桶先禁用，免得连点两次。
       const [deletingId, setDeletingId] = React.useState('')
       const [draft, setDraft] = React.useState({ title: '', platform: '', date: todayISO(), account: '', accountId: '', audience: '', goal: '', angle: '' })
+      const [calendarIntent, setCalendarIntent] = React.useState(preset?.calendarIntent ?? null)
+      const draftBaseline = React.useRef(JSON.stringify(draft))
+      const allowMutation = useDraftGuard(JSON.stringify(draft) !== draftBaseline.current, busy || deletingId !== '')
+      React.useEffect(() => {
+        if (!preset?.calendarIntent) { setCalendarIntent(null); return }
+        setCalendarIntent(preset.calendarIntent)
+        if (preset.createTopic) setDraft((prev) => { const next = { ...prev, title: String(preset.title ?? preset.calendarIntent.topic ?? ''), platform: String(preset.platform ?? ''), date: String(preset.date ?? todayISO()), account: String(preset.account ?? ''), accountId: String(preset.accountId ?? '') }; draftBaseline.current = JSON.stringify(next); return next })
+      }, [preset])
       const presetPath = preset !== null && preset !== undefined && typeof preset.path === 'string' ? preset.path : ''
       const [openPath, setOpenPath] = React.useState(presetPath === '' ? null : presetPath)
       // 从版本行点「创作」时带上版本 id：进去直接打开那一版的脚本，不用再找一遍。
@@ -3052,12 +3391,12 @@ const STAGE_OF_STATUS = {
       const [createVariantPlatform, setCreateVariantPlatform] = React.useState('')
       // 一次拉两样：选题（拆解）和平台版本（真正在拍的东西）。
       // 分开拉的话两次 reload 各自闪一下，分区还会短暂错位。
-      const list = useAsync(async () => {
-        const [topics, variants] = await Promise.all([get('/topics/list?limit=200'), get('/v2/variants')])
-        return { records: topics?.records ?? [], variants: variants?.variants ?? [] }
-      }, [])
+      const list = usePagedList('/topics/list?limit=200', async (uri) => {
+        const [topics, variants] = await Promise.all([get(uri), get('/v2/variants')])
+        return { ...topics, records: topics?.records ?? [], variants: variants?.variants ?? [] }
+      })
       // 账号档案是可复用的：新建选题时先选一个默认账号，建平台版本时再按平台挑具体账号。
-      const accountList = useAsync(() => get('/accounts/list?limit=300'), [])
+      const accountList = usePagedList('/accounts/list?limit=300')
       const accounts = accountList.data?.records ?? []
       const accountsFor = (platform) => {
         const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
@@ -3103,7 +3442,7 @@ const STAGE_OF_STATUS = {
         }
       }
       // 早退必须放在 tagOptions 收集之后（TopicsCard 在这里撞过 TDZ，静态测试有守卫）。
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, onReturnCalendar: calendarIntent === null ? null : (record) => openCard('calendar', { ...calendarIntent, calendarDraft: calendarIntent, topic: record.title, topicPath: record.path, variantId: '' }), openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
 
       const stageOf = (record) => {
         if (record.stage === 'shipped' || record.stage === 'doing' || record.stage === 'backlog') return record.stage
@@ -3126,7 +3465,8 @@ const STAGE_OF_STATUS = {
         if (status === '在写' || status === '待发') return 'doing'
         return 'backlog'
       }
-      const variantsOf = (masterId) => allVariants.filter((variant) => String(variant.front?.masterId ?? '') === String(masterId ?? ''))
+      const variantsByMaster = indexBy(allVariants, (variant) => String(variant.front?.masterId ?? ''))
+      const variantsOf = (masterId) => variantsByMaster.get(String(masterId ?? '')) ?? []
       const doingVariants = []
       const shippedVariants = []
       const archivedVariants = []
@@ -3154,22 +3494,14 @@ const STAGE_OF_STATUS = {
       // 版本行上的删除：删的是「这一版」（先备份，拆解笔记不动），
       // 和拆解笔记行上那颗删整篇不是一回事，提示文案分开写。
       async function deleteVariantRow(variant) {
-        if (deletingId !== '') return
-        const account = String(variant.front?.account ?? '')
-        const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-        if (!(await askConfirm('删掉「' + label + '」这个平台版本？会先备份，拆解笔记不动。', '删除并备份', '保留'))) return
+        if (deletingId !== '' || !allowMutation('还有未保存内容，删除前请保存或确认放弃。')) return
         setDeletingId(variant.id)
         try {
-          await del('/v2/variants/' + encodeURIComponent(variant.id))
-          // 版本没了，它那行排期也得走；但同选题同平台还有别的版本时不能删（共用同一行）。
-          await dropScheduleIfOrphan(variant, allVariants, notify)
-          notify('平台版本已删除')
-          list.reload()
-        } catch (error) {
-          notify(String(error.message), true)
-        } finally {
-          setDeletingId('')
-        }
+          const removed = await deleteVariantWithBaseline(variant, (current, sha1, fetched) => askConfirm('删掉「' + String(current.front?.platform ?? '') + ' · ' + String(current.front?.account ?? '') + '」这个版本？指纹 ' + sha1.slice(0, 8) + '；会先备份，主选题不动。' + (fetched ? '\n当前读取的稿子：' + String(current.body ?? '').slice(0, 160) : ''), '删除并备份', '保留'))
+          if (!removed) return
+          await dropScheduleIfOrphan(variant, allVariants, notify); notify('平台版本已删除'); list.reload()
+        } catch (error) { notify(error.code === 'conflict' ? '版本已被改过，未删除；旧指纹保留。请先重新读取并比较，不会自动重试删除。' : String(error.message), true) }
+        finally { setDeletingId('') }
       }
 
       // 归档 = 收起来，不是删除。卡片行上直接给按钮：收进去的能在「已归档」里原样拿回来。
@@ -3198,8 +3530,9 @@ const STAGE_OF_STATUS = {
       async function create() {
         setBusy(true)
         try {
-          await post('/topics/create', { ...draft, status: '在写', type: '选题' })
-          setDraft({ title: '', platform: '', date: todayISO(), account: '', accountId: '', audience: '', goal: '', angle: '' })
+          const created = await post('/topics/create', { ...draft, status: '在写', type: '选题' })
+          if (calendarIntent !== null && created?.created?.path) { setCalendarIntent({ ...calendarIntent, topic: draft.title, topicPath: created.created.path }); setCreateVariantPlatform(draft.platform); setVariantCreateRequest((n) => n + 1); setOpenPath(created.created.path) }
+          const empty = { title: '', platform: '', date: todayISO(), account: '', accountId: '', audience: '', goal: '', angle: '' }; draftBaseline.current = JSON.stringify(empty); setDraft(empty)
           notify('已建选题（状态=在写）；脚本写在平台版本里，不在这篇')
           list.reload()
         } catch (error) {
@@ -3347,7 +3680,7 @@ const STAGE_OF_STATUS = {
             }, h(Icon, { name: 'trash' }))))
       }
 
-      const newTopicFold = list.loading ? null : h(Fold, { title: '新建选题', open: allRecords.length === 0 },
+      const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', open: allRecords.length === 0 || preset?.createTopic === true },
         h('div', { className: 'dsh-gw-grid2' },
           h(Field, { label: '标题（= 文件名）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }) })),
           h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (next) => setDraft({ ...draft, platform: next, account: '', accountId: '' }), options: platforms, placeholder: '小红书 / 抖音 / 视频号' })),
@@ -3386,7 +3719,8 @@ const STAGE_OF_STATUS = {
         h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: shown.length, total: allRecords.length }),
         h('div', { className: 'dsh-gw-card-top' },
           h(MultiSelect, { label: '状态', options: TOPIC_STATUSES, value: statusFilters, onChange: setStatusFilters })),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }), h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ListPager, { list: accountList, label: '默认账号候选' }),
         list.loading ? h(Empty, null, t('loading')) : null,
         !list.loading && allRecords.length === 0
           ? h(Empty, null, '还没有自己的选题。下面新建一条，或从爆款拆解详情点「用这条建选题」。')
@@ -3442,65 +3776,58 @@ const STAGE_OF_STATUS = {
     const EXTERNAL_POLL_MS = 1500
 
     function useExternalSync({ path, url, currentSha1, isDirty, onAdopt, enabled, pick, watchPath }) {
+      const refresh = React.useContext(RefreshContext)
       const [pending, setPending] = React.useState(null)
       const seenRef = React.useRef(currentSha1)
       const dirtyRef = React.useRef(isDirty)
-      dirtyRef.current = isDirty
-      // 轮询哪个文件由 url 决定；同一条接口可能返回 {record} 也可能返回 {variant}，
-      // 由调用方用 pick 取出「这份文档」—— 主选题和平台版本共用一套轮询。
       const pickRef = React.useRef(pick)
-      pickRef.current = pick
-      // 推送到达时要跑「同一轮检查」，但 SSE 的 effect 和轮询的 effect 是两个；
-      // 用 ref 把 tick 递过去，避免把整段逻辑抄两遍。
+      const adoptRef = React.useRef(onAdopt)
+      const readerRef = React.useRef(null)
       const tickRef = React.useRef(null)
-
-      // 基线 sha1 变了 = 我们自己刚写完（保存/高亮/采纳）。把 seen 推到新值，
-      // 否则下一轮轮询会把这次自己的写入当成「别人改过」，白弹一条提示。
+      dirtyRef.current = isDirty
+      pickRef.current = pick
+      adoptRef.current = onAdopt
+      const offer = (nextDoc) => {
+        const next = String(nextDoc?.sha1 ?? '')
+        if (next === '' || next === seenRef.current) return
+        seenRef.current = next
+        if (dirtyRef.current === true) { setPending({ sha1: next, record: nextDoc }); return }
+        setPending(null)
+        adoptRef.current(nextDoc)
+      }
       React.useEffect(() => {
-        if (currentSha1 !== '') seenRef.current = currentSha1
-      }, [currentSha1])
-
-      React.useEffect(() => {
-        if (!enabled || url === '') {
-          // 关掉轮询时把挂着的提示也收掉：切去看版本脚本之后，
-          // 上面还留着一条「主选题刚被改过」的横条会让人以为现在编的是主选题。
+        if (currentSha1 !== '' && currentSha1 !== seenRef.current) {
+          readerRef.current?.invalidate()
+          seenRef.current = currentSha1
           setPending(null)
-          return undefined
         }
-        let stopped = false
+      }, [currentSha1])
+      React.useEffect(() => {
+        setPending(null)
+        if (!enabled || url === '') return undefined
         seenRef.current = currentSha1
-        const tick = async () => {
-          if (stopped) return
-          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-          try {
-            const fresh = await get(url)
-            if (stopped) return
-            const nextDoc = typeof pickRef.current === 'function' ? pickRef.current(fresh) : fresh?.record
-            const next = nextDoc?.sha1 ?? ''
-            if (next === '' || next === seenRef.current) return
-            seenRef.current = next
-            if (dirtyRef.current === true) {
-              setPending({ sha1: next, record: nextDoc })
-              return
-            }
-            setPending(null)
-            onAdopt(nextDoc)
-          } catch {
-            // 网络抖动、笔记刚被删掉都可能；下一轮重试即可，别弹错。
-          }
+        const reader = createCoalescedReader(
+          () => get(url),
+          (fresh) => offer(typeof pickRef.current === 'function' ? pickRef.current(fresh) : fresh?.record),
+        )
+        readerRef.current = reader
+        const tick = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return Promise.resolve()
+          return reader.tick()
         }
+        tickRef.current = tick
         const timer = window.setInterval(() => { void tick() }, EXTERNAL_POLL_MS)
         const onVisible = () => { if (document.visibilityState === 'visible') void tick() }
         document.addEventListener('visibilitychange', onVisible)
-        tickRef.current = tick
         void tick()
         return () => {
-          stopped = true
-          tickRef.current = null
+          reader.stop()
+          if (readerRef.current === reader) readerRef.current = null
+          if (tickRef.current === tick) tickRef.current = null
           window.clearInterval(timer)
           document.removeEventListener('visibilitychange', onVisible)
         }
-      }, [path, url, enabled])
+      }, [path, url, enabled, refresh])
 
       // 真正的「实时」：服务端 fs.watch 一有变化就把 sha1 推过来，收到就跑同一套 tick。
       // EventSource 加不了自定义头，票只能放在 query 上（服务端只对这一条路由放行）。
@@ -3547,15 +3874,21 @@ const STAGE_OF_STATUS = {
 
       return {
         pending,
-        // 自己点「换成最新的」：不管有没有改动都覆盖（用户明确要了）。
+        offer,
+        markDirty: () => { dirtyRef.current = true; readerRef.current?.invalidate() },
+        invalidate: () => readerRef.current?.invalidate(),
+        reset: (sha1) => {
+          readerRef.current?.invalidate()
+          seenRef.current = String(sha1 ?? '')
+          setPending(null)
+        },
         take: () => {
           if (pending === null) return
-          const record = pending.record
+          readerRef.current?.invalidate()
           setPending(null)
-          seenRef.current = record?.sha1 ?? ''
-          onAdopt(record)
+          seenRef.current = pending.record?.sha1 ?? ''
+          adoptRef.current(pending.record)
         },
-        // 自己点「保留我的」：放弃这次外部更新，直到磁盘再变一次。
         drop: () => setPending(null),
       }
     }
@@ -3581,15 +3914,17 @@ const STAGE_OF_STATUS = {
      * 每个平台版本各自维护脚本、风险、发布自检和状态；不再让一篇笔记
      * 同时当“抖音版”和“小红书版”用。
      */
-    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged }) {
+    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged, getVariantBaseline, onVariantWriting, onVariantSaved, onScriptDeleted }) {
       const list = useAsync(
         () => (masterId === undefined || masterId === null || masterId === ''
           ? Promise.resolve({ variants: [] })
           : get('/v2/masters/' + encodeURIComponent(masterId) + '/variants')),
         [masterId],
       )
-      const accountList = useAsync(() => get('/accounts/list?limit=300'), [])
-      const accountRecords = accountList.data?.records ?? []
+      const [draft, setDraft] = React.useState({ platform: '抖音', account: '', accountId: '' })
+      const accountList = usePagedList('/accounts/list?limit=300')
+      const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: draft.accountId }, ...(list.data?.variants ?? []).map((variant) => ({ id: variant.front?.accountId }))])
+      const accountRecords = accountLinks.records
       const accountsForPlatform = (platform) => accountRecords.filter((record) => normalizePlatform(record.front?.platform) === normalizePlatform(platform))
       // 账号档案改名后，版本上存的名字是旧的：按 accountId 反查当前名字，查不到再退回副本。
       const accountNameOf = (variant) => {
@@ -3597,11 +3932,12 @@ const STAGE_OF_STATUS = {
         const hit = id === '' ? undefined : accountRecords.find((record) => String(record.front?.id ?? '') === id)
         return hit === undefined ? String(variant?.front?.account ?? '') : String(hit.front?.name ?? hit.title ?? '')
       }
-      const [draft, setDraft] = React.useState({ platform: '抖音', account: '', accountId: '' })
       const [showCreate, setShowCreate] = React.useState(false)
       // 这一整块默认收着（我的选题详情摊开太占地）；「回流-无平台版本」跳进来时自动展开。
       const [panelOpen, setPanelOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
+      const [writeError, setWriteError] = React.useState(null)
+      const allowMutation = useDraftGuard(writeError !== null, busy)
       // 风险等级 / 7 项自检就在行里改：它们卡着「能不能发」，藏起来等于没有。
       const [checkEdit, setCheckEdit] = React.useState('')
       const [infoEdit, setInfoEdit] = React.useState('')
@@ -3664,28 +4000,14 @@ const STAGE_OF_STATUS = {
       async function moveStage(variant, stageId) {
         if (busy) return
         const stage = STAGES.find((item) => item.id === stageId)
-        if (stage === undefined) return
-        const from = normalizeStatus(variant.status) || '在写'
-        const steps = variantPathTo(from, stage.target)
+        if (!stage) return
+        const from = normalizeStatus(variant.status) || '在写', steps = variantPathTo(from, stage.target)
         if (steps === null) { notify('不能从「' + from + '」直接到「' + stage.label + '」', true); return }
         if (steps.length === 0) return
-        setBusy(true)
-        try {
-          let last = null
-          for (const step of steps) {
-            const written = await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: step })
-            last = written?.variant ?? null
-          }
-          notify('已推进到「' + String(last?.status ?? stage.target) + '」' + (steps.length > 1 ? '（中间经过 ' + steps.slice(0, -1).join(' → ') + '）' : ''))
-          list.reload()
-          // 我的选题列表的分区靠每条选题带的版本摘要：这里变了要让上面也重取，
-          // 不然用户得手动刷新页面才能看到行挪进「创作中」。
-          if (typeof onChanged === 'function') onChanged()
-        } catch (error) {
-          notify(String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+        setBusy(true); list.invalidate(); if (typeof onVariantWriting === 'function') onVariantWriting(variant.id)
+        try { const last = await advanceVariant(variant, stage.target, onVariantSaved); notify('已推进到「' + String(last?.status ?? stage.target) + '」'); list.reload(); if (typeof onChanged === 'function') onChanged() }
+        catch (error) { list.reload(); if (typeof onChanged === 'function') onChanged(); notify(error.variantProgress?.committed > 0 ? '已到「' + error.variantProgress.status + '」，未完成「' + stage.target + '」；界面已重读。' + String(error.message) : String(error.message), true) }
+        finally { setBusy(false) }
       }
 
       /**
@@ -3782,19 +4104,14 @@ const STAGE_OF_STATUS = {
             const state = await get('/calendar?month=' + encodeURIComponent(fromMonth))
             const row = (state?.entries ?? []).find((entry) => String(entry?.id ?? '') === String(scheduled.id ?? ''))
             if (row === undefined) throw new Error('日历里找不到这条排期了，可能刚被删掉，刷新一下再看')
-            if (fromMonth === toMonth) {
-              await put('/calendar', { ...row, date, variantId: String(variant?.id ?? ''), month: fromMonth, expectedSha1: state?.sha1 })
-            } else {
-              await post('/calendar', { ...row, date, variantId: String(variant?.id ?? ''), month: toMonth })
-              await del('/calendar?month=' + encodeURIComponent(fromMonth) + '&id=' + encodeURIComponent(row.id))
-            }
+            await moveCalendarEntry({ ...row, variantId: String(variant?.id ?? '') }, fromMonth, date, state?.sha1)
             notify('已改到 ' + date.slice(5) + '，内容日历已同步')
           }
           list.reload()
           // 排期也影响我的选题列表的分区（日历状态算进 stage），一并让上面重取。
           if (typeof onChanged === 'function') onChanged()
         } catch (error) {
-          notify(String(error.message), true)
+          if (error.partialMove) { list.reload(); if (typeof onChanged === 'function') onChanged(); notify('目标月已建立，但旧月未删，暂时保留两条。请查看 ' + error.partialMove.date + '，不要直接重复改期：' + String(error.message), true) } else notify(String(error.message), true)
         } finally {
           setBusy(false)
         }
@@ -3808,20 +4125,25 @@ const STAGE_OF_STATUS = {
         // 一下都重拉一遍列表（列表一进入 loading，整块版本行会闪一下）。
         const key = Object.keys(patch)[0]
         if (key === undefined || String(variant.front?.[key] ?? '') === String(patch[key] ?? '')) return
-        setBusy(true)
+        if (busy) return
+        setBusy(true); setWriteError(null); list.invalidate(); if (typeof onVariantWriting === 'function') onVariantWriting(variant.id)
         try {
-          await put('/v2/variants/' + encodeURIComponent(variant.id), { front: patch })
+          const sha1 = String(typeof getVariantBaseline === 'function' ? getVariantBaseline(variant.id) ?? variant.sha1 ?? '' : variant.sha1 ?? '')
+          const written = await put('/v2/variants/' + encodeURIComponent(variant.id), { front: patch, ...(sha1 === '' ? {} : { expectedSha1: sha1 }) })
+          const next = written?.variant ?? { ...variant, front: { ...variant.front, ...patch } }
+          if (typeof onVariantSaved === 'function') onVariantSaved(next)
           const data = list.data ?? { variants: [] }
           list.setData({
             ...data,
             variants: (data.variants ?? []).map((item) => (
               String(item?.id ?? '') === String(variant.id ?? '')
-                ? { ...item, front: { ...item.front, ...patch } }
+                ? { ...item, ...next, front: { ...item.front, ...next.front, ...patch } }
                 : item
             )),
           })
           notify('版本资料已保存')
         } catch (error) {
+          setWriteError({ error, retry: () => { void saveInfo(variant, patch) } })
           notify('保存失败：' + (error?.message ?? String(error)), true)
         } finally {
           setBusy(false)
@@ -3833,21 +4155,26 @@ const STAGE_OF_STATUS = {
         const keys = Object.keys(patch)
         const changed = keys.some((key) => String(variant.front?.[key] ?? '') !== String(patch[key] ?? ''))
         if (!changed) return
-        setBusy(true)
+        if (busy) return
+        setBusy(true); setWriteError(null); list.invalidate(); if (typeof onVariantWriting === 'function') onVariantWriting(variant.id)
         try {
-          await put('/v2/variants/' + encodeURIComponent(variant.id), { front: patch })
+          const sha1 = String(typeof getVariantBaseline === 'function' ? getVariantBaseline(variant.id) ?? variant.sha1 ?? '' : variant.sha1 ?? '')
+          const written = await put('/v2/variants/' + encodeURIComponent(variant.id), { front: patch, ...(sha1 === '' ? {} : { expectedSha1: sha1 }) })
+          const next = written?.variant ?? { ...variant, front: { ...variant.front, ...patch } }
+          if (typeof onVariantSaved === 'function') onVariantSaved(next)
           const data = list.data ?? { variants: [] }
           list.setData({
             ...data,
             variants: (data.variants ?? []).map((item) => (
               String(item?.id ?? '') === String(variant.id ?? '')
-                ? { ...item, front: { ...item.front, ...patch } }
+                ? { ...item, ...next, front: { ...item.front, ...next.front, ...patch } }
                 : item
             )),
           })
           const shownKeys = keys.filter((key) => key !== 'publishCheckItems')
           notify('已更新：' + shownKeys.map((key) => (key === 'riskLevel' ? '风险等级' : '发布自检') + ' = ' + String(patch[key])).join('、'))
         } catch (error) {
+          setWriteError({ error, retry: () => { void saveChecks(variant, patch) } })
           notify('更新失败：' + (error?.message ?? String(error)), true)
         } finally {
           setBusy(false)
@@ -3855,23 +4182,16 @@ const STAGE_OF_STATUS = {
       }
 
       async function removeVariant(variant) {
-        if (busy) return
-        const account = accountNameOf(variant)
-        const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-        if (!(await askConfirm('删掉「' + label + '」这个平台版本？会先备份，主选题不动。', '删除并备份', '保留'))) return
+        if (busy || !allowMutation('当前还有未保存内容，删除版本前请保存或确认放弃。')) return
+        const observed = { ...variant, sha1: typeof getVariantBaseline === 'function' ? getVariantBaseline(variant.id) ?? variant.sha1 : variant.sha1 }
         setBusy(true)
         try {
-          await del('/v2/variants/' + encodeURIComponent(variant.id))
-          // 版本没了，它那行排期也得走；但同选题同平台还有别的版本时不能删（共用同一行）。
-          await dropScheduleIfOrphan(variant, variants, notify)
-          notify('平台版本已删除')
-          list.reload()
-          if (typeof onChanged === 'function') onChanged()
-        } catch (error) {
-          notify(String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+          const removed = await deleteVariantWithBaseline(observed, (current, sha1, fetched) => askConfirm('删掉「' + String(current.front?.platform ?? '') + ' · ' + String(current.front?.account ?? '') + '」这个版本？指纹 ' + sha1.slice(0, 8) + '；会先备份，主选题不动。' + (fetched ? '\n当前读取的稿子：' + String(current.body ?? '').slice(0, 160) : ''), '删除并备份', '保留'))
+          if (!removed) return
+          if (typeof onScriptDeleted === 'function') onScriptDeleted(variant.id)
+          await dropScheduleIfOrphan(variant, variants, notify); notify('平台版本已删除'); list.reload(); if (typeof onChanged === 'function') onChanged()
+        } catch (error) { notify(error.code === 'conflict' ? '版本已被改过，未删除；当前稿子和旧指纹保留。请先重新读取并比较，不会自动重试删除。' : String(error.message), true) }
+        finally { setBusy(false) }
       }
 
       const row = (variant) => {
@@ -4073,7 +4393,10 @@ const STAGE_OF_STATUS = {
           onClick: (event) => { event.preventDefault(); event.stopPropagation(); setPanelOpen(true); setShowCreate(!showCreate) },
         }, showCreate ? '收起' : '＋ 新建'),
       },
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        writeError ? h('div', null, h(ErrorBar, { error: writeError.error, onRetry: writeError.error?.code === 'conflict' ? list.reload : writeError.retry }), h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setWriteError(null) }, '放弃失败的字段保存')) : null,
+        h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
+        h(ListPager, { list: accountList, label: '账号候选' }),
         null,
         list.loading && variants.length === 0 ? h(Empty, null, t('loading')) : variants.length === 0
           ? h(Empty, null, '还没有平台版本。选好平台点右上角「＋ 新建」，建好直接在下方写脚本。')
@@ -4101,11 +4424,10 @@ const STAGE_OF_STATUS = {
     // 列表接口本身也带了正文（index.js 的 topics 列表），两处合起来，第一次打开也不空一帧。
     const recordCache = new Map()
 
-    function TopicDetail({ path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly }) {
+    function TopicDetail({ onReturnCalendar = null, path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly }) {
       const detail = useAsync(() => get('/topics/record?path=' + encodeURIComponent(path)), [path])
       // 选题上也能挂一个默认账号：这条选题主要交给哪个号做。建平台版本时按平台再选具体账号。
-      const accountList = useAsync(() => get('/accounts/list?limit=300'), [])
-      const accountRecords = accountList.data?.records ?? []
+      const accountList = usePagedList('/accounts/list?limit=300')
       // 保存撞上「Obsidian 里也改过」时，把两边的正文都收在这里，由 ConflictDialog 三选一。
       const [conflict, setConflict] = React.useState(null)
       // 「写回」弹窗开着时指向当前这篇；null = 关着。
@@ -4117,6 +4439,19 @@ const STAGE_OF_STATUS = {
       const seed = fromList !== null ? fromList : (cached === undefined ? null : cached)
       const [body, setBody] = React.useState(seed === null ? null : String(seed.body))
       const [front, setFront] = React.useState(seed === null ? {} : (seed.front ?? {}))
+      const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: front.accountId }])
+      const accountRecords = accountLinks.records
+      const sourceLinks = useLinkedRecords('topics', studioRecords ?? [], [{ id: front.sourceId }])
+      const [record, setRecord] = React.useState(seed)
+      const masterRef = React.useRef(seed)
+      const liveRef = React.useRef(null)
+      const aliveRef = React.useRef(true)
+      const documentReads = React.useRef(null)
+      if (documentReads.current === null) documentReads.current = createReadEpoch()
+      const wantedDoc = React.useRef('master')
+      const [scriptLoading, setScriptLoading] = React.useState(false)
+      const [planPending, setPlanPending] = React.useState(0)
+      const [planErrors, setPlanErrors] = React.useState({})
       // 读到权威版本就记下来，下次换回这篇（或从别的卡再点进来）还能秒开。
       React.useEffect(() => {
         const fresh = detail.data?.record
@@ -4150,11 +4485,43 @@ const STAGE_OF_STATUS = {
       const previewRef = React.useRef(null)
       const editorRef = React.useRef(null)
 
+      liveRef.current = { body, front, doc, docBody, docSha1, busy, identity: doc === null ? 'master' : String(doc.id) }
+      function storeMaster(next) {
+        masterRef.current = next
+        recordCache.set(path, next)
+        if (aliveRef.current) setRecord(next)
+      }
+      function adoptMaster(next) {
+        if (!aliveRef.current || wantedDoc.current !== 'master') return
+        storeMaster(next)
+        setBody(String(next.body ?? ''))
+        setFront(next.front ?? {})
+        detail.setData({ record: next })
+      }
+      function editBody(next) {
+        wantedDoc.current = liveRef.current.identity
+        setScriptLoading(false)
+        documentReads.current.invalidate()
+        liveRef.current.body = next
+        liveRef.current.dirty = true
+        sync.markDirty()
+        setBody(next)
+      }
+      function editFront(next) {
+        wantedDoc.current = liveRef.current.identity
+        setScriptLoading(false)
+        const value = typeof next === 'function' ? next(liveRef.current.front) : next
+        liveRef.current.front = value
+        liveRef.current.dirty = true
+        documentReads.current.invalidate()
+        sync.markDirty()
+        setFront(value)
+      }
       React.useEffect(() => {
-        if (detail.data?.record !== undefined) {
-          setBody(detail.data.record.body)
-          setFront(detail.data.record.front ?? {})
-        }
+        const fresh = detail.data?.record
+        if (!fresh || fresh.sha1 === masterRef.current?.sha1 || wantedDoc.current !== 'master') return
+        if (!liveRef.current.dirty && !liveRef.current.busy && planPending === 0) adoptMaster(fresh)
+        else sync.offer(fresh)
       }, [detail.data])
 
       // 从灵感箱的「去向」点进来：数据一到就把光标放进正文编辑区。
@@ -4175,7 +4542,6 @@ const STAGE_OF_STATUS = {
         return () => window.clearTimeout(timer)
       }, [autoEdit, body === null ? '' : path])
 
-      const record = detail.data?.record ?? seed
       const sourceLink = String(front.sourceUrl ?? '').trim() !== '' ? String(front.sourceUrl) : String(front.link ?? '')
       const sourceTitle = String(front.sourceTitle ?? '').trim()
       // 拆解 ↔ 选题（2026-11-08 拆分）：
@@ -4185,7 +4551,7 @@ const STAGE_OF_STATUS = {
       const typeValue = String(record?.front?.type ?? '').trim()
       const derivedTopics = (studioRecords ?? []).filter((item) => String(item.front?.sourceId ?? '') !== '' && String(item.front?.sourceId) === String(front.id ?? ''))
       const sourceCase = String(front.sourceId ?? '').trim() === '' ? null
-        : (studioRecords ?? []).find((item) => String(item.front?.id ?? item.id ?? '') === String(front.sourceId ?? '').trim()) ?? null
+        : sourceLinks.records.find((item) => String(item.front?.id ?? item.id ?? '') === String(front.sourceId ?? '').trim()) ?? null
       const [deriving, setDeriving] = React.useState(false)
       const [derivedExtra, setDerivedExtra] = React.useState([])
       async function deriveTopic() {
@@ -4215,57 +4581,75 @@ const STAGE_OF_STATUS = {
       }
       const dirty = body !== null && (doc === null
         ? record !== null && (body !== String(record.body ?? '') || JSON.stringify(front) !== JSON.stringify(record.front ?? {}))
-        : body !== docBody)
-      // 把「有没有没保存的改动」挂到模块级：Esc 和「返回卡片列表」都从这里问一句。
-      React.useEffect(() => {
-        unsavedCardGuard = () => dirty !== true || window.confirm('这篇还没保存，确定离开吗？\n\n改过的内容会丢。')
-        return () => { unsavedCardGuard = null }
-      }, [dirty])
+        : body !== docBody || JSON.stringify(front) !== JSON.stringify(record?.front ?? {}))
+      liveRef.current.dirty = dirty
+      const allowLeave = useDraftGuard(dirty, busy || planPending > 0)
+      const mutationRegistry = React.useContext(DraftContext)
+      const planQueue = React.useRef(null)
+      if (planQueue.current === null) planQueue.current = createFieldPatchQueue(
+        () => masterRef.current ?? { front: {}, sha1: '' },
+        (payload) => {
+          detail.invalidate()
+          sync.invalidate()
+          return put('/topics/record?path=' + encodeURIComponent(path), payload)
+        },
+        (patch, response) => {
+          const current = masterRef.current
+          const sha1 = String(response?.written?.sha1 ?? response?.record?.sha1 ?? '')
+          if (sha1 === '') throw new Error('保存响应缺少版本指纹，请重试读取后确认')
+          storeMaster({ ...current, front: { ...current.front, ...patch }, sha1 })
+          setFront((prev) => {
+            const next = { ...prev }
+            for (const [key, value] of Object.entries(patch)) if (String(prev[key] ?? '').trim() === String(value)) next[key] = value
+            return next
+          })
+          if (wantedDoc.current === 'master') sync.reset(sha1)
+        },
+      )
+      React.useEffect(() => () => {
+        aliveRef.current = false
+        documentReads.current.invalidate()
+        planQueue.current.stop()
+        detail.invalidate()
+      }, [])
+      async function persistMasterPatch(patch) {
+        if (masterRef.current === null || busy) return false
+        const keys = Object.keys(patch)
+        setPlanPending((n) => n + 1)
+        setPlanErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !keys.includes(key))))
+        try {
+          await planQueue.current.savePatch(patch)
+          return true
+        } catch (error) {
+          if (aliveRef.current) {
+            setPlanErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, error])) }))
+            notify('字段保存失败，草稿已保留：' + String(error?.message ?? error), true)
+          }
+          return false
+        } finally {
+          if (aliveRef.current) setPlanPending((n) => Math.max(0, n - 1))
+        }
+      }
       // 老笔记归类：拆解/选题拆分之前建的笔记没有 type，两张卡里都会出现。
       // 就地给两个按钮写进去，不用让人跑去 Obsidian 属性面板手改。
       async function classify(next) {
         if (record === null) return
-        const nextFront = { ...front, type: next }
-        try {
-          await put(recordUrl, { body, front: nextFront, expectedSha1: String(record.sha1 ?? '') })
-          setFront(nextFront)
-          notify('已归类为「' + next + '」：它只会出现在「' + (next === '拆解' ? '爆款拆解（别人的）' : '我的选题') + '」里，正文没动')
-          detail.reload()
-        } catch (error) {
-          notify('归类失败：' + (error?.message ?? String(error)), true)
+        editFront({ ...front, type: next })
+        if (await persistMasterPatch({ type: next })) {
+          notify('已归类为「' + next + '」，正文没动')
+          if (typeof onStudioChanged === 'function') onStudioChanged()
         }
       }
-      // 策划三件套：失焦就写 frontmatter，不弹「保存」按钮。只写这三个键，正文不动。
+      // 与已保存基线比较，写一个 front patch；串行响应推进 sha1，不碰主/版本正文。
       async function savePlanField(key, value) {
-        if (record === null) return
         const text = String(value ?? '').trim()
-        if (String(front[key] ?? '') === text) return
-        const nextFront = { ...front, [key]: text }
-        try {
-          await put(recordUrl, { body, front: nextFront, expectedSha1: String(record.sha1 ?? '') })
-          setFront(nextFront)
-          notify('策划卡已保存')
-        } catch (error) {
-          notify('策划卡保存失败：' + (error?.message ?? String(error)), true)
-        }
+        if (await persistMasterPatch({ [key]: text })) notify('策划卡已保存')
       }
-      // 换这条选题的默认账号。只写 frontmatter，正文不动。
       async function saveAccount(accountId) {
-        if (record === null) return
         const hit = accountRecords.find((item) => String(item.front?.id ?? '') === String(accountId))
-        const nextFront = {
-          ...front,
-          accountId: String(accountId ?? ''),
-          account: hit === undefined ? '' : String(hit.front?.name ?? hit.title ?? ''),
-        }
-        try {
-          await put(recordUrl, { body, front: nextFront, expectedSha1: String(record.sha1 ?? '') })
-          setFront(nextFront)
-          notify(accountId === '' ? '已清掉这条选题的默认账号' : '默认账号：' + String(nextFront.account))
-          detail.reload()
-        } catch (error) {
-          notify('换账号失败：' + (error?.message ?? String(error)), true)
-        }
+        const patch = { accountId: String(accountId ?? ''), account: hit === undefined ? '' : String(hit.front?.name ?? hit.title ?? '') }
+        editFront({ ...front, ...patch })
+        if (await persistMasterPatch(patch)) notify(accountId === '' ? '已清掉默认账号' : '默认账号：' + patch.account)
       }
       const recordUrl = '/topics/record?path=' + encodeURIComponent(path)
       // 折叠只对拆解脚本生效；版本脚本一旦打开就一直摊着，免得点了「版本脚本」什么都没出现。
@@ -4279,23 +4663,23 @@ const STAGE_OF_STATUS = {
         // 以前只轮询主选题，所以切到版本脚本之后 agent 写回根本看不见。
         url: docUrl,
         currentSha1: docSha,
-        isDirty: dirty,
-        enabled: record !== null,
+        isDirty: dirty || busy || planPending > 0,
+        enabled: record !== null && !scriptLoading,
         pick: (fresh) => (doc === null ? fresh?.record : fresh?.variant),
         // 服务端按这个相对路径盯文件：主选题是它自己，版本脚本是平台版本那份 md。
         watchPath: doc === null ? path : String(doc.path ?? ''),
         onAdopt: (fresh) => {
+          if (wantedDoc.current !== liveRef.current.identity || !aliveRef.current) return
+          documentReads.current.invalidate()
           if (doc === null) {
-            detail.setData({ record: fresh })
-            setBody(fresh.body)
-            setFront(fresh.front ?? {})
-            notify('这篇刚被更新（大概率是 agent 写回的），已载入编辑器')
+            adoptMaster(fresh)
+            notify('这篇刚被更新，已载入编辑器')
             return
           }
           setDocBody(String(fresh.body ?? ''))
           setDocSha1(String(fresh.sha1 ?? ''))
           setBody(String(fresh.body ?? ''))
-          notify('这个版本脚本刚被更新（大概率是 agent 写回的），已载入编辑器')
+          notify('这个版本脚本刚被更新，已载入编辑器')
         },
       })
 
@@ -4341,113 +4725,118 @@ const STAGE_OF_STATUS = {
        * 不用 detail.reload()：那会把 loading 置回 true，整个详情转瞬被
        * 占位替掉（就是之前「闪退」的原因）。这里直接拿新数据替换就地更新。
        */
-      async function reloadFromDisk() {
+      async function reloadFromDisk(force = false) {
+        if (busy || planPending > 0) return
+        if (!force && !allowLeave('重新读取会替换当前草稿，确定吗？')) return
+        const identity = liveRef.current.identity
+        wantedDoc.current = identity
+        const snapshot = documentSnapshot(identity, liveRef.current.body, liveRef.current.front)
+        const ticket = documentReads.current.begin(identity)
+        detail.invalidate()
+        sync.invalidate()
         setBusy(true)
         try {
-          if (doc !== null) {
-            const payload = await get(docUrl)
-            const next = payload?.variant ?? null
-            if (next === null) throw new Error('这个平台版本读不到')
-            setDocBody(String(next.body ?? ''))
-            setDocSha1(String(next.sha1 ?? ''))
-            setBody(String(next.body ?? ''))
-            notify('已从磁盘重新读取这个版本脚本')
+          const payload = await get(docUrl)
+          if (!documentReads.current.current(ticket, wantedDoc.current) || !aliveRef.current) return
+          if (!sameDocumentSnapshot(snapshot, documentSnapshot(liveRef.current.identity, liveRef.current.body, liveRef.current.front))) {
+            notify('读取期间又有新改动，已保留草稿，请重新读取', true)
             return
           }
-          const fresh = await get('/topics/record?path=' + encodeURIComponent(path))
-          detail.setData(fresh)
-          setBody(fresh.record.body)
-          setFront(fresh.record.front)
+          const next = doc === null ? payload?.record : payload?.variant
+          if (!next) throw new Error('这份文档读不到')
+          if (doc === null) adoptMaster(next)
+          else { setDocBody(String(next.body ?? '')); setDocSha1(String(next.sha1 ?? '')); setBody(String(next.body ?? '')) }
+          sync.reset(next.sha1)
           notify('已从磁盘重新读取')
         } catch (error) {
-          notify('读取失败：' + String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+          if (aliveRef.current) notify('读取失败：' + String(error.message), true)
+        } finally { if (aliveRef.current) setBusy(false) }
       }
-
+      async function persistBody(text, savedFront = front, forcedSha) {
+        if (busy || planPending > 0 || mutationRegistry?.isBusy() || !aliveRef.current) { notify('正在保存字段，请稍后再保存正文', true); return false }
+        const identity = liveRef.current.identity
+        wantedDoc.current = identity
+        documentReads.current.invalidate()
+        detail.invalidate()
+        sync.invalidate()
+        setScriptLoading(false)
+        setBusy(true)
+        try {
+          const sha1 = forcedSha === undefined ? (doc === null ? masterRef.current?.sha1 : liveRef.current.docSha1) : forcedSha
+          const written = await put(docUrl, doc === null
+            ? { body: text, front: savedFront, expectedSha1: String(sha1 ?? '') }
+            : { body: text, expectedSha1: String(sha1 ?? '') })
+          if (!aliveRef.current || wantedDoc.current !== identity) return false
+          const nextSha = String(doc === null ? written?.written?.sha1 ?? sha1 : written?.variant?.sha1 ?? sha1)
+          if (doc === null) {
+            const next = { ...masterRef.current, body: text, front: { ...savedFront }, sha1: nextSha }
+            storeMaster(next)
+            detail.setData({ record: next })
+          } else {
+            liveRef.current.docBody = text
+            liveRef.current.docSha1 = nextSha
+            setDocBody(text)
+            setDocSha1(nextSha)
+          }
+          sync.reset(nextSha)
+          return true
+        } finally { if (aliveRef.current) setBusy(false) }
+      }
       async function annotate(needle, annotationNote) {
         const applied = applyAnnotation(body, needle, annotationNote)
-        if (applied.error !== null) {
-          notify(applied.error, true)
-          return
-        }
-        setBody(applied.text)
+        if (applied.error !== null) { notify(applied.error, true); return }
+        editBody(applied.text)
         setMode('live')
-        try {
-          const written = await put(docUrl, doc === null
-            ? { body: applied.text, front, expectedSha1: docSha }
-            : { body: applied.text, expectedSha1: docSha })
-          // 局部更新，不调 detail.reload()：reload 会把 loading 置回 true，
-          // 组件瞬间被 loading 占位替掉（看起来就是闪退），回来之后 mode 也重置了。
-          if (doc === null) {
-            const sha1 = written?.written?.sha1 ?? docSha
-            detail.setData({ ...detail.data, record: { ...detail.data.record, body: applied.text, sha1 } })
-          } else {
-            setDocBody(applied.text)
-            setDocSha1(String(written?.variant?.sha1 ?? docSha))
-          }
-          notify(annotationNote === '' ? '已高亮' : '已加备注')
-        } catch (error) {
-          notify('高亮写进去了但没存上：' + String(error.message), true)
-        }
+        try { if (await persistBody(applied.text)) notify(annotationNote === '' ? '已高亮' : '已加备注') }
+        catch (error) { notify('高亮写进草稿但没存上：' + String(error.message), true) }
       }
-
-      // 取消高亮/备注：同样写回正文并局部更新，不走 reload
       async function unannotate(needle, alsoNote) {
         const removed = removeAnnotation(body, needle, alsoNote)
-        if (removed.error !== null) {
-          notify(removed.error, true)
-          return
-        }
-        setBody(removed.text)
-        try {
-          const written = await put(docUrl, doc === null
-            ? { body: removed.text, front, expectedSha1: docSha }
-            : { body: removed.text, expectedSha1: docSha })
-          if (doc === null) {
-            const sha1 = written?.written?.sha1 ?? docSha
-            detail.setData({ ...detail.data, record: { ...detail.data.record, body: removed.text, sha1 } })
-          } else {
-            setDocBody(removed.text)
-            setDocSha1(String(written?.variant?.sha1 ?? docSha))
-          }
-          notify(alsoNote === false ? '已取消备注' : '已取消高亮')
-        } catch (error) {
-          notify('取消写进去了但没存上：' + String(error.message), true)
-        }
+        if (removed.error !== null) { notify(removed.error, true); return }
+        editBody(removed.text)
+        try { if (await persistBody(removed.text)) notify(alsoNote === false ? '已取消备注' : '已取消高亮') }
+        catch (error) { notify('取消写进草稿但没存上：' + String(error.message), true) }
       }
-
-      // 打开某个平台版本的脚本：正文区换成那个文件，主选题的字段区收起来。
-      // 切之前先问一句未保存的改动 —— 换的是“正在编辑哪份文件”，不是换显示文本。
       async function openVariantScript(variant) {
-        if (variant === null || variant === undefined) return
-        if (doc !== null && doc.id === String(variant.id)) return
-        // 换的是“正在编辑哪份文件”：没保存的改动会跟着编辑器一起换掉。
-        if (!confirmUnsavedIfNeeded(dirty, notify,
-          '当前这份还有没保存的改动。\n\n版本脚本和拆解正文是两个文件，切过去之后这些改动就没了。\n\n继续切换？',
-          '已取消：先点「保存」再切换')) return
+        if (!variant || busy || planPending > 0 || mutationRegistry?.isBusy()) return
+        const want = String(variant.id)
+        if (doc !== null && doc.id === want && !scriptLoading) return
+        if (!allowLeave('当前文档还有没保存的改动。切换版本会放弃这些改动，继续？')) return
+        const before = documentSnapshot(liveRef.current.identity, liveRef.current.body, liveRef.current.front)
+        wantedDoc.current = want
+        const ticket = documentReads.current.begin(want)
+        detail.invalidate()
+        sync.invalidate()
+        setScriptLoading(true)
         try {
-          const payload = await get('/v2/variants/' + encodeURIComponent(variant.id))
-          const next = payload?.variant ?? null
-          if (next === null) { notify('这个平台版本读不到', true); return }
+          const payload = await get('/v2/variants/' + encodeURIComponent(want))
+          if (!aliveRef.current || !documentReads.current.current(ticket, wantedDoc.current)) return
+          if (!sameDocumentSnapshot(before, documentSnapshot(liveRef.current.identity, liveRef.current.body, liveRef.current.front))) {
+            wantedDoc.current = liveRef.current.identity
+            notify('读取期间又有新改动，未切换版本，草稿已保留', true)
+            return
+          }
+          const next = payload?.variant
+          if (!next) throw new Error('这个平台版本读不到')
           const text = String(next.body ?? '')
           const platform = String(next.front?.platform ?? variant.front?.platform ?? '')
           const account = String(next.front?.account ?? variant.front?.account ?? '')
-          setDoc({ id: String(next.id ?? variant.id), path: String(next.path ?? variant.path ?? ''), platform, account })
+          wantedDoc.current = String(next.id ?? want)
+          setDoc({ id: String(next.id ?? want), path: String(next.path ?? variant.path ?? ''), platform, account })
           setDocBody(text)
           setDocSha1(String(next.sha1 ?? ''))
           setBody(text)
           setMode('live')
           setBodyOpen(true)
-          // 正文块排在「平台版本」上面：点完版本脚本把视口带回去，不然还得自己往上滚。
-          window.setTimeout(() => {
-            const node = previewRef === undefined ? null : previewRef.current
-            if (node !== null && node !== undefined && typeof node.scrollIntoView === 'function') node.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-          }, 60)
-          notify('已打开「' + platform + (account === '' ? '' : ' · ' + account) + '」的版本脚本；保存写在这个版本里，主选题不动')
+          sync.reset(next.sha1)
+          notify('已打开「' + platform + (account === '' ? '' : ' · ' + account) + '」版本；保存不改主选题')
         } catch (error) {
-          notify(String(error.message), true)
+          if (aliveRef.current && documentReads.current.current(ticket, wantedDoc.current)) {
+            wantedDoc.current = liveRef.current.identity
+            notify(String(error.message), true)
+          }
+        } finally {
+          if (aliveRef.current && documentReads.current.current(ticket, want)) setScriptLoading(false)
         }
       }
 
@@ -4470,11 +4859,13 @@ const STAGE_OF_STATUS = {
       // 收起这一版：回到「只有拆解笔记 + 平台版本」的状态。
       // 我的选题里连拆解脚本也一起收 —— 否则收起版本后正文块会从平台版本下面跳回上面，
       // 看上去就像上方的拆解笔记被点开了。拆解页没有平台版本，正文就是整页内容，留着。
-      function closeVariantScript() {
-        if (doc === null) return
-        if (!confirmUnsavedIfNeeded(dirty, notify,
-          '这个版本脚本还有没保存的改动。\n\n' + (studio === true ? '收起它就回到我的选题' : '回到拆解脚本会把它换掉') + '，改动就没了。\n\n继续？',
-          '已取消：先点「保存」再回去')) return
+      function closeVariantScript(options = null) {
+        if (doc === null && !scriptLoading) return
+        if (options?.discardConfirmed !== true && !allowLeave('收起版本会放弃当前未保存改动，继续？')) return
+        wantedDoc.current = 'master'
+        documentReads.current.invalidate()
+        sync.invalidate()
+        setScriptLoading(false)
         setDoc(null)
         setDocBody('')
         setDocSha1('')
@@ -4482,68 +4873,28 @@ const STAGE_OF_STATUS = {
         setFront(record?.front ?? {})
         if (studio === true) setBodyOpen(false)
       }
-
       async function save() {
-        setBusy(true)
         try {
-          if (doc !== null) {
-            const written = await put(docUrl, { body, expectedSha1: docSha })
-            setDocBody(body)
-            setDocSha1(String(written?.variant?.sha1 ?? docSha))
-            notify('版本脚本已保存；Obsidian 里立刻能看到')
-            return
-          }
-          await put(docUrl, { body, front, expectedSha1: docSha })
-          notify('已保存；Obsidian 里立刻能看到')
-          detail.reload()
+          if (await persistBody(body, front)) notify(doc === null ? '已保存；Obsidian 里立刻能看到' : '版本脚本已保存，主选题没动')
         } catch (error) {
           if (error.code === 'conflict') {
-            setConflict({ mine: body, theirs: String(error.payload?.currentText ?? ''), sha1: String(error.payload?.currentSha1 ?? ''), front })
-            notify((doc === null ? '这篇' : '这个平台版本') + '在 Obsidian 里也被改过，选一下留哪边', true)
-          } else {
-            notify(String(error.message), true)
-          }
-        } finally {
-          setBusy(false)
+            setConflict({ mine: body, theirs: String(error.payload?.currentText ?? ''), sha1: String(error.payload?.currentSha1 ?? ''), front, identity: liveRef.current.identity })
+            notify('这份文档在 Obsidian 里也被改过，请选留哪边', true)
+          } else notify(String(error.message), true)
         }
       }
-
-      // 三选一：用我的 / 用他的 / 取消。用我的 = 拿磁盘最新 sha1 当底强行写回（旧内容进 .backups）。
       async function resolveConflict(choice) {
         const pending = conflict
         setConflict(null)
-        if (pending === null || choice === 'cancel') return
-        if (choice === 'theirs') {
-          setBody(pending.theirs)
-          if (doc === null) {
-            detail.reload()
-          } else {
-            setDocBody(pending.theirs)
-            setDocSha1(pending.sha1)
-          }
-          notify('已载入磁盘上的版本，你这次的改动丢掉了')
-          return
-        }
-        setBusy(true)
+        if (!pending || choice === 'cancel') return
+        if (pending.identity !== undefined && pending.identity !== liveRef.current.identity) { notify('文档已切换，请在当前文档重新保存', true); return }
+        if (choice === 'theirs') { await reloadFromDisk(true); return }
         try {
-          // 平台版本不能带主选题的 front：updateVariant 会 merge，主选题的 id/tags
-          // 会把版本自己的 id 和 masterId 覆盖掉。
-          await put(docUrl, doc === null
-            ? { body: pending.mine, front: pending.front, expectedSha1: pending.sha1 }
-            : { body: pending.mine, expectedSha1: pending.sha1 })
-          notify('已用你的版本覆盖磁盘（旧内容进了 .backups）')
-          if (doc === null) {
-            detail.reload()
-          } else {
-            const payload = await get(docUrl)
-            setDocBody(String(payload?.variant?.body ?? pending.mine))
-            setDocSha1(String(payload?.variant?.sha1 ?? ''))
+          if (await persistBody(pending.mine, pending.front, pending.sha1)) {
+            setBody(pending.mine)
+            notify('已用你的版本覆盖磁盘（旧内容进了 .backups）')
           }
-        } catch (error) {
-          notify('覆盖失败：' + String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+        } catch (error) { notify('覆盖失败，草稿已保留：' + String(error.message), true) }
       }
 
       // 加载态别画返回按钮：上面已经有面包屑了，再画一个会在数据到达时
@@ -4551,16 +4902,18 @@ const STAGE_OF_STATUS = {
       // 报错（笔记被删/路径失效）时也不能停在「加载中」：给出明确提示和返回。
       // 有 initial（列表带过来的正文）时不进「加载中」：那一帧空白就是换笔记时的闪烁。
       if (detail.loading && record === null) return h('div', null, h(Empty, null, t('loading')))
-      if (body === null || detail.error !== null) return h('div', null,
+      if (body === null) return h('div', null,
         showOwnCrumb === false ? null : h(Sect, null,
           h(Breadcrumb, {
             context: ['运营', String(cardTitle === undefined || cardTitle === null ? '笔记' : cardTitle)],
             trail: [{ label: path }],
-            onNav: onBack,
+            onNav: () => { if (allowLeave()) onBack() },
           })),
-        h(ErrorBar, { error: detail.error }),
+        h(ErrorBar, { error: detail.error, onRetry: detail.reload }),
+        h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }), h(ErrorBar, { error: sourceLinks.error, onRetry: sourceLinks.reload }),
+        h(ListPager, { list: accountList, label: '默认账号候选' }),
         h(Empty, null, '这篇选题可能已经被删掉或移动了，去 Obsidian 里确认一下路径。'),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', onClick: onBack }, '返回')))
+        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', onClick: () => { if (allowLeave()) onBack() } }, '返回')))
 
       // 平台版本排在「拆解脚本」和「版本脚本」中间（靠 CSS order 摆位，见 .dsh-gw-note-page）：
       // 先选哪一条拆解，再选平台，点了版本脚本就在它下面写。
@@ -4579,6 +4932,10 @@ const STAGE_OF_STATUS = {
         onOpenScript: (variant) => { void openVariantScript(variant) },
         onCloseScript: closeVariantScript,
         activeScriptId: doc === null ? '' : doc.id,
+        getVariantBaseline: (id) => String(liveRef.current.doc?.id ?? '') === String(id) ? liveRef.current.docSha1 : undefined,
+        onVariantWriting: () => { documentReads.current.invalidate(); detail.invalidate(); sync.invalidate(); wantedDoc.current = liveRef.current.identity; setScriptLoading(false) },
+        onVariantSaved: (variant) => { if (String(liveRef.current.doc?.id ?? '') === String(variant?.id ?? '') && variant?.sha1) { liveRef.current.docSha1 = String(variant.sha1); setDocSha1(String(variant.sha1)); sync.reset(String(variant.sha1)) } },
+        onScriptDeleted: (id) => { if (String(liveRef.current.doc?.id ?? '') === String(id)) closeVariantScript({ discardConfirmed: true }) },
       })) : null
 
       return h('div', { className: 'dsh-gw-note-page' },
@@ -4586,9 +4943,12 @@ const STAGE_OF_STATUS = {
           h(Breadcrumb, {
             context: ['运营', String(cardTitle === undefined || cardTitle === null ? '笔记' : cardTitle)],
             trail: [{ label: path }],
-            onNav: onBack,
+            onNav: () => { if (allowLeave()) onBack() },
           })),
-        h(ErrorBar, { error: detail.error }),
+        h(ErrorBar, { error: detail.error, onRetry: detail.reload }),
+        scriptLoading ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '正在读取版本脚本，当前草稿暂时保持…') : null,
+        planPending > 0 ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '正在保存字段…') : null,
+        Object.entries(planErrors).map(([key, error]) => h(ErrorBar, { key, error, onRetry: () => { void savePlanField(key, liveRef.current.front[key]) } })),
         // 这里原来有一行「＋ 新建拆解」：详情页已经是在写某一条了，再放一个新建入口
         // 只会让人误点、把当前这条丢掉。新建留在我的选题列表那一层。
         // 我的选题最上面问的是「我在写哪一条」：换一条，下面的平台版本跟着换，不用退回列表。
@@ -4751,9 +5111,9 @@ const STAGE_OF_STATUS = {
         // 选题策划三件套：就三行，放在归类行下面，写脚本前先把「说给谁、要他做什么、凭什么看」定下来。
         studio === true
           ? h('div', { className: 'dsh-gw-grid2', style: { margin: '2px 0 6px' } },
-            h(Field, { label: '目标人群' }, h('input', { value: String(front.audience ?? ''), onChange: (event) => setFront({ ...front, audience: event.target.value }), onBlur: (event) => { void savePlanField('audience', event.target.value) }, placeholder: '这条说给谁听' })),
-            h(Field, { label: '内容目标' }, h('input', { value: String(front.goal ?? ''), onChange: (event) => setFront({ ...front, goal: event.target.value }), onBlur: (event) => { void savePlanField('goal', event.target.value) }, placeholder: '想让他看完做什么' })),
-            h(Field, { label: '一句话角度' }, h('input', { value: String(front.angle ?? ''), onChange: (event) => setFront({ ...front, angle: event.target.value }), onBlur: (event) => { void savePlanField('angle', event.target.value) }, placeholder: '这条凭什么值得看' }))
+            h(Field, { label: '目标人群' }, h('input', { value: String(front.audience ?? ''), onChange: (event) => editFront({ ...front, audience: event.target.value }), onBlur: (event) => { void savePlanField('audience', event.target.value) }, placeholder: '这条说给谁听' })),
+            h(Field, { label: '内容目标' }, h('input', { value: String(front.goal ?? ''), onChange: (event) => editFront({ ...front, goal: event.target.value }), onBlur: (event) => { void savePlanField('goal', event.target.value) }, placeholder: '想让他看完做什么' })),
+            h(Field, { label: '一句话角度' }, h('input', { value: String(front.angle ?? ''), onChange: (event) => editFront({ ...front, angle: event.target.value }), onBlur: (event) => { void savePlanField('angle', event.target.value) }, placeholder: '这条凭什么值得看' }))
           )
           : null,
         // 拆解 ↔ 选题 的桥（2026-11-08 拆分）：只留导航 chips——选题页回源拆解、拆解页看派生。
@@ -4771,6 +5131,7 @@ const STAGE_OF_STATUS = {
         // 平台版本只属于创作：拆解页的一条拆解是固定案例，没有平台之分。
         // 排在拆解笔记下面：先选哪一条，再看它在各平台上的版本。
         variantsBlock,
+        typeof onReturnCalendar === 'function' ? h('div', { className: 'dsh-gw-actions' }, h('button', { type: 'button', className: 'dsh-gw-btn', disabled: busy || planPending > 0, onClick: () => onReturnCalendar(record) }, '建好版本后回到预填的排期')) : null,
         // 这一屏只留三样：拆解笔记（写哪条）、平台版本（在哪个平台写）、正文（怎么写）。
         // 原先还有两行，都拿掉了：
         // ① 选题日期 / 标签 / 来源链接 —— 三个都是 frontmatter，Obsidian 的属性面板里能改，
@@ -4862,12 +5223,12 @@ const STAGE_OF_STATUS = {
             h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }))),
         showBody === false ? null : h('div', { className: 'dsh-gw-annot-wrap dsh-gw-note-boxbody', style: { order: doc === null ? 3 : 5 } },
           mode === 'source'
-            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: body, spellCheck: false, onChange: (event) => setBody(event.target.value) })
+            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: body, spellCheck: false, onChange: (event) => editBody(event.target.value) })
             : h('div', { className: 'dsh-gw-note-preview', ref: previewRef },
                 h(LiveMarkdown, {
                   source: body,
                   editable: true,
-                  onChange: (block, blockMd) => { setBody(spliceBlock(body, block, blockMd)) },
+                  onChange: (block, blockMd) => { editBody(spliceBlock(liveRef.current.body, block, blockMd)) },
                 })),
           annotOpen ? h(AnnotSplitter, { width: annotWidth, onResize: (next) => { setAnnotWidth(next); saveAnnotWidth(next) } }) : null,
           annotOpen ? h(AnnotationPanel, {
@@ -5000,7 +5361,7 @@ const STAGE_OF_STATUS = {
           h('label', null, '从 ', h('input', { type: 'date', className: 'dsh-gw-date-input', value: start, onChange: (event) => setStart(event.target.value) })),
           h('label', null, '到 ', h('input', { type: 'date', className: 'dsh-gw-date-input', value: end, onChange: (event) => setEnd(event.target.value) })),
           h('button', { className: 'dsh-gw-btn', onClick: resetRange }, '重置')) },
-        h(ErrorBar, { error: upcoming.error }),
+        h(ErrorBar, { error: upcoming.error, onRetry: upcoming.reload }),
         upcoming.loading ? h(Empty, null, t('loading')) : items.length === 0
           ? h(Empty, null, '这个日期区间还没有排期。')
           : h('div', { className: 'dsh-gw-tablebox' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming' },
@@ -5028,20 +5389,55 @@ const STAGE_OF_STATUS = {
     // 发布队列想回答「本月按日期要发什么」，但这正是日历+「未来 14 天」；
     // 平台矩阵想回答「每条选题铺了哪些平台、走到哪一步」，但这正是我的选题四区。
 
+    function resolveCalendarTopic(draft, records) {
+      const path = String(draft.topicPath ?? '')
+      if (path !== '') { const record = records.find((item) => item.path === path); if (!record) throw new Error('关联选题尚未读取，请重试；不能按同名笔记替代'); return record }
+      const id = String(draft.topicId ?? '')
+      if (id !== '') { const record = records.find((item) => String(item.id ?? item.front?.id ?? '') === id); if (!record) throw new Error('关联选题 ID 尚未读取，请重试；不能按同名笔记替代'); return record }
+      const matches = records.filter((item) => String(item.title) === String(draft.topic ?? '').trim())
+      if (matches.length !== 1) throw new Error(matches.length > 1 ? '有同名选题，请在下拉里选择具体笔记' : '先选已有选题，或点「先建选题」去创建；日历不现场新建笔记')
+      return matches[0]
+    }
+    function chooseCalendarVariant(record, candidates, id) {
+      const masterId = String(record.id ?? record.front?.id ?? '')
+      const own = candidates.filter((item) => String(item.front?.masterId ?? '') === masterId)
+      if (own.length === 0) throw new Error('选题还没有这个平台版本，请先建版本再排期')
+      if (String(id ?? '') !== '') { const variant = own.find((item) => String(item.id) === String(id)); if (!variant) throw new Error('所选版本不属于当前选题 / 平台，请重新选择'); return variant }
+      if (own.length > 1) throw new Error('同选题同平台有多个版本，请明确选择一版')
+      return own[0]
+    }
+    async function moveCalendarEntry(entry, fromMonth, date, expectedSha1, api = { post, put, del }) {
+      const targetMonth = String(date).slice(0, 7)
+      if (targetMonth === fromMonth) return api.put('/calendar', { ...entry, month: fromMonth, date, expectedSha1 })
+      const created = await api.post('/calendar', { ...entry, month: targetMonth, date })
+      try { await api.del('/calendar?month=' + encodeURIComponent(fromMonth) + '&id=' + encodeURIComponent(entry.id)) }
+      catch (error) { error.partialMove = { fromMonth, targetMonth, date, entry: created?.entry ?? null }; throw error }
+      return created
+    }
+
     function CalendarCard({ notify, preset, onCrumb, openCard }) {
       const [month, setMonth] = React.useState(() => todayISO().slice(0, 7))
-      const cal = useAsync(() => get('/calendar?month=' + month), [month])
+      const [draft, setDraft] = React.useState({ platform: '', topic: '', status: '待发', note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
+      const draftBaseline = React.useRef(JSON.stringify(draft))
+      const [partialMove, setPartialMove] = React.useState(null)
+      const cal = useAsync(async () => ({ ...(await get('/calendar?month=' + month)), _month: month }), [month])
+      const calendarData = cal.data?._month === month ? cal.data : null
+      const entries = calendarData?.entries ?? []
       // 关联键的两个候选源：选题笔记和商品档案。两个都按最近改动排在前面。
-      const topicList = useAsync(() => get('/topics/list?limit=200'), [])
-      const productList = useAsync(() => get('/products/list?limit=200'), [])
+      const topicList = usePagedList('/topics/list?limit=200')
+      const productList = usePagedList('/products/list?limit=200')
       // 排期排的是自己的选题：type==='拆解'（拆解别人的案例）不进候选。
-      const topicOptions = (topicList.data?.records ?? []).filter((record) => topicTypeOf(record) !== '拆解')
-      const productOptions = productList.data?.records ?? []
+      const topicLinks = useLinkedRecords('topics', topicList.data?.records ?? [], [{ path: draft.topicPath }, { id: draft.topicId }, ...entries.map((entry) => entry.topicPath ? { path: entry.topicPath } : { id: entry.topicId })])
+      const productLinks = useLinkedRecords('products', productList.data?.records ?? [], [{ path: draft.productPath }, ...entries.map((entry) => ({ path: entry.productPath }))])
+      const productOptions = productLinks.records
       // 同选题同平台可能有多个版本（主号 / 测试号 / 矩阵号）：排期这一行要能说清是哪一版。
       const variantList = useAsync(() => get('/v2/variants'), [])
       const allVariants = variantList.data?.variants ?? []
-      const accountList = useAsync(() => get('/accounts/list?limit=300'), [])
-      const allAccounts = accountList.data?.records ?? []
+      const variantsById = React.useMemo(() => new Map(allVariants.map((variant) => [String(variant.id), variant])), [allVariants])
+      const topicOptions = topicLinks.records.filter((record) => topicTypeOf(record) !== '拆解' || allVariants.some((variant) => String(variant.front?.masterId) === String(record.id ?? record.front?.id)))
+      const accountList = usePagedList('/accounts/list?limit=300')
+      const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: draft.accountId }, { id: variantsById.get(String(draft.variantId))?.front?.accountId }, ...entries.flatMap((entry) => [{ id: entry.accountId }, { id: variantsById.get(String(entry.variantId))?.front?.accountId }])])
+      const allAccounts = accountLinks.records
       const accountsFor = (platform) => {
         const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
         return allAccounts.filter((record) => first === '' || normalizePlatform(record.front?.platform) === first)
@@ -5060,12 +5456,10 @@ const STAGE_OF_STATUS = {
         return normalizePlatform(variant?.front?.platform) + ' · ' + (account === '' ? '默认账号' : account) + ' #' + String(variant?.id ?? '').slice(0, 4)
       }
       const [selected, setSelected] = React.useState(null)
-      const [draft, setDraft] = React.useState({ platform: '', topic: '', status: '待发', note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
       // 「新建排期」表单默认收着：当天详情里的每一行是在编辑已有排期，不该和新建表单混在一起。
       const [showAdd, setShowAdd] = React.useState(false)
-      const [newTopicMode, setNewTopicMode] = React.useState(false)
       const dayDetailsRef = React.useRef(null)
-      // 「+ 新建选题」：不想先去选题卡建好再回来，就在排期现场把选题一起建了。
+      // 建笔记 / 版本通过我的选题；日历只排期，并保留预填。
       // 已排条目的平台编辑：一条内容可能分发多个平台，排完还能补/改。
       const [platformEdit, setPlatformEdit] = React.useState(null)
       // 拖拽改期：拖起来的那一条存在 ref 里（state 会让整块重渲染，拖影会闪），
@@ -5097,23 +5491,18 @@ const STAGE_OF_STATUS = {
         setSelected(date)
         setHlTopic(String(preset.topicPath ?? ''))
         setHlId(String(preset.entryId ?? preset.hlId ?? ''))
-        setDraft((prev) => ({
-          ...prev,
-          topic: String(preset.topic ?? prev.topic),
-          platform: normalizePlatform(preset.platform ?? prev.platform),
-          topicPath: String(preset.topicPath ?? ''),
-          productPath: String(preset.productPath ?? ''),
-          // 「账号档案 → 用这个号排期」带过来的默认账号：排期表单直接选好。
-          account: String(preset.account ?? prev.account),
-          accountId: String(preset.accountId ?? prev.accountId),
-          variantId: String(preset.variantId ?? prev.variantId),
-        }))
+        setDraft((prev) => {
+          const next = { ...prev, ...(preset.calendarDraft ?? {}), topic: String(preset.topic ?? preset.calendarDraft?.topic ?? prev.topic), platform: normalizePlatform(preset.platform ?? preset.calendarDraft?.platform ?? prev.platform),
+            topicPath: String(preset.topicPath ?? preset.calendarDraft?.topicPath ?? ''), productPath: String(preset.productPath ?? preset.calendarDraft?.productPath ?? ''),
+            account: String(preset.account ?? preset.calendarDraft?.account ?? prev.account), accountId: String(preset.accountId ?? preset.calendarDraft?.accountId ?? prev.accountId), variantId: String(preset.variantId ?? '') }
+          draftBaseline.current = JSON.stringify(next); return next
+        })
         // 只有「带着排期意图」跳进来（选题/账号/商品预填）才展开新建表单；
         // 单纯从版本行点「去日历」只看当天，不该弹出新建表单。
         setShowAdd(['topic', 'topicPath', 'account', 'accountId', 'platform', 'productPath'].some((key) => String(preset[key] ?? '').trim() !== ''))
       }, [preset])
       const [busy, setBusy] = React.useState(false)
-      const entries = cal.data?.entries ?? []
+      useDraftGuard(JSON.stringify(draft) !== draftBaseline.current || platformEdit !== null, busy)
       // 「排期」从平台版本跳进来时，光把那一格高亮还不够 —— 月份一多就滚到屏幕外了，
       // 得真的把那一行滚到眼前。等数据到位再滚（entries 变化会重跑）。
       const calBodyRef = React.useRef(null)
@@ -5132,7 +5521,7 @@ const STAGE_OF_STATUS = {
       }, [hlId, hlTopic, selected, entries.length])
       const today = todayISO()
       // 平台候选：后端已经把各月份的写法收敛过一遍，再补上本机历史值兜底。
-      const calPlatforms = React.useMemo(() => platformOptions([...(cal.data?.platforms ?? []), ...entries.map((entry) => entry.platform)]), [cal.data])
+      const calPlatforms = React.useMemo(() => platformOptions([...(calendarData?.platforms ?? []), ...entries.map((entry) => entry.platform)]), [calendarData])
 
       // 换月时把选中日收回到本月 1 号，免得停在上个月的日期上；
       // 但「看排期」预设带来的选中日要先恢复，不能被这次换月清掉。
@@ -5162,77 +5551,25 @@ const STAGE_OF_STATUS = {
         return map
       }, [entries])
 
+      function prepareTopic(createVariant) {
+        if (typeof openCard !== 'function') return
+        void openCard('studio', { path: createVariant ? draft.topicPath : '', createTopic: !createVariant, createVariant, platform: draft.platform, title: draft.topic, date: selected ?? todayISO(), account: draft.account, accountId: draft.accountId,
+          calendarIntent: { ...draft, date: selected ?? todayISO() } })
+      }
       async function add() {
-        if (selected === null) return
-        // 对应选题直接打字：精确匹配到已有选题就挂它；没有同名选题就现场建一篇
-        //（标题=输入文本，平台取上面选的第一个），建完自动挂上再排进日历。
-        const title = draft.topic.trim()
-        if (title === '') { notify('先填选题名：匹配到已有选题就挂上，没匹配到会现场建', true); return }
+        if (selected === null || busy) return
+        let record, variant
+        try { record = resolveCalendarTopic(draft, topicOptions); variant = chooseCalendarVariant(record, variantsFor(record.id ?? record.front?.id, draft.platform), draft.variantId) }
+        catch (error) { notify(String(error.message), true); return }
+        if (topicLinks.error || variantList.error) { notify('关联读取失败，请先重试，不能把未知当成没有版本', true); return }
         setBusy(true)
         try {
-          let topicPath = ''
-          let createdNew = false
-          const hit = topicOptions.find((item) => item.title === title)
-          // 只有一个版本时不用让人多点一次（多版本则必须自己选，绝不猜）。
-          const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
-          if (hit === undefined) {
-            notify('这条选题还没有平台版本：先去我的选题建好选题和平台版本，再来排期', true)
-            return
-          }
-          if (candidates.length === 0) {
-            notify('「' + title + '」在所选平台还没有平台版本：先去我的选题建一个版本，再来排期', true)
-            return
-          }
-          const variantId = draft.variantId !== '' ? draft.variantId : (candidates.length === 1 ? String(candidates[0].id) : '')
-          if (hit !== undefined) {
-            topicPath = hit.path
-          } else {
-            // 拆解笔记的 platform 是单值，多选串「A / B」只取第一个。
-            const platform = normalizePlatform(splitPlatforms(draft.platform)[0] ?? '')
-            if (platform === '') { notify('新建选题需要先在上面选平台', true); return }
-            const record = await post('/topics/create', {
-              title,
-              platform,
-              date: selected ?? todayISO(),
-              dir: '', tags: '', status: '在写', type: '选题',
-            })
-            // 服务端这条路由包了一层：{ created: { ...note, path } }。
-            const path = String(record?.created?.path ?? record?.path ?? record?.record?.path ?? '')
-            if (path === '') throw new Error('建好了但没拿到路径')
-            topicPath = path
-            createdNew = true
-            topicList.reload()
-          }
-          const topicAccount = hit === undefined ? null : hit
-          const accountId = draft.accountId !== '' ? draft.accountId : String(topicAccount?.front?.accountId ?? '')
-          const account = draft.account !== '' ? draft.account : String(topicAccount?.front?.account ?? '')
-          await post('/calendar', { ...draft, account, accountId, topic: title, topicPath, variantId, date: selected, month })
-          setDraft({ platform: '', topic: '', status: draft.status, note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
-          setNewTopicMode(false)
-          notify((createdNew ? '已建选题「' + title + '」并排进 ' : '已排进 ') + selected)
-          cal.reload()
-        } catch (error) {
-          // 同名笔记已经存在（多半是上次建成了但没挂上，或者它压根不在前 200 条候选里）：
-          // 不该让人再建一遍，直接把已有的那篇找出来挂上。
-          if (String(error?.code ?? '') === 'exists') {
-            try {
-              const payload = await get('/topics/list?limit=1000')
-              const found = (payload?.records ?? []).find((record) => String(record.path ?? '').split('/').pop() === title + '.md')
-              if (found !== undefined && found !== null) {
-                await post('/calendar', { ...draft, topic: title, topicPath: String(found.path), variantId, date: selected, month })
-                setDraft({ platform: '', topic: '', status: draft.status, note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
-                notify('这篇选题已经建过了，直接挂上并排进 ' + selected)
-                cal.reload()
-                return
-              }
-            } catch (inner) {
-              // 列表也读不到就落到下面那条统一报错，别把原始错误吞掉。
-            }
-          }
-          notify(String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+          const platform = normalizePlatform(variant.front?.platform) || normalizePlatform(draft.platform)
+          await post('/calendar', { ...draft, month, date: selected, topic: record.title, topicPath: record.path, topicId: String(record.id ?? record.front?.id ?? ''), variantId: String(variant.id), platform,
+            accountId: String(variant.front?.accountId ?? draft.accountId ?? ''), account: String(variant.front?.account ?? draft.account ?? '') })
+          const next = { ...draft, topic: '', topicPath: '', variantId: '', productPath: '', note: '' }; draftBaseline.current = JSON.stringify(next); setDraft(next)
+          cal.reload(); notify('已排期：' + selected + ' · ' + variantLabelOf(variant))
+        } catch (error) { notify('排期未完成：' + String(error.message), true) } finally { setBusy(false) }
       }
 
       // 改这一条排期绑的平台版本：同选题同平台多个版本时，日期只该跟着选中的那一版走。
@@ -5241,7 +5578,7 @@ const STAGE_OF_STATUS = {
           const hit = allVariants.find((variant) => String(variant.id) === String(variantId))
           const account = hit === undefined ? String(entry.account ?? '') : String(hit.front?.account ?? '')
           const accountId = hit === undefined ? String(entry.accountId ?? '') : String(hit.front?.accountId ?? '')
-          await put('/calendar', { ...entry, variantId, account, accountId, month, expectedSha1: cal.data?.sha1 })
+          await put('/calendar', { ...entry, variantId, account, accountId, month, expectedSha1: calendarData?.sha1 })
           cal.reload()
         } catch (error) {
           notify(String(error.message), true)
@@ -5257,7 +5594,7 @@ const STAGE_OF_STATUS = {
             accountId: String(accountId ?? ''),
             account: hit === undefined ? '' : String(hit.front?.name ?? hit.title ?? ''),
             month,
-            expectedSha1: cal.data?.sha1,
+            expectedSha1: calendarData?.sha1,
           })
           cal.reload()
         } catch (error) {
@@ -5271,7 +5608,7 @@ const STAGE_OF_STATUS = {
         try {
           // 换了平台，原来绑的版本多半不属于新平台了：清掉绑定，让人重新选，别留一个指向别处的版本ID。
           const variantId = String(platform) === String(entry.platform ?? '') ? String(entry.variantId ?? '') : ''
-          await put('/calendar', { ...entry, platform, variantId, month, expectedSha1: cal.data?.sha1 })
+          await put('/calendar', { ...entry, platform, variantId, month, expectedSha1: calendarData?.sha1 })
           setPlatformEdit(null)
           cal.reload()
         } catch (error) {
@@ -5281,7 +5618,7 @@ const STAGE_OF_STATUS = {
 
       async function setStatus(entry, status) {
         try {
-          const result = await put('/calendar', { ...entry, status, month, expectedSha1: cal.data?.sha1 })
+          const result = await put('/calendar', { ...entry, status, month, expectedSha1: calendarData?.sha1 })
           cal.reload()
           // 标「已发」时后端会顺手把同选题同平台的平台版本推到「已发」。
           // 推成功了要说一句（否则用户不知道两个地方已经同步），推不动更要说 ——
@@ -5316,7 +5653,7 @@ const STAGE_OF_STATUS = {
         try {
           // 换了选题就得换版本：旧版本属于旧选题，留着就是一条指向不存在关系的绑定。
           const variantId = topicPath === String(entry.topicPath ?? '') ? String(entry.variantId ?? '') : ''
-          await put('/calendar', { ...entry, topic, topicPath, variantId, month, expectedSha1: cal.data?.sha1 })
+          await put('/calendar', { ...entry, topic, topicPath, variantId, month, expectedSha1: calendarData?.sha1 })
           notify(topicPath === '' ? '已取消关联' : '已挂到 ' + tailOf(topicPath))
           cal.reload()
         } catch (error) {
@@ -5331,31 +5668,17 @@ const STAGE_OF_STATUS = {
        *   中途失败最坏是多一条，不会把这条排期弄丢。
        */
       async function moveEntry(entry, date) {
-        const day = String(date ?? '').slice(0, 10)
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return
-        if (String(entry?.date ?? '').slice(0, 10) === day) return
-        const targetMonth = day.slice(0, 7)
+        if (date === '' || date === String(entry.date ?? '') || busy) return
         setBusy(true)
         try {
-          if (targetMonth === month) {
-            await put('/calendar', { ...entry, date: day, month, expectedSha1: cal.data?.sha1 })
-            notify('已改到 ' + day.slice(5))
-            cal.reload()
-            return
-          }
-          await post('/calendar', { ...entry, date: day, month: targetMonth })
-          await del('/calendar?month=' + month + '&id=' + encodeURIComponent(entry.id))
-          notify('已改到 ' + day + '（跨月，日历跟着换到 ' + targetMonth + '）')
-          // 换月 effect 会把选中日清空，先把它记在 pendingDayRef 里再换月，
-          // 否则跳过去看到的是一片没有选中日的日历。
-          pendingDayRef.current = day
-          setMonth(targetMonth)
-          setSelected(day)
+          await moveCalendarEntry(entry, month, date, calendarData?.sha1); setPartialMove(null)
+          if (date.slice(0, 7) !== month) { pendingDayRef.current = date; setMonth(date.slice(0, 7)) }
+          setSelected(date); cal.reload(); notify('已改到 ' + date)
         } catch (error) {
-          notify(String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+          cal.reload()
+          if (error.partialMove) { setPartialMove(error.partialMove); notify('目标月已建好，但旧月删除失败；暂时保留两条，没有丢排期。先查看目标月，不要重复改期：' + String(error.message), true) }
+          else notify('改期未完成：' + String(error.message), true)
+        } finally { setBusy(false) }
       }
 
       async function remove(entry) {
@@ -5391,6 +5714,8 @@ const STAGE_OF_STATUS = {
       const weeks = allWeeks.slice(0, lastUsed + 1)
       const selectedEntries = selected === null ? [] : byDate.get(selected) ?? []
 
+      if (cal.error?.code === 'read_warning' && entries.length === 0) return h('div', null, h(ErrorBar, { error: cal.error, onRetry: cal.reload }), h('p', { className: 'dsh-gw-hint', role: 'status' }, '读取异常，不能当作空表；请重试。不会据此新建或覆盖主表。'))
+
       return h('div', { ref: calWrapRef },
         h('div', { className: 'dsh-gw-card-top', ref: calHeadRef },
           h(Sect, null,
@@ -5399,7 +5724,10 @@ const STAGE_OF_STATUS = {
             h('button', { className: 'dsh-gw-btn', onClick: () => gotoMonth(shiftMonth(month, 1)), title: '下一个月' }, '›'),
             h('button', { className: 'dsh-gw-btn', onClick: () => gotoMonth(today.slice(0, 7)) }, '回到本月'),
             h(Pill, null, entries.length + ' 条'))),
-        h(ErrorBar, { error: cal.error }),
+        h(ErrorBar, { error: cal.error, onRetry: cal.reload }),
+        h(ErrorBar, { error: topicList.error, onRetry: topicList.reload }), h(ErrorBar, { error: productList.error, onRetry: productList.reload }), h(ErrorBar, { error: variantList.error, onRetry: variantList.reload }), h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }),
+        h(ErrorBar, { error: topicLinks.error, onRetry: topicLinks.reload }), h(ErrorBar, { error: productLinks.error, onRetry: productLinks.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
+        partialMove ? h('div', { role: 'alert', className: 'dsh-gw-row-meta' }, '改期只完成一半：目标 ' + partialMove.date + ' 已建立，旧月 ' + partialMove.fromMonth + ' 尚未删除。', h('button', { className: 'dsh-gw-btn', onClick: () => { pendingDayRef.current = partialMove.date; setMonth(partialMove.targetMonth); setSelected(partialMove.date) } }, '查看目标月'), h('button', { className: 'dsh-gw-btn', onClick: () => setPartialMove(null) }, '已检查，收起提示')) : null,
         h('div', { className: 'dsh-gw-cal', ref: calBodyRef, style: { '--dsh-gw-cal-head-h': calHeadH + 'px' } },
           h('div', { className: 'dsh-gw-cal-grid' },
             h('div', { className: 'dsh-gw-cal-week' }, CAL_WEEKDAYS.map((name) => h('div', { key: name, className: 'dsh-gw-cal-wd' }, name))),
@@ -5505,69 +5833,36 @@ const STAGE_OF_STATUS = {
                   h(NewAccountFields, { platform: draft.platform, notify, onCreated: (accountId, account) => { setDraft((prev) => ({ ...prev, accountId, account })); accountList.reload() } }))),
               h(Field, { label: '状态' }, h('select', { className: 'dsh-gw-cal-fieldselect', value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, calStatusOptions(draft.status).map((status) => h('option', { key: status, value: status }, status)))),
               h(Field, { label: '备注' }, h('input', { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), onKeyDown: (event) => { if (event.key === 'Enter' && draft.topic.trim() !== '') add() }, placeholder: '发布时段 / 需要谁配合 / 临时想法' })),
-              // 对应选题：原生下拉，和状态 / 对应商品一致（点开再点会收起）。
-              // 选「＋ 新建选题…」才切到输入框；没有同名选题，提交时现场建（平台取上面选的第一个）。
-              h(Field, { label: '对应选题' },
-                newTopicMode
-                  ? h('span', { style: { display: 'flex', gap: 4, minWidth: 0 } },
-                    h('input', {
-                      className: 'dsh-gw-cal-fieldselect',
-                      autoFocus: true,
-                      style: { flex: '1 1 auto', minWidth: 0 },
-                      value: draft.topic,
-                      placeholder: '输入新选题名，排期时现场建',
-                      onChange: (event) => {
-                        const text = event.target.value
-                        const hit = topicOptions.find((item) => item.title === text)
-                        if (hit !== undefined) setNewTopicMode(false)
-                        const patch = { topic: text, topicPath: hit !== undefined ? hit.path : '', variantId: '' }
-                        if (hit !== undefined) {
-                          const platform = normalizePlatform(hit.front?.platform)
-                          if (platform !== '' && draft.platform.trim() === '') patch.platform = platform
-                          const candidates = variantsFor(hit.front?.id, patch.platform ?? draft.platform)
-                          if (candidates.length === 1) patch.variantId = String(candidates[0].id)
-                        }
-                        setDraft({ ...draft, ...patch })
-                      },
-                    }),
-                    h('button', { className: 'dsh-gw-btn', type: 'button', onClick: () => { setNewTopicMode(false); setDraft({ ...draft, topic: '', topicPath: '', variantId: '' }) } }, '取消'))
-                  : h('select', {
-                    className: 'dsh-gw-cal-fieldselect',
-                    value: draft.topicPath === '' ? '' : draft.topicPath,
-                    onChange: (event) => {
-                      const next = event.target.value
-                      if (next === '__new__') { setNewTopicMode(true); setDraft({ ...draft, topic: '', topicPath: '', variantId: '' }); return }
-                      const hit = topicOptions.find((item) => item.path === next)
-                      if (hit === undefined) { setDraft({ ...draft, topic: '', topicPath: '', variantId: '' }); return }
-                      const patch = { topic: hit.title, topicPath: hit.path, variantId: '' }
-                      const platform = normalizePlatform(hit.front?.platform)
-                      if (platform !== '' && draft.platform.trim() === '') patch.platform = platform
-                      const candidates = variantsFor(hit.front?.id, patch.platform ?? draft.platform)
-                      if (candidates.length === 1) patch.variantId = String(candidates[0].id)
-                      setDraft({ ...draft, ...patch })
-                    },
-                  },
-                    h('option', { value: '' }, draft.topic !== '' && draft.topicPath === '' ? draft.topic + '（现场新建）' : '（选择选题）'),
-                    topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title)),
-                    h('option', { value: '__new__' }, '＋ 新建选题…'))),
-              h(Field, { label: '版本（可选）' }, (() => {
+              h(Field, { label: '对应选题（先建选题，再建版本）' }, h('span', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                h('input', { value: draft.topic, placeholder: '搜索已有选题；待建标题也会带过去', 'aria-label': '选题标题 / 全库搜索', onChange: (event) => { const topic = event.target.value; setDraft({ ...draft, topic, topicPath: '', variantId: '' }); topicList.setQuery(topic) } }),
+                h('select', { className: 'dsh-gw-cal-fieldselect', value: draft.topicPath, onChange: (event) => {
+                  const hit = topicOptions.find((record) => record.path === event.target.value)
+                  if (!hit) { setDraft({ ...draft, topicPath: '', variantId: '' }); return }
+                  const platform = normalizePlatform(hit.front?.platform) || draft.platform
+                  const candidates = variantsFor(hit.id ?? hit.front?.id, platform), variant = candidates.length === 1 ? candidates[0] : null
+                  setDraft({ ...draft, topic: hit.title, topicPath: hit.path, platform, variantId: variant ? String(variant.id) : '', accountId: String(variant?.front?.accountId ?? draft.accountId), account: String(variant?.front?.account ?? draft.account) })
+                } }, h('option', { value: '' }, '请选择具体笔记（同名按路径区分）'), topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title + ' · ' + record.path))),
+                h('span', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } }, h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => prepareTopic(false) }, '先建选题（保留预填）'), h('button', { type: 'button', className: 'dsh-gw-btn', disabled: draft.topicPath === '', onClick: () => prepareTopic(true) }, '先建平台版本（保留预填）')))),
+              h(ListPager, { list: topicList, label: '全库选题' }),
+              h(Field, { label: '版本（多版必选）' }, (() => {
                 if (draft.topic.trim() === '') {
-                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '先在上面输入选题，再选版本')
+                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '先选择具体选题，再选平台版本')
                 }
-                const hit = topicOptions.find((item) => item.title === draft.topic.trim())
+                const hit = topicOptions.find((item) => item.path === draft.topicPath)
                 const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
                 if (candidates.length === 0) {
-                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '这条选题还没有平台版本：先排期，之后在我的选题建版本时再回来绑')
+                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '还没有该平台版本：点「先建平台版本」，建好后回到预填的日历排期')
                 }
                 return h('select', {
                   className: 'dsh-gw-cal-fieldselect',
                   value: draft.variantId,
-                  onChange: (event) => setDraft({ ...draft, variantId: event.target.value }),
+                  onChange: (event) => { const variant = variantsById.get(event.target.value); setDraft({ ...draft, variantId: event.target.value, accountId: String(variant?.front?.accountId ?? ''), account: String(variant?.front?.account ?? '') }) },
                   title: '同选题同平台有多个版本时，选清楚这条排期是哪一版',
                 },
-                  h('option', { value: '' }, '未指定版本（共 ' + candidates.length + ' 个）'),
+                  h('option', { value: '' }, candidates.length > 1 ? '请选择具体版本（必选）' : '唯一版本（保存时自动选择）'),
                   candidates.map((variant) => h('option', { key: variant.id, value: variant.id }, variantLabelOf(variant) + ' · ' + String(variant.status ?? ''))))
               })()),
+              h(ListPager, { list: productList, label: '商品候选' }),
               h(Field, { label: '对应商品' }, h('select', {
                 className: 'dsh-gw-cal-fieldselect',
                 value: draft.productPath,
@@ -5575,7 +5870,7 @@ const STAGE_OF_STATUS = {
               },
                 h('option', { value: '' }, '（不挂货）'),
                 productOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title + (record.front?.kind ? ' · ' + record.front.kind : ''))))),
-            h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', title: '选题名匹配到就挂上，没匹配到就现场建（平台取上面选的第一个），显示名自动用选题标题', disabled: busy || draft.topic.trim() === '', onClick: add }, '排进 ' + selected.slice(5)))),
+            h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', title: '先关联已有选题及明确的平台版本；去建资料时会保留预填', disabled: busy || draft.topicPath === '' || variantList.loading || variantList.error !== null, onClick: add }, '排进 ' + selected.slice(5)))),
             h('div', { className: 'dsh-gw-cal-listhead' }, '当天排期' + (selectedEntries.length === 0 ? '' : ' · ' + selectedEntries.length + ' 条')),
             selectedEntries.length === 0
               ? h('div', { className: 'dsh-gw-row-meta', style: { padding: '2px 4px 8px' } }, '这天还没有排期。')
@@ -5678,7 +5973,7 @@ const STAGE_OF_STATUS = {
 
     function IdeasCard({ notify, openCard }) {
       const list = useAsync(() => get('/ideas'), [])
-      const topicList = useAsync(() => get('/topics/list?limit=200'), [])
+      const topicList = usePagedList('/topics/list?limit=200')
       const [content, setContent] = React.useState('')
       const [source, setSource] = React.useState('')
       const [sourceUrl, setSourceUrl] = React.useState('')
@@ -5960,13 +6255,18 @@ const STAGE_OF_STATUS = {
         }
       }
 
+      if (list.error?.code === 'read_warning' && (list.data?.entries ?? []).length === 0) return h('div', null, h(ErrorBar, { error: list.error, onRetry: list.reload }), h('p', { className: 'dsh-gw-hint', role: 'status' }, '读取异常，不能当作空表；请重试。不会据此新建或覆盖主表。'))
+
       return h('div', null,
         h(Field, { label: '丢一条想法进来' }, h('input', { value: content, onChange: (event) => setContent(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter' && content.trim() !== '') add() }, placeholder: '一句话就行，回车保存' })),
         h(Field, { label: '来源（选填）' }, h('input', { value: source, onChange: (event) => setSource(event.target.value), placeholder: '评论区 / 同事 / 自己想到' })),
         h(Field, { label: '来源URL（选填）' }, h('input', { value: sourceUrl, onChange: (event) => setSourceUrl(event.target.value), placeholder: 'https://… 视频或文章链接' })),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || content.trim() === '', onClick: add }, '记下')),
         
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ErrorBar, { error: topicList.error, onRetry: topicList.reload }),
+        h(ListPager, { list: topicList, label: '可关联的全库选题' }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : entries.length === 0
           ? h(Empty, null, '灵感箱还空着')
           : h(Fold, { title: '灵感', count: shownEntries.length, open: true, action: h('div', { className: 'dsh-gw-idea-filters', onClick: (event) => event.stopPropagation(), onMouseDown: (event) => event.stopPropagation() },
@@ -6185,7 +6485,7 @@ const STAGE_OF_STATUS = {
           h(MultiSelect, { label: '账号', options: accounts, value: accountFilters, onChange: setAccountFilters }),
           dirty ? h('button', { className: 'dsh-gw-chip is-on', type: 'button', onClick: resetAll, title: '清空月份 / 平台 / 账号筛选' }, '清空筛选') : null),
         ledger.loading ? h(Empty, null, t('loading')) : ledger.error !== null
-          ? h(ErrorBar, { error: ledger.error })
+          ? h(ErrorBar, { error: ledger.error, onRetry: ledger.reload })
           : allRows.length === 0 ? h(Empty, null, '还没有回流数据。')
             : rows.length === 0 ? h(Empty, null, '没有符合条件的记录。')
               : h(LedgerTable, { rows, onOpenTopic, hlVariantId, hlDate, dateAsc, onToggleDateSort: () => setDateAsc((prev) => !prev) }))
@@ -6288,7 +6588,7 @@ const STAGE_OF_STATUS = {
      * 平台列 rowspan 合并，末尾一行合计。数据只在渲染时聚合，不落盘。
      */
     function ContentDataCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
-      const list = useAsync(() => get('/data/list?limit=100'), [])
+      const list = usePagedList('/data/list?limit=100')
       const boards = useAsync(() => get('/boards'), [])
       const [openPath, setOpenPath] = React.useState(null)
       const [rankBy, setRankBy] = React.useState('views')
@@ -6320,7 +6620,7 @@ const STAGE_OF_STATUS = {
       const contentTop = (cf.needle === '' ? contentSorted : contentSorted.filter((item) => matchRecord(item, cf.needle))).slice(0, 50)
       const unmeasured = boards.data === null || boards.data === undefined ? 0 : boards.data.unmeasured.length
 
-      if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
+      if (openPath !== null) return h(NoteDetail, { key: openPath, kind: 'data', cardTitle: '数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       return h('div', null,
         contentAll.length === 0 && ledgers.length === 0 ? null : h(ListFilter, { filter: cf.filter, setFilter: cf.setFilter, placeholder: '搜索内容标题 / 平台 / 标签 / 台账', shown: contentTop.length, total: contentSorted.length }),
         contentTop.length === 0 ? null : h(Fold, { title: '内容爆款榜', count: h('span', { className: 'dsh-gw-rank-tabs' },
@@ -6333,8 +6633,10 @@ const STAGE_OF_STATUS = {
           }, label))) },
           h(RankTable, { items: contentTop, rankBy, onOpen: (path) => setOpenPath(path) }),
           unmeasured === 0 ? null : h('div', { className: 'dsh-gw-hint' }, '另有 ' + unmeasured + ' 篇拆解还没回填播放/点赞，不计入排名。到「待回填数据」填一下就会上榜。')),
-        h('ErrorBar', { error: list.error }),
-        list.loading ? h(Empty, null, t('loading')) : ledgers.length === 0
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ErrorBar, { error: boards.error, onRetry: boards.reload }),
+        h(ListPager, { list }),
+        list.loading && list.data === null ? h(Empty, null, t('loading')) : ledgers.length === 0
           ? h(Empty, null, '还没有内容回流数据。到「待回填数据」按平台版本给已发布的内容填播放/点赞。')
           : h(LedgerPanel, {
             paths: ledgers.map((record) => record.path),
@@ -6347,7 +6649,7 @@ const STAGE_OF_STATUS = {
     }
 
     function DataCard({ notify, onCrumb, crumb, closeTicket, openCard }) {
-      const list = useAsync(() => get('/data/list?limit=100'), [])
+      const list = usePagedList('/data/list?limit=100')
       const [openPath, setOpenPath] = React.useState(null)
       const [rankSort, setRankSort] = React.useState({ key: 'views', dir: -1 })
       const [periodFilters, setPeriodFilters] = React.useState([])
@@ -6368,7 +6670,7 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const records = (list.data?.records ?? []).filter((record) => !String(record.path ?? '').includes('/回流台账/'))
-      const rf = useRecordFilter(records)
+      const rf = useRecordFilter(records, list)
       // 复盘筛选：周期 / 平台两个多选，转化率按区间、环比按方向。
       const periods = Array.from(new Set(records.map((record) => String(record.front?.period ?? '').trim()).filter(Boolean))).sort().reverse()
       const dataPlatforms = Array.from(new Set(records.map((record) => String(record.front?.platform ?? '').trim()).filter(Boolean)))
@@ -6465,9 +6767,11 @@ const STAGE_OF_STATUS = {
         return list
       }, [noteRows, rankSort])
 
-      if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '电商数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
+      useObjectDraftGuard({ draft, csvText }, busy)
+
+      if (openPath !== null) return h(NoteDetail, { key: openPath, kind: 'data', cardTitle: '电商数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       return h('div', null,
-        records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: shownRecords.length, total: records.length }),
+        h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: shownRecords.length, total: records.length }),
         h('div', { className: 'dsh-gw-card-top' },
           records.length === 0 ? null : h('div', { className: 'dsh-gw-ledger-filters', style: { margin: '0 0 0 auto' } },
             h(MultiSelect, { label: '周期', options: periods, value: periodFilters, onChange: setPeriodFilters }),
@@ -6492,7 +6796,9 @@ const STAGE_OF_STATUS = {
             onOpen: (path) => { if (typeof openCard === 'function' && path !== '') openCard('studio', { path, edit: true }) },
           }),
           h('div', { className: 'dsh-gw-hint' }, '按单篇内容汇总回流台账；点表头切换正序/倒序。')),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ErrorBar, { error: noteBoard.error, onRetry: noteBoard.reload }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有复盘。下面按周/月建一份，模板会带上 GMV/流量/转化率/ROI 表。')
           : shownRecords.length === 0
@@ -6526,7 +6832,7 @@ const STAGE_OF_STATUS = {
      * 这里存成可复用的档案，选题和平台版本都只记 id + 名称副本。
      */
     function AccountsCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
-      const list = useAsync(() => get('/accounts/list?limit=300'), [])
+      const list = usePagedList('/accounts/list?limit=300')
       const presetPath = preset !== null && preset !== undefined && typeof preset.path === 'string' ? preset.path : ''
       const [openPath, setOpenPath] = React.useState(presetPath === '' ? null : presetPath)
       React.useEffect(() => {
@@ -6566,15 +6872,19 @@ const STAGE_OF_STATUS = {
 
       if (openPath !== null) {
         return h(NoteDetail, {
+          key: openPath,
           kind: 'accounts', cardTitle: '账号档案', path: openPath,
           onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard,
           onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify,
         })
       }
       void crumb
+      useObjectDraftGuard(draft, busy)
+
       return h('div', null,
         h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '账号名 / 平台 / 定位 / 目标人群', shown: shown.length, total: records.length }),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有账号档案。在下面建第一个：填平台、账号名、这个号是做什么的、给谁看。')
           : shown.length === 0
@@ -6626,7 +6936,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 卡片：商品 / 竞品库 ────────────── */
 
     function ProductsCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
-      const list = useAsync(() => get('/products/list?limit=300'), [])
+      const list = usePagedList('/products/list?limit=300')
       const [selected, setSelected] = React.useState([])
       const presetPath = preset !== null && preset !== undefined && typeof preset.path === 'string' ? preset.path : ''
       const [openPath, setOpenPath] = React.useState(presetPath === '' ? null : presetPath)
@@ -6758,7 +7068,9 @@ const STAGE_OF_STATUS = {
             h(RowDelete, { path: record.path, notify, onDeleted: () => { list.reload() } })))
       }
 
-      if (openPath !== null) return h(NoteDetail, { kind: 'products', cardTitle: '商品库', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
+      useObjectDraftGuard(draft, busy)
+
+      if (openPath !== null) return h(NoteDetail, { key: openPath, kind: 'products', cardTitle: '商品库', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       void preset
       return h('div', null,
         records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '商品名 / 平台 / 标签', shown: baseShown.length, total: records.length, big: true }),
@@ -6822,7 +7134,8 @@ const STAGE_OF_STATUS = {
             )
           ),
           h('div', { className: 'dsh-gw-hint' }, 'GMV 累计 ' + formatCount(rolled.reduce((sum, item) => sum + item.gmv, 0)))),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有商品档案')
           : baseShown.length === 0
@@ -6900,11 +7213,11 @@ const STAGE_OF_STATUS = {
 
     // 记一条、表格里改来源都用它：按类别分组的原生下拉，值就是写进表格的那句话。
     // 已经存过、但这次候选里没有的值（笔记改名、商品删了）单列一组，别静默抹掉。
-    function SourceSelect({ value, groups, onChange, extra }) {
+    function SourceSelect({ value, groups, onChange, extra, id, 'aria-labelledby': labelledBy }) {
       const current = String(value ?? '')
       const known = current !== '' && groups.some((group) => group.options.some((option) => option.value === current))
       const stale = current !== '' && known === false
-      const props = Object.assign({ value: current, onChange: (event) => onChange(event.target.value) }, extra ?? {})
+      const props = Object.assign({ id, 'aria-labelledby': labelledBy, value: current, onChange: (event) => onChange(event.target.value) }, extra ?? {})
       return h('select', props,
         h('option', { value: '' }, '（未标来源）'),
         stale ? h('optgroup', { label: '已记录（不在当前候选里）' }, h('option', { value: current }, current)) : null,
@@ -6916,8 +7229,8 @@ const STAGE_OF_STATUS = {
 
     function FeedbackCard({ notify }) {
       const list = useAsync(() => get('/feedback'), [])
-      const sourceTopicList = useAsync(() => get('/topics/list?limit=200'), [])
-      const sourceProductList = useAsync(() => get('/products/list?limit=200'), [])
+      const sourceTopicList = usePagedList('/topics/list?limit=200')
+      const sourceProductList = usePagedList('/products/list?limit=200')
       const sourceGroups = feedbackSourceGroups(PLATFORMS, sourceTopicList.data?.records ?? [], sourceProductList.data?.records ?? [], topicTypeOf)
       // 胶囊筛选：情感 + 标签（沿用选题卡的下拉样式）。
       const fbTableRef = React.useRef(null)
@@ -7096,6 +7409,10 @@ const STAGE_OF_STATUS = {
         }
       }
 
+      useObjectDraftGuard(draft, busy)
+
+      if (list.error?.code === 'read_warning' && (list.data?.entries ?? []).length === 0) return h('div', null, h(ErrorBar, { error: list.error, onRetry: list.reload }), h('p', { className: 'dsh-gw-hint', role: 'status' }, '读取异常，不能当作空表；请重试。不会据此新建或覆盖主表。'))
+
       return h('div', null,
         h('div', { className: 'dsh-gw-card-top' },
           negativeOpen.length > 0 ? h('button', { type: 'button', className: 'dsh-gw-err dsh-gw-err-btn' + (negativeViewOn ? ' is-on' : ''), onClick: toggleNegativeView, title: negativeViewOn ? '再点一下取消筛选' : '点一下只看这些未处理的负面' }, negativeOpen.length + ' 条负面还没人管' + (negativeViewOn ? '（已筛选，再点取消）' : '（点我看）')) : null),
@@ -7108,7 +7425,10 @@ const STAGE_OF_STATUS = {
         h(Field, { label: '原文' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.content, onChange: (event) => setDraft({ ...draft, content: event.target.value }), placeholder: '客户原话' })),
         h(Field, { label: '标签' }, h('input', { value: draft.tags, onChange: (event) => setDraft({ ...draft, tags: event.target.value }), placeholder: '物流 / 尺码 / 客服' })),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ErrorBar, { error: sourceTopicList.error, onRetry: sourceTopicList.reload }), h(ErrorBar, { error: sourceProductList.error, onRetry: sourceProductList.reload }),
+        h(ListPager, { list: sourceTopicList, label: '可关联的全库笔记' }), h(ListPager, { list: sourceProductList, label: '可关联的全库商品' }),
+        h(ListPager, { list }),
         entries.length > 0 ? h('div', { className: 'dsh-gw-cat-row', style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 } },
           h('select', { value: sentimentFilter, onChange: (event) => { setSentimentFilter(event.target.value); if (event.target.value !== '负') setStatusFilter('') }, className: 'dsh-gw-catselect', style: { height: 24 }, title: '按情感筛选' },
             ['全部', '负', '正', '中性'].map((value) => h('option', { key: value, value }, value === '全部' ? '情感：全部' : '情感：' + value))),
@@ -7246,7 +7566,7 @@ const STAGE_OF_STATUS = {
           setBusy(false)
         }
       }
-      if (detail.loading) return h(Empty, null, t('loading'))
+      if (detail.loading && detail.data === null) return h(Empty, null, t('loading'))
       return h(Fold, { title: '效果对比（结构化编辑）', open: true, count: h(Pill, null, String(rows.filter((row) => String(row.metric ?? '').trim() !== '').length) + ' 项') },
         h('div', { className: 'dsh-gw-hint' }, '对应正文「### 效果对比」那张表；填指标 / 预期 / 实际，保存时只改这张表。'),
         h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6, marginBottom: 8 } },
@@ -7268,7 +7588,7 @@ const STAGE_OF_STATUS = {
     }
 
     function CampaignsCard({ notify, onCrumb, crumb, closeTicket }) {
-      const list = useAsync(() => get('/campaigns/list?limit=200'), [])
+      const list = usePagedList('/campaigns/list?limit=200')
       const [openPath, setOpenPath] = React.useState(null)
       const [draft, setDraft] = React.useState({ title: '', platform: '', status: '草稿', start: '', end: '', budget: '', goal: '' })
       const [busy, setBusy] = React.useState(false)
@@ -7300,12 +7620,15 @@ const STAGE_OF_STATUS = {
       }
 
 
+      useObjectDraftGuard(draft, busy)
+
       if (openPath !== null) return h('div', null,
         h(CampaignMetricsPanel, { key: openPath, path: openPath, notify }),
-        h(NoteDetail, { kind: 'campaigns', cardTitle: '营销活动', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify }))
+        h(NoteDetail, { key: openPath, kind: 'campaigns', cardTitle: '营销活动', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify }))
       return h('div', null,
         records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: rf.shown.length, total: records.length }),
-        h(ErrorBar, { error: list.error }),
+        h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有营销方案')
           : rf.shown.length === 0
@@ -7338,6 +7661,12 @@ const STAGE_OF_STATUS = {
       const [conflict, setConflict] = React.useState(null)
       const [body, setBody] = React.useState(null)
       const [front, setFront] = React.useState({})
+      const [record, setRecord] = React.useState(null)
+      const baselineRef = React.useRef(null)
+      const liveRef = React.useRef(null)
+      const aliveRef = React.useRef(true)
+      const reads = React.useRef(null)
+      if (reads.current === null) reads.current = createReadEpoch()
       const [busy, setBusy] = React.useState(false)
       // 账号档案的正文模板是空的，预览态里没有可点的地方 —— 默认直接进源码编辑。
       const [mode, setMode] = React.useState(kind === 'accounts' ? 'source' : 'live')
@@ -7346,28 +7675,54 @@ const STAGE_OF_STATUS = {
       const previewRef = React.useRef(null)
       const editorRef = React.useRef(null)
 
-      React.useEffect(() => {
-        if (detail.data?.record !== undefined) {
-          setBody(detail.data.record.body)
-          setFront(detail.data.record.front ?? {})
-        }
-      }, [detail.data])
-
-      const record = detail.data?.record ?? null
+      liveRef.current = { body, front, busy }
       const dirty = body !== null && record !== null
         && (body !== String(record.body ?? '') || JSON.stringify(front) !== JSON.stringify(record.front ?? {}))
+      liveRef.current.dirty = dirty
+      const allowLeave = useDraftGuard(dirty, busy)
+      function store(next) {
+        baselineRef.current = next
+        if (aliveRef.current) setRecord(next)
+      }
+      function adopt(next) {
+        if (!aliveRef.current) return
+        store(next)
+        setBody(String(next.body ?? ''))
+        setFront(next.front ?? {})
+        detail.setData({ record: next })
+      }
+      function editBody(next) {
+        reads.current.invalidate()
+        liveRef.current.body = next
+        liveRef.current.dirty = true
+        sync.markDirty()
+        setBody(next)
+      }
+      function editFront(next) {
+        liveRef.current.front = next
+        liveRef.current.dirty = true
+        reads.current.invalidate()
+        sync.markDirty()
+        setFront(next)
+      }
+      React.useEffect(() => {
+        const fresh = detail.data?.record
+        if (!fresh || fresh.sha1 === baselineRef.current?.sha1) return
+        if (!liveRef.current.dirty && !liveRef.current.busy) adopt(fresh)
+        else sync.offer(fresh)
+      }, [detail.data])
+      React.useEffect(() => () => { aliveRef.current = false; reads.current.invalidate(); detail.invalidate() }, [])
       const recordUrl = '/' + kind + '/record?path=' + encodeURIComponent(path)
       const sync = useExternalSync({
         path,
         url: recordUrl,
         currentSha1: record?.sha1 ?? '',
-        isDirty: dirty,
+        isDirty: dirty || busy,
         enabled: record !== null,
         onAdopt: (fresh) => {
-          detail.setData({ record: fresh })
-          setBody(fresh.body)
-          setFront(fresh.front ?? {})
-          notify('这篇刚被更新（大概率是 agent 写回的），已载入编辑器')
+          reads.current.invalidate()
+          adopt(fresh)
+          notify('这篇刚被更新，已载入编辑器')
         },
       })
 
@@ -7376,124 +7731,102 @@ const STAGE_OF_STATUS = {
        * 从磁盘重新读一遍正文（Obsidian 里改过之后用）。
        * 同样不走 detail.reload()，避开 loading 占位造成的闪退。
        */
-      async function reloadFromDisk() {
+      async function reloadFromDisk(force = false) {
+        if (busy || (!force && !allowLeave('重新读取会放弃当前草稿，确定吗？'))) return
+        const identity = kind + '|' + path
+        const ticket = reads.current.begin(identity)
+        const before = documentSnapshot(identity, liveRef.current.body, liveRef.current.front)
+        detail.invalidate()
+        sync.invalidate()
         setBusy(true)
         try {
-          const fresh = await get('/' + kind + '/record?path=' + encodeURIComponent(path))
-          detail.setData(fresh)
-          setBody(fresh.record.body)
-          setFront(fresh.record.front)
+          const fresh = await get(recordUrl)
+          if (!aliveRef.current || !reads.current.current(ticket, identity)) return
+          if (!sameDocumentSnapshot(before, documentSnapshot(identity, liveRef.current.body, liveRef.current.front))) { notify('读取期间又有新改动，已保留草稿', true); return }
+          adopt(fresh.record)
+          sync.reset(fresh.record.sha1)
           notify('已从磁盘重新读取')
-        } catch (error) {
-          notify('读取失败：' + String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+        } catch (error) { if (aliveRef.current) notify('读取失败：' + String(error.message), true) }
+        finally { if (aliveRef.current) setBusy(false) }
       }
-
+      async function persistBody(text, savedFront = front, forcedSha) {
+        if (busy || !aliveRef.current) return false
+        reads.current.invalidate()
+        detail.invalidate()
+        sync.invalidate()
+        setBusy(true)
+        try {
+          const baseline = baselineRef.current
+          const sha1 = forcedSha === undefined ? baseline?.sha1 : forcedSha
+          const written = await put(recordUrl, { body: text, front: savedFront, expectedSha1: String(sha1 ?? '') })
+          if (!aliveRef.current) return false
+          const nextSha = String(written?.written?.sha1 ?? sha1 ?? '')
+          const next = { ...baseline, body: text, front: { ...savedFront }, sha1: nextSha }
+          store(next)
+          detail.setData({ record: next })
+          sync.reset(nextSha)
+          return true
+        } finally { if (aliveRef.current) setBusy(false) }
+      }
       async function annotate(needle, annotationNote) {
         const applied = applyAnnotation(body, needle, annotationNote)
-        if (applied.error !== null) {
-          notify(applied.error, true)
-          return
-        }
-        setBody(applied.text)
+        if (applied.error !== null) { notify(applied.error, true); return }
+        editBody(applied.text)
         setMode('live')
-        try {
-          const written = await put('/' + kind + '/record?path=' + encodeURIComponent(path), { body: applied.text, front, expectedSha1: detail.data.record.sha1 })
-          const sha1 = written?.written?.sha1 ?? detail.data.record.sha1
-          detail.setData({ ...detail.data, record: { ...detail.data.record, body: applied.text, sha1 } })
-          notify(annotationNote === '' ? '已高亮' : '已加备注')
-        } catch (error) {
-          notify('高亮写进去了但没存上：' + String(error.message), true)
-        }
+        try { if (await persistBody(applied.text)) notify(annotationNote === '' ? '已高亮' : '已加备注') }
+        catch (error) { notify('高亮留在草稿但没存上：' + String(error.message), true) }
       }
-
-      // 取消高亮/备注
       async function unannotate(needle, alsoNote) {
         const removed = removeAnnotation(body, needle, alsoNote)
-        if (removed.error !== null) {
-          notify(removed.error, true)
-          return
-        }
-        setBody(removed.text)
-        try {
-          const written = await put('/' + kind + '/record?path=' + encodeURIComponent(path), { body: removed.text, front, expectedSha1: detail.data.record.sha1 })
-          const sha1 = written?.written?.sha1 ?? detail.data.record.sha1
-          detail.setData({ ...detail.data, record: { ...detail.data.record, body: removed.text, sha1 } })
-          notify(alsoNote === false ? '已取消备注' : '已取消高亮')
-        } catch (error) {
-          notify('取消写进去了但没存上：' + String(error.message), true)
-        }
+        if (removed.error !== null) { notify(removed.error, true); return }
+        editBody(removed.text)
+        try { if (await persistBody(removed.text)) notify(alsoNote === false ? '已取消备注' : '已取消高亮') }
+        catch (error) { notify('取消留在草稿但没存上：' + String(error.message), true) }
       }
-
       async function save() {
-        setBusy(true)
-        try {
-          await put('/' + kind + '/record?path=' + encodeURIComponent(path), { body, front, expectedSha1: detail.data.record.sha1 })
-          notify('已保存')
-          detail.reload()
-        } catch (error) {
+        try { if (await persistBody(body, front)) notify('已保存') }
+        catch (error) {
           if (error.code === 'conflict') {
             setConflict({ mine: body, theirs: String(error.payload?.currentText ?? ''), sha1: String(error.payload?.currentSha1 ?? ''), front })
-            notify('这篇在 Obsidian 里也被改过，选一下留哪边', true)
-          } else {
-            notify(String(error.message), true)
-          }
-        } finally {
-          setBusy(false)
+            notify('这篇在 Obsidian 里也被改过，请选留哪边', true)
+          } else notify(String(error.message), true)
         }
       }
-
       async function resolveConflict(choice) {
         const pending = conflict
         setConflict(null)
-        if (pending === null || choice === 'cancel') return
-        if (choice === 'theirs') {
-          setBody(pending.theirs)
-          detail.reload()
-          notify('已载入磁盘上的版本，你这次的改动丢掉了')
-          return
-        }
-        setBusy(true)
+        if (!pending || choice === 'cancel') return
+        if (choice === 'theirs') { await reloadFromDisk(true); return }
         try {
-          await put('/' + kind + '/record?path=' + encodeURIComponent(path), { body: pending.mine, front: pending.front, expectedSha1: pending.sha1 })
-          notify('已用你的版本覆盖磁盘（旧内容进了 .backups）')
-          detail.reload()
-        } catch (error) {
-          notify('覆盖失败：' + String(error.message), true)
-        } finally {
-          setBusy(false)
-        }
+          if (await persistBody(pending.mine, pending.front, pending.sha1)) { setBody(pending.mine); notify('已用你的版本覆盖磁盘（旧内容进了 .backups）') }
+        } catch (error) { notify('覆盖失败，草稿已保留：' + String(error.message), true) }
       }
 
       // 加载态别画返回按钮：上面已经有面包屑了，再画一个会在数据到达时
       // 被替换掉，看着就是左上角闪了一下。
       // 报错（笔记被删/路径失效）时也不能停在「加载中」：给出明确提示和返回。
-      if (detail.loading) return h('div', null, h(Empty, null, t('loading')))
-      if (body === null || detail.error !== null) return h('div', null,
+      if (detail.loading && record === null) return h('div', null, h(Empty, null, t('loading')))
+      if (body === null) return h('div', null,
         showOwnCrumb === false ? null : h(Sect, null,
           h(Breadcrumb, {
             context: ['运营', String(cardTitle === undefined || cardTitle === null ? kind : cardTitle)],
             trail: [{ label: path }],
-            onNav: onBack,
+            onNav: () => { if (allowLeave()) onBack() },
           })),
-        h(ErrorBar, { error: detail.error }),
+        h(ErrorBar, { error: detail.error, onRetry: detail.reload }),
         h(Empty, null, '这篇笔记可能已经被删掉或移动了，去 Obsidian 里确认一下路径。'),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', onClick: onBack }, '返回')))
+        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', onClick: () => { if (allowLeave()) onBack() } }, '返回')))
 
-      const schema = detail.data?.record?.front !== undefined
-        ? Object.keys(detail.data.record.front)
-        : []
+      const schema = Object.keys(record?.front ?? {})
 
       return h('div', null,
         showOwnCrumb === false ? null : h(Sect, null,
           h(Breadcrumb, {
             context: ['运营', String(cardTitle === undefined || cardTitle === null ? kind : cardTitle)],
             trail: [{ label: path }],
-            onNav: onBack,
+            onNav: () => { if (allowLeave()) onBack() },
           })),
-        h(ErrorBar, { error: detail.error }),
+        h(ErrorBar, { error: detail.error, onRetry: detail.reload }),
         schema.length === 0 ? null : h('div', { className: 'dsh-gw-grid2' }, schema.map((key) => {
           const options = FIELD_OPTIONS[kind]?.[key]
           const label = FIELD_LABELS[key] ?? key
@@ -7507,11 +7840,11 @@ const STAGE_OF_STATUS = {
                 ? h('input', {
                   type: ['date', 'start', 'end'].includes(String(key)) ? 'date' : 'text',
                   value: String(front[key] ?? ''),
-                  onChange: (event) => setFront({ ...front, [key]: event.target.value }),
+                  onChange: (event) => editFront({ ...front, [key]: event.target.value }),
                 })
                 : h('select', {
                   value: String(front[key] ?? ''),
-                  onChange: (event) => setFront({ ...front, [key]: event.target.value }),
+                  onChange: (event) => editFront({ ...front, [key]: event.target.value }),
                 },
                   h('option', { value: '' }, '（未设置）'),
                   selectOptions.map((value) => h('option', { key: value, value }, value))),
@@ -7537,13 +7870,13 @@ const STAGE_OF_STATUS = {
             h(ModeButtons, { mode, setMode }))),
         h('div', { className: 'dsh-gw-annot-wrap' },
           mode === 'source'
-            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: body, spellCheck: false, onChange: (event) => setBody(event.target.value) })
+            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: body, spellCheck: false, onChange: (event) => editBody(event.target.value) })
             : h('div', { className: 'dsh-gw-note-preview', ref: previewRef },
                 h(LiveMarkdown, {
                   source: body,
                   editable: true,
                   className: String(path ?? '').includes('/回流台账/') ? 'dsh-gw-ledger-md' : '',
-                  onChange: (block, blockMd) => { setBody(spliceBlock(body, block, blockMd)) },
+                  onChange: (block, blockMd) => { editBody(spliceBlock(liveRef.current.body, block, blockMd)) },
                 })),
           annotOpen ? h(AnnotSplitter, { width: annotWidth, onResize: (next) => { setAnnotWidth(next); saveAnnotWidth(next) } }) : null,
           annotOpen ? h(AnnotationPanel, {
@@ -7574,7 +7907,7 @@ const STAGE_OF_STATUS = {
             pushToAgent(path, body, notify, { promptKey: 'note' })
           } }, '交给对话'),
           h('button', { className: 'dsh-gw-btn', onClick: () => openInObsidian(path, notify) }, t('openInObsidian')),
-          h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', title: t('delete') + '：' + path, disabled: busy, onClick: () => deleteNote(path, notify, onBack) }, [h(Icon, { name: 'trash', size: 12 }), ' ', t('delete')]),
+          h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', title: t('delete') + '：' + path, disabled: busy, onClick: () => { if (allowLeave()) void deleteNote(path, notify, onBack) } }, [h(Icon, { name: 'trash', size: 12 }), ' ', t('delete')]),
         ),
         h(ConflictDialog, { conflict, onResolve: (choice) => { void resolveConflict(choice) } }),
       )
@@ -8434,7 +8767,9 @@ const STAGE_OF_STATUS = {
         const first = RULE_SECTIONS.find((section) => data.items.some((item) => item.section === section.key))
         if (first) setActiveSection(first.key)
       }, [data, activeSection])
-      if (state.loading) return h(Empty, null, t('loading'))
+      useDraftGuard(String(draft.id ?? '').trim() !== '' || String(draft.title ?? '').trim() !== '' || Object.values(draft.fields ?? {}).some((value) => String(value ?? '').trim() !== ''), busy)
+
+      if (state.loading && state.data === null) return h(Empty, null, t('loading'))
 
       const counts = data?.counts ?? {}
       // 不再单独留一列放按钮：表一窄，那一列最先被挤没，按钮就跟着消失。
@@ -8487,7 +8822,7 @@ const STAGE_OF_STATUS = {
         setDraft((prev) => ({ ...prev, section: key, id: '' }))
       }
       return h('div', { className: 'dsh-gw-rules-card' },
-        h(ErrorBar, { error: state.error }),
+        h(ErrorBar, { error: state.error, onRetry: state.reload }),
         h('div', { className: 'dsh-gw-card-top dsh-gw-rules-filter' },
           h(Sect, null,
             RULE_SECTIONS.map((section) => h('button', {
@@ -9054,7 +9389,7 @@ const STAGE_OF_STATUS = {
           }),
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || creating.title.trim() === '', onClick: create }, '建'),
           h('button', { className: 'dsh-gw-btn', onClick: () => setCreating(null) }, t('cancel'))),
-        h(ErrorBar, { error: tree.error }),
+        h(ErrorBar, { error: tree.error, onRetry: tree.reload }),
         h('div', { className: 'dsh-gw-sop-body' },
           h('div', { className: 'dsh-gw-sop-filter' },
             h('input', {
@@ -9377,6 +9712,10 @@ const STAGE_OF_STATUS = {
         return () => document.removeEventListener('mousedown', onDown)
       }, [editing])
 
+      useObjectDraftGuard(draft, busy)
+
+      if (list.error?.code === 'read_warning' && (list.data?.entries ?? []).length === 0) return h('div', null, h(ErrorBar, { error: list.error, onRetry: list.reload }), h('p', { className: 'dsh-gw-hint', role: 'status' }, '读取异常，不能当作空表；请重试。不会据此新建或覆盖主表。'))
+
       return h('div', { className: 'dsh-gw-rules-card' },
         h('div', { className: 'dsh-gw-card-top dsh-gw-rules-filter' },
           h(Sect, null,
@@ -9393,7 +9732,8 @@ const STAGE_OF_STATUS = {
               onClick: () => { setFilter(''); setDomainFilter([]); setTagFilter([]) },
             }, '清空筛选'))),
         h('div', { className: 'dsh-gw-rules-scroll' },
-          h(ErrorBar, { error: list.error }),
+          h(ErrorBar, { error: list.error, onRetry: list.reload }),
+        h(ListPager, { list }),
           list.loading ? h(Empty, null, t('loading')) : shown.length === 0
             ? h(Empty, null, '还没有术语。先把团队天天吵的那几个指标口径记下来。')
             : h(Fold, { title: '术语', count: shown.length, open: true },
@@ -9462,12 +9802,13 @@ const STAGE_OF_STATUS = {
       return values.join(COMBO_SEP)
     }
 
-    function ComboField({ value, onChange, options, placeholder }) {
+    function ComboField({ value, onChange, options, placeholder, id, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
       const [typing, setTyping] = React.useState('')
       const boxRef = React.useRef(null)
       const inputRef = React.useRef(null)
       const values = splitCombo(value)
+      useDraftGuard(typing.trim() !== '')
 
       React.useEffect(() => {
         if (!open) return
@@ -9511,7 +9852,7 @@ const STAGE_OF_STATUS = {
               onClick: () => drop(item),
             }, '×'))),
           h('input', {
-            ref: inputRef,
+            ref: inputRef, id, 'aria-labelledby': labelledBy,
             className: 'dsh-gw-combo-input',
             value: typing,
             placeholder: values.length === 0 ? placeholder : '',
@@ -9529,7 +9870,7 @@ const STAGE_OF_STATUS = {
                 event.preventDefault()
                 drop(values[values.length - 1])
               }
-              if (event.key === 'Escape') setOpen(false)
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false) }
             },
           }),
         ),
@@ -9739,6 +10080,8 @@ const STAGE_OF_STATUS = {
       const [accountFilters, setAccountFilters] = React.useState([])
       // 行内编辑：entryKey 为 null 表示这是一条待新增的空行（最上面那行），否则就是表格里那一行。
       const [editing, setEditing] = React.useState(null)
+      const [visibleCount, setVisibleCount] = React.useState(50)
+      const allowEditingLeave = useDraftGuard(metricDraftChanged(editing), busy !== null)
       // 从我的选题那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
       const [hlId, setHlId] = React.useState('')
       const hlRef = React.useRef(null)
@@ -9756,11 +10099,16 @@ const STAGE_OF_STATUS = {
       const accountOptions = Array.from(new Set(platShown.map((item) => String(item.variant?.front?.account ?? '')).filter((name) => name !== ''))).sort()
       const shownItems = accountFilters.length === 0 ? platShown : platShown.filter((item) => accountFilters.includes(String(item.variant?.front?.account ?? '')))
       const ledgerRows = ledger.data?.rows ?? []
-      const metricsOf = (variantId) => ledgerRows.filter((row) => String(row.variantId ?? '') === String(variantId ?? '')).sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
+      const ledgerIndex = React.useMemo(() => {
+        const map = indexBy(ledgerRows, (row) => String(row.variantId ?? ''))
+        for (const rows of map.values()) rows.sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
+        return map
+      }, [ledgerRows])
+      const metricsOf = (variantId) => ledgerIndex.get(String(variantId ?? '')) ?? []
       React.useEffect(() => {
         if (hlId === '' || hlRef.current === null) return
         hlRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      }, [hlId, v2items.length])
+      }, [hlId, v2items.length, visibleCount])
 
       const textOf = (value) => (String(value ?? '') === '' ? '' : String(value))
       const FIELDS = ['date', 'views', 'likes', 'comments', 'shares', 'link', 'completion', 'avgDuration', 'followers', 'orders', 'gmv', 'returnReason', 'source', 'caliber']
@@ -9770,19 +10118,31 @@ const STAGE_OF_STATUS = {
         draft.date = String(row.date ?? '').slice(0, 10)
         return draft
       }
-      const itemOf = (variantId) => shownItems.find((item) => String(item.variant.id) === String(variantId)) ?? null
-      const startEdit = (item, row) => setEditing({ entryKey: item.variant.id + '|' + String(row.id ?? row.date), variantId: String(item.variant.id), draft: draftOfRow(row) })
-      const startNew = (item, entryKey) => setEditing({ entryKey, variantId: String(item.variant.id), draft: { date: todayISO() } })
-      const stopEdit = () => setEditing(null)
+      const itemOf = (variantId) => v2items.find((item) => String(item.variant.id) === String(variantId)) ?? null
+      const stopEdit = () => {
+        if (!allowEditingLeave('回流数据还没保存，放弃这份草稿吗？')) return false
+        setEditing(null)
+        return true
+      }
+      const beginEdit = (item, entryKey, draft) => {
+        if (ledger.loading || ledger.error) { notify('历史台账未读取，请先重试，避免把失败当成未录入', true); return }
+        if (editing !== null && !allowEditingLeave('当前行有未保存数据，切换会放弃它，继续？')) return
+        const variantId = String(item.variant.id)
+        setEditing({ entryKey, variantId, baselineVariantId: variantId, draft, baseline: { ...draft } })
+      }
+      const startEdit = (item, row) => beginEdit(item, item.variant.id + '|' + String(row.id ?? row.date), draftOfRow(row))
+      const startNew = (item, entryKey) => beginEdit(item, entryKey, { date: todayISO() })
+      const changeFilter = (setter, value) => { if (stopEdit()) setter(value) }
       // 编辑中，点页面里任何不是「正在编辑的那一行 / 筛选条」的地方，就收起编辑。
       React.useEffect(() => {
         if (editing === null) return undefined
         const onDown = (event) => {
+          if (modalStack.length > 0) return
           const node = event.target
           if (node && typeof node.closest === 'function') {
             if (node.closest('.dsh-gw-pending-editrow, .dsh-gw-pending-more-inline, .dsh-gw-pending-filter')) return
           }
-          stopEdit()
+          if (!stopEdit()) { event.preventDefault(); event.stopImmediatePropagation() }
         }
         document.addEventListener('mousedown', onDown, true)
         return () => document.removeEventListener('mousedown', onDown, true)
@@ -9798,6 +10158,7 @@ const STAGE_OF_STATUS = {
         const variant = item.variant
         const draft = editing.draft
         setBusy(String(variant.id))
+        let partialReason = ''
         try {
           await post('/v2/variants/' + encodeURIComponent(variant.id) + '/metrics', {
             date: String(draft.date ?? '').trim() === '' ? todayISO() : String(draft.date).slice(0, 10),
@@ -9823,11 +10184,11 @@ const STAGE_OF_STATUS = {
             try {
               await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: '待回填' })
             } catch (error) {
-              notify('数据已存，但状态没推进：' + String(error?.message ?? error), true)
+              partialReason = String(error?.message ?? error)
             }
           }
           setEditing(null)
-          notify('已保存回流数据：' + String(item.master.title))
+          notify('已保存回流数据：' + String(item.master.title) + (partialReason === '' ? '' : '；但状态没推进：' + partialReason), partialReason !== '')
           v2list.reload()
           ledger.reload()
         } catch (error) {
@@ -9842,6 +10203,7 @@ const STAGE_OF_STATUS = {
       const fieldInput = (key, placeholder, inputMode) => h('input', {
         value: String(editing?.draft?.[key] ?? ''),
         placeholder,
+        'aria-label': placeholder ?? key,
         inputMode,
         onChange: (event) => editPatch(key, event.target.value),
       })
@@ -9849,6 +10211,7 @@ const STAGE_OF_STATUS = {
         className: 'dsh-gw-catselect',
         value: String(editing?.variantId ?? ''),
         title: '这条数据算在哪个平台版本上',
+        'aria-label': '数据归属的平台版本',
         onChange: (event) => onPick(event.target.value),
       }, shownItems.map((item) => h('option', { key: String(item.variant.id), value: String(item.variant.id) },
         String(item.master.title) + ' · ' + String(item.variant.front?.platform ?? '') + (String(item.variant.front?.account ?? '') === '' ? '' : ' · ' + String(item.variant.front?.account)))))
@@ -9869,7 +10232,7 @@ const STAGE_OF_STATUS = {
                 h('td', null, h('span', { className: 'dsh-gw-pill' }, String(variant.front?.platform ?? ''))),
                 plainCell(String(variant.front?.account ?? '')),
                 h('td', { title: String(item.master.path) }, String(item.master.title))),
-            h('td', null, h('input', { type: 'date', value: String(editing?.draft?.date ?? todayISO()).slice(0, 10), onChange: (event) => editPatch('date', event.target.value) })),
+            h('td', null, h('input', { type: 'date', 'aria-label': '回流数据日期', value: String(editing?.draft?.date ?? todayISO()).slice(0, 10), onChange: (event) => editPatch('date', event.target.value) })),
             h('td', null, fieldInput('views', '播放/阅读', 'numeric')),
             h('td', null, fieldInput('likes', '赞/收藏', 'numeric')),
             h('td', null, fieldInput('comments', '评论', 'numeric')),
@@ -9918,10 +10281,10 @@ const STAGE_OF_STATUS = {
           countCell(row === null ? '' : row.shares),
           h('td', null, row === null || String(row.link ?? '') === ''
             ? '—'
-            : h('a', { href: String(row.link), target: '_blank', rel: 'noreferrer' }, '打开')),
+            : safeLinkTarget(row.link) === null ? h('span', { title: '链接格式不安全，已阻止打开' }, '无效链接') : h('a', { href: safeLinkTarget(row.link), target: '_blank', rel: 'noreferrer' }, '打开')),
           h('td', null, row === null
-            ? h('button', { className: 'dsh-gw-btn', type: 'button', onClick: () => startNew(entry.item, entry.key) }, '录入')
-            : h('button', { className: 'dsh-gw-btn', type: 'button', onClick: () => startEdit(entry.item, row) }, '修改')))
+            ? h('button', { className: 'dsh-gw-btn', type: 'button', disabled: ledger.loading || ledger.error !== null, onClick: () => startNew(entry.item, entry.key) }, '录入')
+            : h('button', { className: 'dsh-gw-btn', type: 'button', disabled: ledger.loading || ledger.error !== null, onClick: () => startEdit(entry.item, row) }, '修改')))
       }
 
       // 平铺成一张表：一行一条数据；没有数据的平台版本也占一行，点「录入」就地变成输入行。
@@ -9934,11 +10297,19 @@ const STAGE_OF_STATUS = {
       const hlIndex = hlId === '' ? -1 : flatRows.findIndex((entry) => String(entry.item.variant.id) === hlId)
       const editingNew = editing !== null && editing.entryKey === null
       const editingKey = editing === null ? '' : String(editing.entryKey ?? '')
+      const editingIndex = editingKey === '' ? -1 : flatRows.findIndex((entry) => entry.key === editingKey)
+      React.useEffect(() => {
+        const needed = Math.max(hlIndex, editingIndex) + 1
+        if (needed > visibleCount) setVisibleCount(Math.ceil(needed / 50) * 50)
+      }, [hlIndex, editingIndex, visibleCount])
 
       if (v2list.loading && v2items.length === 0) return h(Empty, null, t('loading'))
-      if (v2list.error !== null && v2list.error !== undefined) return h(ErrorBar, { message: String(v2list.error), onRetry: v2list.reload })
+      if (v2list.error !== null && v2list.data === null) return h(ErrorBar, { error: v2list.error, onRetry: v2list.reload })
 
       return h('div', null,
+        h(ErrorBar, { error: v2list.error, onRetry: v2list.reload }),
+        h(ErrorBar, { error: ledger.error, onRetry: ledger.reload }),
+        ledger.error ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '台账读取失败，不代表没有数据；先重试再录入。') : null,
         h('div', { className: 'dsh-gw-pending-filter' },
           h('span', { className: 'dsh-gw-row-meta' },
             platformFilters.length === 0 && accountFilters.length === 0
@@ -9947,19 +10318,21 @@ const STAGE_OF_STATUS = {
           h('span', { style: { flex: 1 } }),
           h('button', {
             className: editingNew ? 'dsh-gw-btn dsh-gw-btn-on' : 'dsh-gw-btn',
-            disabled: shownItems.length === 0,
+            disabled: shownItems.length === 0 || ledger.loading || ledger.error !== null,
             title: editingNew ? '再点一次收起新增行' : '在这个表里新增一行数据',
             onClick: () => (editingNew
-              ? setEditing(null)
-              : setEditing({ entryKey: null, variantId: String(shownItems[0]?.variant.id ?? ''), draft: { date: todayISO() } })),
+              ? stopEdit()
+              : startNew(shownItems[0], null)),
           }, editingNew ? '收起新增' : '新增一行'),
-          platformOptions.length === 0 ? null : h(MultiSelect, { label: '平台', options: platformOptions, value: platformFilters, onChange: setPlatformFilters }),
-          accountOptions.length === 0 ? null : h(MultiSelect, { label: '账号', options: accountOptions, value: accountFilters, onChange: setAccountFilters }),
+          platformOptions.length === 0 ? null : h(MultiSelect, { label: '平台', options: platformOptions, value: platformFilters, onChange: (next) => changeFilter(setPlatformFilters, next) }),
+          accountOptions.length === 0 ? null : h(MultiSelect, { label: '账号', options: accountOptions, value: accountFilters, onChange: (next) => changeFilter(setAccountFilters, next) }),
           h('button', {
             className: 'dsh-gw-btn',
             disabled: platformFilters.length === 0 && accountFilters.length === 0,
-            onClick: () => { setPlatformFilters([]); setAccountFilters([]) },
+            onClick: () => { if (stopEdit()) { setPlatformFilters([]); setAccountFilters([]) } },
           }, '清除筛选')),
+        h('p', { className: 'dsh-gw-row-meta' }, '已显示 ' + Math.min(visibleCount, flatRows.length) + '/' + flatRows.length + ' 行；离开未保存草稿会确认。'),
+        visibleCount < flatRows.length ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setVisibleCount((n) => n + 50) }, '再显示 50 行') : null,
         shownItems.length === 0
           ? h(Empty, null, platformFilters.length === 0 && accountFilters.length === 0 ? '还没有已发布的平台版本。' : '没有符合筛选的平台版本。')
           : h('div', { className: 'dsh-gw-tablebox dsh-gw-pending-box' },
@@ -9980,7 +10353,7 @@ const STAGE_OF_STATUS = {
                 h('th', null, '播放/阅读'), h('th', null, '赞/收藏'), h('th', null, '评论'), h('th', null, '转发'),
                 h('th', null, '链接'), h('th', null, '操作'))),
               h('tbody', null,
-                flatRows.map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
+                flatRows.slice(0, visibleCount).map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
                 editingNew ? editRow(null) : null))))
     }
 
@@ -10070,11 +10443,11 @@ const STAGE_OF_STATUS = {
       return hit === undefined ? [...parts, name] : parts.filter((part) => part !== hit)
     }
     // 一个平台输入框：下拉能选，想填自建平台也能直接打字（datalist 就是这么用的）。
-    function PlatformInput({ value, onChange, options, placeholder, style }) {
+    function PlatformInput({ value, onChange, options, placeholder, style, id: controlId, 'aria-labelledby': labelledBy }) {
       const list = platformOptions([...(options ?? []), value])
-      const id = 'dsh-gw-platforms'
+      const id = useStableFieldId('dsh-gw-platforms')
       return h('span', { style: { display: 'inline-flex', flex: '0 1 auto', minWidth: 0, gap: 4, alignItems: 'center', ...(style ?? {}) } },
-        h('input', {
+        h('input', { id: controlId ?? id + '-input', 'aria-labelledby': labelledBy,
           value: value ?? '',
           list: id,
           placeholder: placeholder === undefined ? '小红书 / 抖音 / 视频号' : placeholder,
@@ -10089,6 +10462,7 @@ const STAGE_OF_STATUS = {
     function NewAccountFields({ platform, notify, onCreated }) {
       const [draft, setDraft] = React.useState({ name: '', positioning: '', audience: '' })
       const [busy, setBusy] = React.useState(false)
+      useDraftGuard(Object.values(draft).some((value) => String(value).trim() !== ''), busy)
       async function create() {
         const title = draft.name.trim()
         if (title === '') { notify('先填账号名', true); return }
@@ -10115,10 +10489,11 @@ const STAGE_OF_STATUS = {
     }
     // 账号选择器：选已有账号档案；没有就现场建一个（只问名字/定位/人群，平台用表单上已选的），
     // 建完直接选中，不用为了建一个号先切到「账号档案」卡再回来。
-    function AccountPicker({ platform, options, value, onChange, notify, onCreated, style, hideCreate }) {
+    function AccountPicker({ platform, options, value, onChange, notify, onCreated, style, hideCreate, id, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
       const [draft, setDraft] = React.useState({ title: '', positioning: '', audience: '' })
       const [busy, setBusy] = React.useState(false)
+      useDraftGuard(Object.values(draft).some((value) => String(value).trim() !== ''), busy)
       const firstPlatform = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
       async function create() {
         const title = draft.title.trim()
@@ -10153,7 +10528,7 @@ const STAGE_OF_STATUS = {
       }
       return h('span', { style: { display: 'inline-flex', flexDirection: 'column', gap: 4, minWidth: 0, ...(style ?? {}) } },
         h('span', { style: { display: 'inline-flex', gap: 6, alignItems: 'center', minWidth: 0 } },
-          h('select', {
+          h('select', { id, 'aria-labelledby': labelledBy,
             value: String(value ?? ''),
             onChange: (event) => {
               const hit = options.find((record) => String(record.front?.id ?? '') === event.target.value)
@@ -10172,16 +10547,16 @@ const STAGE_OF_STATUS = {
             onClick: () => setOpen(!open),
           }, open ? '收起' : '＋ 新建')),
         open && hideCreate !== true ? h('span', { style: { display: 'flex', flexDirection: 'column', gap: 4, padding: 6, border: '1px dashed var(--dsw-alias-border-l2)', borderRadius: 8 } },
-          h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '账号名，例如 抖音主号' }),
-          h('input', { value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '定位（可空）：这个号讲什么' }),
-          h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '目标人群（可空）' }),
+          h('input', { 'aria-label': '新账号名', value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '账号名，例如 抖音主号' }),
+          h('input', { 'aria-label': '新账号定位', value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '定位（可空）：这个号讲什么' }),
+          h('input', { 'aria-label': '新账号目标人群', value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '目标人群（可空）' }),
           h('span', { style: { display: 'flex', gap: 6 } },
             h('button', { type: 'button', className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy, onClick: create }, busy ? '建…' : '建并选上'),
             h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setOpen(false) }, '取消'))) : null)
     }
     // 平台多选的另一种形态：不摊开一堆胶囊，就是一个输入框——里面直接写着
     // 「小红书 / 抖音」，点开下拉在同一个框里勾选，想手打自定义平台也照常打字。
-    function PlatformMultiInput({ value, onChange, options, placeholder, style }) {
+    function PlatformMultiInput({ value, onChange, options, placeholder, style, id, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
       const wrapRef = React.useRef(null)
       const list = platformOptions([...(options ?? []), value])
@@ -10193,7 +10568,7 @@ const STAGE_OF_STATUS = {
           if (wrap !== null && typeof wrap.contains === 'function' && wrap.contains(event.target)) return
           setOpen(false)
         }
-        const onKey = (event) => { if (event.key === 'Escape') setOpen(false) }
+        const onKey = (event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); setOpen(false) } }
         document.addEventListener('mousedown', onDown)
         document.addEventListener('keydown', onKey)
         return () => {
@@ -10202,7 +10577,7 @@ const STAGE_OF_STATUS = {
         }
       }, [open])
       return h('span', { ref: wrapRef, className: 'dsh-gw-platmulti', style: (style ?? {}) },
-        h('input', {
+        h('input', { id, 'aria-labelledby': labelledBy,
           value: value ?? '',
           placeholder: placeholder === undefined ? '小红书 / 抖音（可多选）' : placeholder,
           title: '可以直接打字，或点右侧箭头在框里勾选多个平台',
@@ -10292,14 +10667,12 @@ const STAGE_OF_STATUS = {
     }
 
     function ConfirmDialog({ request, onDone }) {
-      return h('div', { className: 'dsh-gw-veil', style: { zIndex: 9900 } },
-        h('div', { className: 'dsh-gw-panel dsh-gw-confirm', role: 'dialog', 'aria-modal': 'true', 'aria-label': '确认一下' },
-          h('div', { className: 'dsh-gw-head' },
-            h('div', { className: 'dsh-gw-brand' }, h('b', null, '确认一下'))),
-          h('div', { className: 'dsh-gw-confirm-body' }, request.message),
-          h('div', { className: 'dsh-gw-confirm-actions' },
-            h('button', { type: 'button', className: 'dsh-gw-btn', autoFocus: true, onClick: () => onDone(false) }, request.cancelLabel ?? '保留'),
-            h('button', { type: 'button', className: 'dsh-gw-btn', 'data-tone': 'danger', onClick: () => onDone(true) }, request.okLabel ?? '确定'))))
+      return h(ModalShell, { label: '确认一下', panelClass: 'dsh-gw-confirm', zIndex: 9990, onEscape: () => onDone(false) },
+        h('div', { className: 'dsh-gw-head' }, h('div', { className: 'dsh-gw-brand' }, h('b', null, '确认一下'))),
+        h('div', { className: 'dsh-gw-confirm-body' }, request.message),
+        h('div', { className: 'dsh-gw-confirm-actions' },
+          h('button', { type: 'button', className: 'dsh-gw-btn', 'data-modal-default': true, onClick: () => onDone(false) }, request.cancelLabel ?? '保留'),
+          h('button', { type: 'button', className: 'dsh-gw-btn', 'data-tone': 'danger', onClick: () => onDone(true) }, request.okLabel ?? '确定')))
     }
     function Panel({ onClose }) {
       const [state, setState] = React.useState({ loading: true, data: null, error: null })
@@ -10316,6 +10689,14 @@ const STAGE_OF_STATUS = {
       const [query, setQuery] = React.useState('')
       const [hits, setHits] = React.useState(null)
       const [searchMeta, setSearchMeta] = React.useState(null)
+      const [searchStatus, setSearchStatus] = React.useState({ query: '', scope: '', loading: false, error: null })
+      const [searchRetry, setSearchRetry] = React.useState(0)
+      const [refreshVersion, setRefreshVersion] = React.useState(0)
+      const stateReads = React.useRef(null)
+      const summaryReads = React.useRef(null)
+      if (stateReads.current === null) stateReads.current = createReadEpoch()
+      if (summaryReads.current === null) summaryReads.current = createReadEpoch()
+      const [summaryError, setSummaryError] = React.useState(null)
       const [showSettings, setShowSettings] = React.useState(false)
       // 卡片间跳转时顺手带过去的预填数据（比如从选题卡「→ 排期」带着标题和关联路径进日历）。
       const [preset, setPreset] = React.useState(null)
@@ -10354,15 +10735,26 @@ const STAGE_OF_STATUS = {
         if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
         toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast(null) }, error ? 6000 : 2600)
       }, [])
+      const registryRef = React.useRef(null)
+      if (registryRef.current === null) registryRef.current = createDraftRegistry((message) => window.confirm(message), () => notify('正在保存，请等保存结束再离开或刷新', true))
+      const draftRegistry = registryRef.current
       const [confirmState, setConfirmState] = React.useState(null)
       const confirmRef = React.useRef(null)
       React.useEffect(() => {
-        confirmBridge = (message, okLabel, cancelLabel) => new Promise((resolve) => {
+        const bridge = (message, okLabel, cancelLabel) => new Promise((resolve) => {
           if (confirmRef.current !== null) confirmRef.current(false)
           confirmRef.current = resolve
           setConfirmState({ message, okLabel, cancelLabel })
         })
-        return () => { confirmBridge = null }
+        confirmBridge = bridge
+        return () => {
+          if (confirmBridge === bridge) confirmBridge = null
+          if (confirmRef.current !== null) confirmRef.current(false)
+          confirmRef.current = null
+          stateReads.current.invalidate()
+          summaryReads.current.invalidate()
+          if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+        }
       }, [])
       const finishConfirm = (yes) => {
         const resolve = confirmRef.current
@@ -10381,6 +10773,7 @@ const STAGE_OF_STATUS = {
       }
 
       const openCard = (id, nextPreset) => {
+        if (!draftRegistry.allow()) return false
         setDetailCrumb(null)
         setCardId(id)
         setPreset(nextPreset === undefined ? null : nextPreset)
@@ -10392,19 +10785,22 @@ const STAGE_OF_STATUS = {
       }
 
       const loadState = React.useCallback(() => {
-        setState((prev) => ({ ...prev, loading: true }))
+        const ticket = stateReads.current.begin('state')
+        setState((prev) => ({ ...prev, loading: true, error: null }))
         get('/state')
-          .then((data) => setState({ loading: false, data, error: null }))
-          .catch((error) => setState({ loading: false, data: null, error }))
+          .then((data) => { if (stateReads.current.current(ticket, 'state')) setState({ loading: false, data, error: null }) })
+          .catch((error) => { if (stateReads.current.current(ticket, 'state')) setState((prev) => ({ ...prev, loading: false, error })) })
       }, [])
 
       React.useEffect(() => { loadState() }, [])
 
       const loadSummary = React.useCallback(() => {
         if (state.data?.configured !== true) return
+        const ticket = summaryReads.current.begin('summary')
+        setSummaryError(null)
         get('/overview')
-          .then((data) => setSummary(data.summary))
-          .catch(() => setSummary(null))
+          .then((data) => { if (summaryReads.current.current(ticket, 'summary')) setSummary(data.summary) })
+          .catch((error) => { if (summaryReads.current.current(ticket, 'summary')) setSummaryError(error) })
       }, [state.data?.configured])
 
       React.useEffect(() => { loadSummary() }, [loadSummary])
@@ -10414,7 +10810,7 @@ const STAGE_OF_STATUS = {
       // 全是裸的 setCardId(null) —— 写了一半的脚本就这么没了，而且没有任何提示。
       const leaveCard = (next) => {
         if (cardId !== null) {
-          if (unsavedCardGuard !== null && unsavedCardGuard() === false) return false
+          if (!draftRegistry.allow()) return false
           setCardId(null)
           setDetailCrumb(null)
         }
@@ -10424,12 +10820,15 @@ const STAGE_OF_STATUS = {
 
       React.useEffect(() => {
         const onKey = (event) => {
+          if (event.defaultPrevented || modalStack.length > 0) return
           if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
             if (cardId !== null) {
               leaveCard()
               return
             }
-            onClose()
+            if (typeof onClose === 'function' && draftRegistry.allow()) onClose()
             return
           }
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -10452,7 +10851,7 @@ const STAGE_OF_STATUS = {
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
-      }, [cardId, onClose])
+      }, [cardId, onClose, draftRegistry])
 
       // 一开始搜就退出卡片/设置页：不然结果区被卡片占着，输入了也「没反应」。
       React.useEffect(() => {
@@ -10466,22 +10865,24 @@ const STAGE_OF_STATUS = {
       }, [query])
 
       React.useEffect(() => {
-        if (query.trim() === '') {
-          setHits(null)
-          return
-        }
+        const needle = query.trim()
+        setHits(null)
+        setSearchMeta(null)
+        setSearchStatus({ query: needle, scope: searchScope, loading: needle !== '', error: null })
+        if (needle === '') return undefined
         let alive = true
         const timer = window.setTimeout(() => {
-          get('/search?q=' + encodeURIComponent(query) + '&scope=' + searchScope)
+          get('/search?q=' + encodeURIComponent(needle) + '&scope=' + searchScope)
             .then((data) => {
               if (!alive) return
               setHits(data.matches ?? [])
               setSearchMeta({ scope: data.scope ?? searchScope, total: Number(data.total ?? (data.matches ?? []).length) })
+              setSearchStatus({ query: needle, scope: searchScope, loading: false, error: null })
             })
-            .catch(() => { if (alive) { setHits([]); setSearchMeta(null) } })
+            .catch((error) => { if (alive) setSearchStatus({ query: needle, scope: searchScope, loading: false, error }) })
         }, 220)
         return () => { alive = false; window.clearTimeout(timer) }
-      }, [query, searchScope])
+      }, [query, searchScope, searchRetry])
 
       React.useEffect(() => {
         try { window.localStorage.setItem('dsh-growth:search-scope', searchScope) } catch { /* 隐私模式写不进去，无所谓 */ }
@@ -10491,7 +10892,8 @@ const STAGE_OF_STATUS = {
       const cards = (state.data?.cards ?? []).filter((card) => card.enabled !== false)
       const workspaceCards = cards.filter((card) => card.workspace === workspace)
       // 卡片展开时优先显示卡片本身：搜索命中还留着的话，点进卡片会看不到内容。
-      const searchActive = query.trim() !== '' && hits !== null && cardId === null && !showSettings
+      const searchActive = query.trim() !== '' && cardId === null && !showSettings
+      const searchCurrent = searchStatus.query === query.trim() && searchStatus.scope === searchScope
       const [detailCrumb, setDetailCrumb] = React.useState(null)
       // 面包屑点中间层时，卡片自己并不知道要退出去（openPath 在它内部），
       // 用一个自增票号通知它：变了就关掉详情，回到列表。
@@ -10500,8 +10902,8 @@ const STAGE_OF_STATUS = {
       const openCardMeta = cards.find((card) => card.id === cardId)
 
       function body() {
-        if (state.loading) return h(Empty, null, t('loading'))
-        if (state.error !== null) return h(ErrorBar, { error: state.error })
+        if (state.loading && state.data === null) return h(Empty, null, t('loading'))
+        if (state.error !== null && state.data === null) return h(ErrorBar, { error: state.error, onRetry: loadState })
         if (showSettings) return h(SettingsView, {
           state: state.data,
           onSaved: (result) => {
@@ -10527,8 +10929,10 @@ const STAGE_OF_STATUS = {
                 onClick: () => setSearchScope(searchScope === 'workbench' ? 'all' : 'workbench'),
                 title: searchScope === 'workbench' ? '改成搜整个 vault（会包含编程笔记等无关目录）' : '只搜工作台自己的目录',
               }, searchScope === 'workbench' ? '扩大到整个 vault' : '只搜工作台目录'),
-              h(Pill, null, hits.length + ' ' + t('hits'))),
-            hits.length === 0
+              h(Pill, null, (searchCurrent && hits !== null ? hits.length : '…') + ' ' + t('hits'))),
+            !searchCurrent || searchStatus.loading ? h(Empty, null, t('searching'))
+              : searchStatus.error !== null ? h(ErrorBar, { error: searchStatus.error, onRetry: () => setSearchRetry((n) => n + 1) })
+              : (hits ?? []).length === 0
               // 区分「真的没有」和「工作台内没有、但全库有」：
               // 后者最容易让人觉得搜索坏了。
               ? h(Empty, null,
@@ -10567,14 +10971,14 @@ const STAGE_OF_STATUS = {
                   // 退笔记、退卡片都会让正在编辑的那篇卸载 —— 有没保存的改动先问一句。
                   if (index === -1) {
                     if (detailCrumb === null) { leaveCard(); return }
-                    if (unsavedCardGuard !== null && unsavedCardGuard() === false) return
+                    if (!draftRegistry.allow()) return
                     setDetailCrumb(null)
                     setCloseTicket((n) => n + 1)
                     return
                   }
                   // 点卡片名：退到卡片列表（卡片内部要一起退，否则页面不动）。
                   if (index === 0) {
-                    if (unsavedCardGuard !== null && unsavedCardGuard() === false) return
+                    if (!draftRegistry.allow()) return
                     setDetailCrumb(null)
                     setCloseTicket((n) => n + 1)
                     return
@@ -10621,19 +11025,19 @@ const STAGE_OF_STATUS = {
       return h('div', { className: 'dsh-gw-veil', onMouseDown: (event) => {
         if (!closable || event.target !== event.currentTarget) return
         // 点遮罩 = 关整个工作台，正在编辑的稿子会跟着没：先问一句。
-        if (unsavedCardGuard !== null && unsavedCardGuard() === false) return
+        if (!draftRegistry.allow()) return
         onClose()
       } },
         h('div', { className: 'dsh-gw-panel' },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
-            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { loadState(); loadSummary() } }, h(Icon, { name: 'refresh' }))),
+            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { if (!draftRegistry.allow('还有没保存的改动。保留草稿并重新读取磁盘数据吗？')) return; loadState(); loadSummary(); setRefreshVersion((n) => n + 1) } }, h(Icon, { name: 'refresh' }))),
           h('div', { className: 'dsh-gw-tabs' },
             h('div', { className: 'dsh-gw-tablist' },
               WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
             h('div', { className: 'dsh-gw-search' + (query === '' ? '' : ' has-value') },
-              h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) }),
+              h('input', { ref: searchRef, value: query, placeholder: t('search'), 'aria-label': t('search'), onChange: (event) => setQuery(event.target.value) }),
               query === '' ? null : h('button', {
                 type: 'button',
                 className: 'dsh-gw-ibtn dsh-gw-search-clear',
@@ -10641,8 +11045,14 @@ const STAGE_OF_STATUS = {
                 'aria-label': '清除已输入的内容',
                 onClick: () => { setQuery(''); searchRef.current?.focus() },
               }, h(Icon, { name: 'close', size: 12 })))),
-          h(CrumbSlot.Provider, { value: crumbSlot },
-            h('div', { className: 'dsh-gw-body', ref: bodyRef }, body())),
+          h(DraftContext.Provider, { value: draftRegistry },
+            h(RefreshContext.Provider, { value: refreshVersion },
+              h(CrumbSlot.Provider, { value: crumbSlot },
+                h('div', { className: 'dsh-gw-body', ref: bodyRef },
+                  h(ErrorBar, { error: state.data === null ? null : state.error, onRetry: loadState }),
+                  h(ErrorBar, { error: summaryError, onRetry: loadSummary }),
+                  state.loading && state.data !== null ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '正在后台刷新，编辑器保持打开…') : null,
+                  body())))),
           toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', role: toast.isError === true ? 'alert' : 'status', 'aria-live': toast.isError === true ? 'assertive' : 'polite', style: { margin: '0 14px 12px' } }, toast.message),
         ),
         confirmState === null ? null : (createPortal === null
@@ -10827,13 +11237,7 @@ const STAGE_OF_STATUS = {
       function Overlay() {
         const open = useOpen()
         // Esc 关闭：浮层是最后一道防线，必须自己可以退出去。
-        React.useEffect(() => {
-          if (!open) return
-          const onKey = (event) => { if (event.key === 'Escape') setOpenAll(false) }
-          window.addEventListener('keydown', onKey)
-          return () => window.removeEventListener('keydown', onKey)
-        }, [open])
-        if (!open) return null
+          if (!open) return null
         return h(Panel, { onClose: () => setOpenAll(false) })
       }
 

@@ -198,7 +198,8 @@ function tdzUsesBeforeDeclaration(source) {
         // 缩进 6 = 组件体顶层语句；嵌套块/回调体（更深缩进）不在本守卫范围。
         if (line.length - line.trimStart().length !== 6) continue
         const cut = line.indexOf('=>')
-        const immediate = cut === -1 ? line : line.slice(0, cut)
+        // 字符串里的路由 / 文案不是标识符读取；模板插值仍参与检查。
+        const immediate = (cut === -1 ? line : line.slice(0, cut)).replace(/(["'])(?:\\.|(?!\1).)*?\1/g, '')
         if (!re.test(immediate)) continue
         bad.push('client.js:' + (j + 1) + ' 在声明之前用了 ' + name + '（声明在第 ' + (at + 1) + ' 行）')
       }
@@ -243,6 +244,22 @@ test('TDZ 守卫本身能抓住回归样例', () => {
     '    }',
   ].join('\n')
   assert.deepEqual(tdzUsesBeforeDeclaration(deferred), [])
+
+  const quotedRoutes = [
+    '    function Card() {',
+    "      const request = '/accounts/list?limit=300'",
+    '      const accounts = []',
+    '      return accounts',
+    '    }',
+  ].join('\n')
+  assert.deepEqual(tdzUsesBeforeDeclaration(quotedRoutes), [])
+  const interpolation = [
+    '    function Card() {',
+    '      const label = `items: ${tagOptions}`',
+    '      const tagOptions = []',
+    '    }',
+  ].join('\n')
+  assert.equal(tdzUsesBeforeDeclaration(interpolation).length, 1)
 })
 
 // ── ⑤ 两边手抄的表必须一致 ──
