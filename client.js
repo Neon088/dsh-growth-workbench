@@ -797,6 +797,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-crumb-slot{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;min-width:0}
 .dsh-gw-listfilter{display:inline-flex;align-items:center;gap:2px}
 .dsh-gw-listfilter-btn{flex:none}
+.dsh-gw-listfilter-btn[data-on=true]{color:var(--dsw-alias-link);opacity:1}
 .dsh-gw-listfilter-input{width:150px;max-width:42vw;height:24px;box-sizing:border-box;padding:0 8px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-2,11.5px);font-family:inherit}
 .dsh-gw-crumb-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-4,13px);padding:2px 6px 2px 0;flex:none}
 .dsh-gw-crumb-back:hover{text-decoration:underline}
@@ -2251,10 +2252,12 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     }
 
     function ListFilter({ filter, setFilter, placeholder }) {
-      // 放大镜钉在最右不动：点一下，输入框从它左边展开，也不再冒出「搜索」标题。
+      // 放大镜钉在最右不动：点一下，输入框从它左边展开；再点它或点别处就收起。
       const crumbSlot = React.useContext(CrumbSlot)
       const [expanded, setExpanded] = React.useState(false)
       const inputRef = React.useRef(null)
+      const controlRef = React.useRef(null)
+      const cancel = () => setExpanded(false)
       React.useEffect(() => {
         if (expanded === false) return
         const node = inputRef.current
@@ -2263,14 +2266,22 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       React.useEffect(() => {
         if (String(filter ?? '').trim() !== '') setExpanded(true)
       }, [filter])
-      const control = h('span', { className: 'dsh-gw-listfilter' },
+      React.useEffect(() => {
+        if (expanded === false) return
+        const onPointerDown = (event) => {
+          if (controlRef.current !== null && controlRef.current.contains(event.target)) return
+          cancel()
+        }
+        document.addEventListener('pointerdown', onPointerDown, true)
+        return () => document.removeEventListener('pointerdown', onPointerDown, true)
+      }, [expanded])
+      const control = h('span', { className: 'dsh-gw-listfilter', ref: controlRef },
         expanded === false ? null : h('input', {
           ref: inputRef,
           className: 'dsh-gw-listfilter-input',
           placeholder: placeholder ?? '目录 / 笔记名 / 标题 / 标签',
           value: filter,
           onChange: (event) => setFilter(event.target.value),
-          onBlur: () => { if (String(filter ?? '').trim() === '') setExpanded(false) },
           onKeyDown: (event) => { if (event.key === 'Escape') { setFilter(''); setExpanded(false) } },
         }),
         expanded === false || String(filter ?? '').trim() === '' ? null : h('button', { type: 'button', className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })),
@@ -2280,7 +2291,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           title: placeholder ?? '过滤列表',
           'aria-label': placeholder ?? '过滤列表',
           'aria-expanded': expanded ? 'true' : 'false',
-          onClick: () => setExpanded((prev) => !prev),
+          'data-on': String(filter ?? '').trim() === '' ? undefined : 'true',
+          onClick: () => { if (expanded) cancel(); else setExpanded(true) },
         }, h(Icon, { name: 'search', size: 14 })))
       return crumbSlot !== null && createPortal !== null ? createPortal(control, crumbSlot) : control
     }
