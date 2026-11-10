@@ -38,6 +38,13 @@ window.__ModuleLoader__.load({
     const NS = 'growth-workbench'
     const LS_WORKSPACE = 'dsh-growth:workspace'
     const LS_CARD = 'dsh-growth:card'
+    // 统一确认框：把 React 状态桥给深层组件里的 async 删除动作。
+    // window.confirm 只留给「未保存离开」这类必须浏览器级阻断的场景。
+    let confirmBridge = null
+    function askConfirm(message, okLabel, cancelLabel) {
+      if (confirmBridge === null) return Promise.resolve(window.confirm(message))
+      return confirmBridge(message, okLabel, cancelLabel)
+    }
 
     const ZH = {
       open: '工作台',
@@ -47,7 +54,7 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       loading: '读取中…',
       retry: '重试',
-      search: '搜全库（' + (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
+      search: '搜笔记正文（' + (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
         ? '⌘K'
         : 'Ctrl+K') + ' 聚焦）',
       searching: '搜索中…',
@@ -82,6 +89,15 @@ window.__ModuleLoader__.load({
       { id: 'mkt', label: '营销', hint: '方案' },
       { id: 'common', label: '通用', hint: 'SOP、术语表、文案规则' },
     ]
+    // 首页摘要行按工作流分组：卡名管「是什么」，这里管「在哪一步」。
+    const STAGE_ORDER = ['收集', '创作', '发布', '复盘', '资料']
+    const CARD_STAGE = {
+      accounts: '收集', ideas: '收集', topics: '收集', products: '收集',
+      studio: '创作', calendar: '创作', campaigns: '创作',
+      pending: '发布', feedback: '发布',
+      contentdata: '复盘', data: '复盘',
+      sop: '资料', glossary: '资料', copyrules: '资料',
+    }
 
     /* ────────────── 取数 ────────────── */
 
@@ -136,34 +152,40 @@ window.__ModuleLoader__.load({
     /* ────────────── 样式 ────────────── */
 
     const CSS = `
-.dsh-gw-btn{display:inline-flex;align-items:center;gap:5px;min-height:26px;height:auto;padding:0 9px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font-size:12.5px;line-height:1.35;cursor:pointer;flex:none;white-space:nowrap}
+.dsh-gw-btn{display:inline-flex;align-items:center;gap:5px;min-height:26px;height:auto;padding:0 9px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-3,12.5px);line-height:1.35;cursor:pointer;flex:none;white-space:nowrap}
 .dsh-gw-btn:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-btn.dsh-gw-btn-on{border-color:var(--gw-warm);color:var(--gw-warm);background:color-mix(in srgb,var(--gw-warm) 12%,transparent)}
 .dsh-gw-btn[data-tone=primary]{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link)}
 .dsh-gw-btn[data-tone=danger]{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-gw-btn[disabled]{opacity:.45;cursor:default}
 .dsh-gw-btn[data-on=true]{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
-.dsh-gw-btn-quiet{border-color:transparent;background:transparent;color:var(--dsw-alias-label-secondary);height:22px;padding:0 6px;font-size:11.5px;opacity:.85}
+.dsh-gw-btn-quiet{border-color:transparent;background:transparent;color:var(--dsw-alias-label-secondary);height:22px;padding:0 6px;font-size:var(--gw-fz-2,11.5px);opacity:.85}
 .dsh-gw-btn-quiet:hover{color:var(--dsw-alias-link);background:var(--dsw-alias-interactive-bg-hover);opacity:1}
 .dsh-gw-btn-quiet[disabled]{opacity:.35}
-.dsh-gw-pane{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px}
+.dsh-gw-pane{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-4,13px)}
 /* 品牌三令牌（2026-11-08 视觉评审 S1/B1/B2）：琥珀=创作/进行（--gw-warm，想整体换创作色就改这一处），
    玻璃色集中定义（面板底已调暖一档）；状态色先归到四个语义令牌，日历/版本状态统一引用。 */
-.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:var(--dsw-alias-state-warn-primary,#e8a33d);--gw-glass:rgba(22,20,22,.88);--gw-glass-panel:rgba(26,18,22,.56);--tone-progress:var(--dsw-alias-link);--tone-attention:var(--gw-warm);--tone-done:var(--dsw-alias-state-success-primary)}
+.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:var(--dsw-alias-state-warn-primary,#e8a33d);--gw-glass:color-mix(in srgb,var(--dsw-alias-bg-overlay,#1f2126) 90%,transparent);--gw-glass-panel:color-mix(in srgb,var(--dsw-alias-bg-overlay,#1f2126) 94%,transparent);--gw-fz-1:11px;--gw-fz-2:11.5px;--gw-fz-3:12.5px;--gw-fz-4:13px;--gw-fz-5:14px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--gw-warm);--tone-done:var(--dsw-alias-state-success-primary)}
 /* 高度一路传下去，专注模式才有满栏的参照系 */
 .dsh-gw-pane > .dsh-gw-panel,.dsh-gw-pane > .dsh-gw-veil > .dsh-gw-panel{flex:1;min-height:0}
 .dsh-gw-pane > .dsh-gw-veil{position:absolute;inset:0;padding:0;background:transparent;backdrop-filter:none;justify-content:stretch;align-items:stretch}
 .dsh-gw-pane .dsh-gw-panel{width:100%;height:100%;max-width:none;max-height:none;border:none;border-radius:0;box-shadow:none}
 .dsh-gw-veil{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(8,10,14,.46);backdrop-filter:blur(2px)}
-.dsh-gw-panel{display:flex;flex-direction:column;width:min(1080px,100%);height:min(780px,100%);border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-glass-panel);-webkit-backdrop-filter:blur(32px) saturate(140%);backdrop-filter:blur(32px) saturate(140%);color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.34);overflow:hidden;font-size:13px}
+.dsh-gw-panel{display:flex;flex-direction:column;width:min(1080px,100%);height:min(780px,100%);border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-glass-panel);-webkit-backdrop-filter:blur(32px) saturate(140%);backdrop-filter:blur(32px) saturate(140%);color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.34);overflow:hidden;font-size:var(--gw-fz-4,13px)}
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
 .dsh-gw-brand{display:flex;flex-direction:column;min-width:0}
-.dsh-gw-brand b{font-size:14px}
-.dsh-gw-brand span{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-brand b{font-size:var(--gw-fz-5,14px)}
+.dsh-gw-brand span{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-pane .dsh-gw-brand span{display:none}
+.dsh-gw-panel:has(.dsh-gw-body[data-narrow=true]) .dsh-gw-brand span{display:none}
+.dsh-gw-row-unit{font-size:var(--gw-fz-1,11px);font-weight:400;color:var(--dsw-alias-label-secondary);margin-left:3px;white-space:nowrap}
+.dsh-gw-panel.dsh-gw-confirm,.dsh-gw-pane .dsh-gw-panel.dsh-gw-confirm{width:min(440px,94vw);height:auto;max-width:min(440px,94vw);max-height:none;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.34)}
+.dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-gw-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
 .dsh-gw-search{flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
-.dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:12px}
+.dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}
-.dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12.5px}
+.dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tab[data-on=true]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);box-shadow:inset 0 -2px 0 var(--gw-warm)}
 .dsh-gw-body{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:12px 14px 16px;display:flex;flex-direction:column;min-width:0}
 /* 卡片页：面包屑行直接顶到页签行下面，不留 body 的 12px 顶距 */
@@ -176,9 +198,9 @@ window.__ModuleLoader__.load({
 .dsh-gw-body > .dsh-gw-fill{flex:1;min-height:0;display:flex;flex-direction:column;min-width:0}
 .dsh-gw-fill > .dsh-gw-sop{flex:1;min-height:0}
 .dsh-gw-crash{padding:18px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
-.dsh-gw-crash-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dsh-gw-crash-msg{font-size:12px;color:var(--dsw-alias-state-error-primary,#e5484d);font-family:ui-monospace,monospace;word-break:break-word}
-.dsh-gw-crash-hint{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-crash-title{font-size:var(--gw-fz-4,13px);font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-crash-msg{font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-state-error-primary,#e5484d);font-family:ui-monospace,monospace;word-break:break-word}
+.dsh-gw-crash-hint{font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);cursor:pointer}
 .dsh-gw-row:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-row.dsh-gw-row-archived{opacity:.65;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 65%,var(--dsw-alias-bg-layer-2))}
@@ -187,25 +209,25 @@ window.__ModuleLoader__.load({
 .dsh-gw-row-main{flex:1;min-width:0}
 .dsh-gw-row-title{font-weight:500;display:flex;gap:6px;align-items:center;min-width:0}
 .dsh-gw-row-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-row-meta{margin-top:2px;font-size:11.5px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dsh-gw-row-meta{margin-top:2px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dsh-gw-check-list{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 2px}
-.dsh-gw-check-item{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dsh-gw-check-item{display:inline-flex;align-items:center;gap:5px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);cursor:pointer}
 .dsh-gw-check-item input{accent-color:var(--gw-warm)}
-.dsh-gw-row-tag{flex:none;display:inline-flex;align-items:center;min-height:22px;padding:1px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:400;line-height:1.25;white-space:nowrap;box-sizing:border-box}
-.dsh-gw-row-num{font-variant-numeric:tabular-nums;font-size:13px;color:var(--dsw-alias-label-primary);min-width:30px;text-align:right;font-weight:600}
+.dsh-gw-row-tag{flex:none;display:inline-flex;align-items:center;min-height:22px;padding:1px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-weight:400;line-height:1.25;white-space:nowrap;box-sizing:border-box}
+.dsh-gw-row-num{font-variant-numeric:tabular-nums;font-size:var(--gw-fz-4,13px);color:var(--dsw-alias-label-primary);min-width:30px;text-align:right;font-weight:600}
 .dsh-gw-row[data-warn=true] .dsh-gw-row-num{color:var(--dsw-alias-state-warn-primary)}
 .dsh-gw-ledger-inline{margin:8px 0 12px;padding:8px 10px 4px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-ledger-inline .dsh-gw-row-title{padding-bottom:4px}
 .dsh-gw-ledger-actions{flex:none;margin-left:auto;display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}
 .dsh-gw-ledger-scroll{max-height:560px;overflow:auto;padding-bottom:6px}
 .dsh-gw-ledger-filters{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:2px 0 8px;min-width:0}
-.dsh-gw-date-input{height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;font-size:11px}
-.dsh-gw-filter-label{font-size:11px;color:var(--dsw-alias-label-secondary);margin-left:5px;white-space:nowrap}
-.dsh-gw-ledger-filters .dsh-gw-chip{padding:1px 8px;font-size:11px}
+.dsh-gw-date-input{height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;font-size:var(--gw-fz-1,11px)}
+.dsh-gw-filter-label{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);margin-left:5px;white-space:nowrap}
+.dsh-gw-ledger-filters .dsh-gw-chip{padding:1px 8px;font-size:var(--gw-fz-1,11px)}
 /* 台账：同一内容的多天记录并成一格，内容在最左、日期紧随其后；日期表头点一下换升降序。 */
 .dsh-gw-ledger-table th.dsh-gw-sort-th{cursor:pointer;user-select:none;white-space:nowrap}
 .dsh-gw-ledger-table th.dsh-gw-sort-th:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dsh-gw-sort-mark{margin-left:3px;font-size:10px;color:var(--dsw-alias-link)}
+.dsh-gw-sort-mark{margin-left:3px;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-link)}
 .dsh-gw-ledger-table td.dsh-gw-ledger-content{min-width:110px;max-width:210px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 45%,transparent)}
 .dsh-gw-ledger-table td.dsh-gw-ledger-content .dsh-gw-row-act{white-space:normal;text-align:left;justify-content:flex-start}
 .dsh-gw-ledger-table tr[data-group-start=true] td{border-top:1px solid var(--dsw-alias-border-l1)}
@@ -222,19 +244,19 @@ window.__ModuleLoader__.load({
 .dsh-gw-searchlist .dsh-gw-row-title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-searchlist .dsh-gw-row-title .dsh-gw-pill{vertical-align:middle;margin-left:6px}
 .dsh-gw-searchlist .dsh-gw-row-meta{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
-.dsh-gw-row-act{flex:0 1 auto;opacity:1;height:auto;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);font-size:11px;font-weight:500;line-height:1.25;display:inline-flex;align-items:center;justify-content:center;white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%;cursor:pointer;box-sizing:border-box;transition:background .12s,border-color .12s,color .12s}
+.dsh-gw-row-act{flex:0 1 auto;opacity:1;height:auto;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);font-size:var(--gw-fz-1,11px);font-weight:500;line-height:1.25;display:inline-flex;align-items:center;justify-content:center;white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%;cursor:pointer;box-sizing:border-box;transition:background .12s,border-color .12s,color .12s}
 .dsh-gw-note-acts{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto;min-width:0}
-.dsh-gw-note-acts .dsh-gw-row-act{background:transparent;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:11px;min-height:22px;padding:1px 7px}
+.dsh-gw-note-acts .dsh-gw-row-act{background:transparent;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);min-height:22px;padding:1px 7px}
 .dsh-gw-note-acts .dsh-gw-row-act:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-note-acts .dsh-gw-row-act[data-tone=primary]{border-color:color-mix(in srgb,var(--dsw-alias-link) 55%,transparent);color:var(--dsw-alias-link)}
 .dsh-gw-note-acts .dsh-gw-row-act[data-tone=primary]:disabled{opacity:.55;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-note-acts-sep{flex:none;align-self:center;width:1px;height:14px;margin:0 1px;background:var(--dsw-alias-border-l1)}
 .dsh-gw-note-headleft{display:flex;align-items:center;gap:8px;min-width:0}
-.dsh-gw-headact{background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:400;line-height:1.4;min-height:22px;padding:1px 7px;cursor:pointer}
+.dsh-gw-headact{background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-weight:400;line-height:1.4;min-height:22px;padding:1px 7px;cursor:pointer}
 .dsh-gw-headact:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-row-act[data-tone=danger]{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);color:var(--dsw-alias-state-error-primary)}
 .dsh-gw-row-act[data-tone=danger]:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
-.dsh-gw-linklike{color:var(--dsw-alias-link);text-decoration:none;font-size:11px}
+.dsh-gw-linklike{color:var(--dsw-alias-link);text-decoration:none;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-linklike:hover{text-decoration:underline}
 .dsh-gw-row:hover .dsh-gw-row-act{opacity:1}
 .dsh-gw-row-act:hover{opacity:1!important;background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link)}
@@ -247,14 +269,14 @@ window.__ModuleLoader__.load({
 /* 行右侧的操作簇：进度胶囊 + 写脚本 + 删除，同一水平线、统一间距，不再各排各的。 */
 .dsh-gw-row-side{display:flex;align-items:center;gap:8px;flex:none}
 /* 行右侧三颗（平台标签 / 状态 / 动作）统一成 22px 高、6px 圆角，否则会一高一低。 */
-.dsh-gw-status-select{appearance:none;-webkit-appearance:none;flex:none;height:22px;min-height:22px;padding:0 17px 0 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-layer-2);background-image:linear-gradient(45deg,transparent 50%,var(--dsw-alias-label-secondary) 50%),linear-gradient(135deg,var(--dsw-alias-label-secondary) 50%,transparent 50%);background-position:calc(100% - 9px) 9px,calc(100% - 5px) 9px;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:11px;line-height:1.25;cursor:pointer;box-sizing:border-box}
+.dsh-gw-status-select{appearance:none;-webkit-appearance:none;flex:none;height:22px;min-height:22px;padding:0 17px 0 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-layer-2);background-image:linear-gradient(45deg,transparent 50%,var(--dsw-alias-label-secondary) 50%),linear-gradient(135deg,var(--dsw-alias-label-secondary) 50%,transparent 50%);background-position:calc(100% - 9px) 9px,calc(100% - 5px) 9px;background-size:4px 4px,4px 4px;background-repeat:no-repeat;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:var(--gw-fz-1,11px);line-height:1.25;cursor:pointer;box-sizing:border-box}
 .dsh-gw-status-select:hover{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link)}
 .dsh-gw-status-select:disabled{opacity:.6;cursor:default}
 /* 排期：这一行自己的小按钮。没排过是虚线框（提示可以点），排过是实线并显示日期。 */
-.dsh-gw-row-sched{flex:none;min-height:22px;padding:1px 7px;border-radius:6px;border:1px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font-size:10.5px;font-variant-numeric:tabular-nums;line-height:1.25;white-space:nowrap;cursor:pointer;box-sizing:border-box}
+.dsh-gw-row-sched{flex:none;min-height:22px;padding:1px 7px;border-radius:6px;border:1px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-variant-numeric:tabular-nums;line-height:1.25;white-space:nowrap;cursor:pointer;box-sizing:border-box}
 .dsh-gw-row-sched:hover{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link)}
 .dsh-gw-row-sched[data-scheduled=true]{border-style:solid;color:var(--dsw-alias-label-primary)}
-.dsh-gw-sched-input{flex:none;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--dsw-alias-link);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:10.5px;font-variant-numeric:tabular-nums;box-sizing:border-box}
+.dsh-gw-sched-input{flex:none;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--dsw-alias-link);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-1,11px);font-variant-numeric:tabular-nums;box-sizing:border-box}
 .dsh-gw-status-select[data-tone=ok]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);color:var(--dsw-alias-state-success-primary);background-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
 .dsh-gw-status-select[data-tone=warn]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);color:var(--dsw-alias-state-warn-primary);background-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent)}
 .dsh-gw-status-select[data-tone=brand]{border-color:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 45%,transparent);color:var(--tone-progress,var(--dsw-alias-link));background-color:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 14%,transparent)}
@@ -269,24 +291,24 @@ window.__ModuleLoader__.load({
 /* 外框 + 内部横线 + 列间竖线：不画线的时候四列文字飘着，读起来分不清哪个日期属于哪一行。 */
 .dsh-gw-notetable{display:flex;flex-direction:column;max-height:240px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-notetable-head,.dsh-gw-notetable-row{display:grid;grid-template-columns:84px minmax(0,1fr) 62px 50px 76px 62px;align-items:center;gap:0}
-.dsh-gw-notetable-head{position:sticky;top:0;z-index:1;height:20px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:10.5px;letter-spacing:.02em}
-.dsh-gw-notetable-row{height:24px;font-size:11.5px;border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent);cursor:pointer}
+.dsh-gw-notetable-head{position:sticky;top:0;z-index:1;height:20px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px);letter-spacing:.02em}
+.dsh-gw-notetable-row{height:24px;font-size:var(--gw-fz-2,11.5px);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent);cursor:pointer}
 .dsh-gw-notetable-row:last-child{border-bottom:none}
 .dsh-gw-notetable-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-gw-notetable-row[data-current=true]{background:color-mix(in srgb, var(--dsw-alias-link) 8%, transparent)}
 .dsh-gw-notetable-head>span,.dsh-gw-notetable-cell,.dsh-gw-notetable-dim,.dsh-gw-notetable-state,.dsh-gw-notetable-link{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px;border-right:1px solid color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent)}
 .dsh-gw-notetable-head>span:last-child,.dsh-gw-notetable-cell:last-child,.dsh-gw-notetable-dim:last-child,.dsh-gw-notetable-state:last-child,.dsh-gw-notetable-link:last-child{border-right:none}
 .dsh-gw-notetable-cell{color:var(--dsw-alias-label-primary)}
-.dsh-gw-notetable-dim{color:var(--dsw-alias-label-secondary);font-size:11px;font-variant-numeric:tabular-nums}
-.dsh-gw-notetable-state{color:var(--dsw-alias-link);font-size:10.5px}
+.dsh-gw-notetable-dim{color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-variant-numeric:tabular-nums}
+.dsh-gw-notetable-state{color:var(--dsw-alias-link);font-size:var(--gw-fz-1,11px)}
 .dsh-gw-notetable-link{display:flex;align-items:center;justify-content:center;padding:0 4px}
 /* 来源那一列：写站点短名（抖音 / B站 / YouTube），点一下把链接复制走。 */
-.dsh-gw-notetable-golink{display:inline-flex;align-items:center;justify-content:center;max-width:100%;height:16px;padding:0 5px;border:1px solid color-mix(in srgb, var(--dsw-alias-link) 35%, transparent);border-radius:4px;background:transparent;color:var(--dsw-alias-link);font-size:10.5px;line-height:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-notetable-golink{display:inline-flex;align-items:center;justify-content:center;max-width:100%;height:16px;padding:0 5px;border:1px solid color-mix(in srgb, var(--dsw-alias-link) 35%, transparent);border-radius:4px;background:transparent;color:var(--dsw-alias-link);font-size:var(--gw-fz-1,11px);line-height:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-notetable-golink:hover{background:color-mix(in srgb, var(--dsw-alias-link) 12%, transparent)}
 /* 拆解笔记的筛选条：平台、标签两组小胶囊，点一下加条件，再点一下取消。 */
 .dsh-gw-notefilter{display:flex;flex-direction:column;gap:5px;margin:0 0 6px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-notefilter-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.dsh-gw-notefilter-label{flex:none;min-width:26px;color:var(--dsw-alias-label-tertiary);font-size:10.5px;letter-spacing:.02em}
+.dsh-gw-notefilter-label{flex:none;min-width:26px;color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px);letter-spacing:.02em}
 .dsh-gw-chip[data-on=true]{border-color:color-mix(in srgb, var(--dsw-alias-link) 45%, transparent);background:color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);color:var(--dsw-alias-link)}
 .dsh-gw-row[data-current=true]{border-color:color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 8%,var(--dsw-alias-bg-layer-1))}
 /* 从列表跳进来时要一眼看见落点：品牌琥珀描边（和「创作/回流」那颗主按钮同一套色）。 */
@@ -298,19 +320,19 @@ window.__ModuleLoader__.load({
 .dsh-gw-rank.is-link:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-rank{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;cursor:pointer;min-width:0}
 .dsh-gw-rank:hover{background:var(--dsw-alias-bg-layer-2)}
-.dsh-gw-rank-no{flex:none;width:15px;text-align:center;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-rank-no{flex:none;width:15px;text-align:center;font-size:var(--gw-fz-1,11px);font-weight:600;color:var(--dsw-alias-label-secondary)}
 .dsh-gw-rank:nth-child(1) .dsh-gw-rank-no{color:var(--gw-warm)}
 .dsh-gw-rank-main{flex:1 1 auto;min-width:0}
-.dsh-gw-rank-title{font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-rank-meta{font-size:11px;line-height:1.35;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-rank-val{flex:none;font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-success-primary);white-space:nowrap}
+.dsh-gw-rank-title{font-size:var(--gw-fz-4,13px);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-rank-meta{font-size:var(--gw-fz-1,11px);line-height:1.35;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-rank-val{flex:none;font-size:var(--gw-fz-2,11.5px);font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-success-primary);white-space:nowrap}
 .dsh-gw-rank.is-mute .dsh-gw-rank-val{color:var(--dsw-alias-label-secondary)}
 .dsh-gw-rank-tabs{display:inline-flex;align-items:center;gap:2px}
-.dsh-gw-rank-tab{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1.5;padding:1px 6px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.dsh-gw-rank-tab{border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:var(--gw-fz-1,11px);line-height:1.5;padding:1px 6px;border-radius:999px;cursor:pointer;white-space:nowrap}
 .dsh-gw-rank-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-rank-tab[data-active=true]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 16%,transparent);color:var(--dsw-alias-state-success-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-success-primary) 28%,transparent)}
 .dsh-gw-rank-table-wrap{max-height:320px;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;margin-top:4px}
-.dsh-gw-rank-table{width:100%;min-width:560px;table-layout:fixed;border-collapse:collapse;font-size:11.5px;line-height:1.35}
+.dsh-gw-rank-table{width:100%;min-width:560px;table-layout:fixed;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);line-height:1.35}
 .dsh-gw-rank-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:600;padding:5px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-rank-table th.title,.dsh-gw-rank-table td.title{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-rank-table th.platform,.dsh-gw-rank-table td.platform{text-align:left;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
@@ -336,38 +358,38 @@ window.__ModuleLoader__.load({
 .dsh-gw-upcoming td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-rollup{display:flex;flex-direction:column;gap:2px;padding:5px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);min-width:0}
 .dsh-gw-rollup-head{display:flex;align-items:baseline;gap:6px;min-width:0}
-.dsh-gw-rollup-name{flex:1 1 auto;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-rollup-gmv{flex:none;font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-success-primary)}
-.dsh-gw-rollup-sub{font-size:11px;line-height:1.35;color:var(--dsw-alias-label-secondary);min-width:0}
-.dsh-gw-rollup-item{font-size:11px;line-height:1.4;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-rollup-name{flex:1 1 auto;min-width:0;font-size:var(--gw-fz-3,12.5px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-rollup-gmv{flex:none;font-size:var(--gw-fz-2,11.5px);font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-success-primary)}
+.dsh-gw-rollup-sub{font-size:var(--gw-fz-1,11px);line-height:1.35;color:var(--dsw-alias-label-secondary);min-width:0}
+.dsh-gw-rollup-item{font-size:var(--gw-fz-1,11px);line-height:1.4;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-promote{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 2px;padding:5px 7px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-link);min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden}
 /* 标题框独占余量；按钮/平台框固定，放不下时整条换行，绝不压住彼此 */
-.dsh-gw-promote-label{flex:0 0 auto;font-size:11.5px;color:var(--dsw-alias-link);white-space:nowrap}
-.dsh-gw-pane .dsh-gw-promote>input{flex:1 1 72px!important;min-width:0;height:24px;box-sizing:border-box;padding:0 6px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:inherit;font-size:12px;font-family:inherit}
+.dsh-gw-promote-label{flex:0 0 auto;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-link);white-space:nowrap}
+.dsh-gw-pane .dsh-gw-promote>input{flex:1 1 72px!important;min-width:0;height:24px;box-sizing:border-box;padding:0 6px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:inherit;font-size:var(--gw-fz-3,12.5px);font-family:inherit}
 .dsh-gw-promote>.dsh-gw-promote-platform{flex:0 1 104px;width:104px;max-width:100%;display:inline-flex;min-width:0}
 .dsh-gw-promote .dsh-gw-promote-platform>span{flex:1 1 auto;min-width:0!important;width:100%}
 .dsh-gw-pane .dsh-gw-promote .dsh-gw-promote-platform input{flex:1 1 auto!important;min-width:0;width:100%}
 .dsh-gw-promote>.dsh-gw-btn{flex:0 0 auto;white-space:nowrap;max-width:100%}
 /* 取消/建是普通动作 */
-.dsh-gw-table input.dsh-gw-cell-in,.dsh-gw-table textarea.dsh-gw-cell-in{width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:1px 4px;font:inherit;font-size:11.5px;border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit}
+.dsh-gw-table input.dsh-gw-cell-in,.dsh-gw-table textarea.dsh-gw-cell-in{width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:1px 4px;font:inherit;font-size:var(--gw-fz-2,11.5px);border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit}
 .dsh-gw-table textarea.dsh-gw-cell-in{display:block;min-height:46px;max-height:220px;padding:4px 6px;line-height:1.55;resize:vertical;overflow:auto}
 .dsh-gw-table td[data-editing=true] input.dsh-gw-cell-in,.dsh-gw-table td[data-editing=true] textarea.dsh-gw-cell-in{border-color:var(--dsw-alias-link);background:var(--dsw-alias-bg-base)}
-.dsh-gw-autosave-dot{color:var(--dsw-alias-label-tertiary);font-size:10.5px}
+.dsh-gw-autosave-dot{color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px)}
 .dsh-gw-rule-edit{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;min-width:0}
 .dsh-gw-rule-edit input{width:100%}
 .dsh-gw-rule-edit .dsh-gw-rule-fields{display:grid;grid-template-columns:1fr 1fr;gap:4px}
 /* 体检输出：三行读数 + 一句判断。窄栏自动换行，不做表格。 */
 .dsh-gw-health{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 6px}
-.dsh-gw-health-out{margin:2px 0 6px;padding:8px 10px;border-radius:7px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:1.7}
+.dsh-gw-health-out{margin:2px 0 6px;padding:8px 10px;border-radius:7px;background:var(--dsw-alias-bg-layer-2);font-size:var(--gw-fz-3,12.5px);line-height:1.7}
 .dsh-gw-health-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.dsh-gw-health-row>b{flex:none;min-width:56px;font-weight:600;color:var(--dsw-alias-label-secondary);font-size:11.5px}
+.dsh-gw-health-row>b{flex:none;min-width:56px;font-weight:600;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-health-note{margin-top:4px;padding-top:4px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}
 
-.dsh-gw-hint{display:none;margin:0;padding:0;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11.5px;line-height:1.55}
+.dsh-gw-hint{display:none;margin:0;padding:0;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px);line-height:1.55}
 .dsh-gw-pending-row{flex-direction:column;align-items:stretch;gap:5px}
-.dsh-gw-pending-link{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-pending-link{flex:none;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-pending-warn{color:var(--dsw-alias-state-warn-primary,#d97706)}
-.dsh-gw-pending-fix{background:none;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d97706) 55%,transparent);border-radius:6px;padding:0 8px;height:20px;cursor:pointer;font-size:11px}
+.dsh-gw-pending-fix{background:none;border:1px dashed color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d97706) 55%,transparent);border-radius:6px;padding:0 8px;height:20px;cursor:pointer;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-pending-fix:hover{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#d97706) 14%,transparent)}
 .dsh-gw-pending-linkrow{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
 .dsh-gw-pending-linknew{display:flex;align-items:center;gap:5px;flex:1 1 100%;min-width:0}
@@ -375,7 +397,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-pending-jump{color:inherit;text-decoration:none;border-bottom:1px dotted color-mix(in srgb,currentColor 45%,transparent);cursor:pointer;transition:all .15s ease}
 .dsh-gw-pending-jump:hover{color:var(--dsw-alias-link);border-bottom-color:currentColor;border-bottom-style:solid;background:color-mix(in srgb,var(--dsw-alias-link) 10%,transparent)}
 .dsh-gw-pending-inputs{display:flex;gap:5px;flex-wrap:wrap}
-.dsh-gw-pending-inputs input{flex:1 1 76px;min-width:0;height:24px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:11.5px;box-sizing:border-box}
+.dsh-gw-pending-inputs input{flex:1 1 76px;min-width:0;height:24px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-2,11.5px);box-sizing:border-box}
 .dsh-gw-pending-inputs input:focus{outline:none;border-color:var(--dsw-alias-link)}
 .dsh-gw-pending-inputs .dsh-gw-btn{flex:none}
 .dsh-gw-pending-filter{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 6px}
@@ -387,15 +409,15 @@ window.__ModuleLoader__.load({
 .dsh-gw-pending-box .dsh-gw-pending-table{min-width:640px}
 /* 这个盒子自己成了滚动容器，表头的吸顶基准要改回盒子顶部，否则表头会被顶到下面去 */
 .dsh-gw-tablebox.dsh-gw-pending-box .dsh-gw-pending-table thead th{top:0}
-.dsh-gw-pending-table th,.dsh-gw-pending-table td{padding:3px 5px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dsh-gw-pending-table input{width:100%;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:11px;box-sizing:border-box}
+.dsh-gw-pending-table th,.dsh-gw-pending-table td{padding:3px 5px;font-size:var(--gw-fz-1,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsh-gw-pending-table input{width:100%;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-1,11px);box-sizing:border-box}
 .dsh-gw-pending-table input:focus{outline:none;border-color:var(--dsw-alias-link)}
 .dsh-gw-pending-more{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
-.dsh-gw-pending-table input{width:100%;min-width:0;height:24px;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:11.5px;box-sizing:border-box}
-.dsh-gw-pending-table select{width:100%;min-width:0;height:24px;font-size:11.5px}
+.dsh-gw-pending-table input{width:100%;min-width:0;height:24px;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-2,11.5px);box-sizing:border-box}
+.dsh-gw-pending-table select{width:100%;min-width:0;height:24px;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-pending-editrow td{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-pending-more-inline td{padding:6px 8px;background:var(--dsw-alias-bg-layer-2);border-top:1px dashed var(--dsw-alias-border-l1)}
-.dsh-gw-pending-more input{width:100%;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:11px;box-sizing:border-box}
+.dsh-gw-pending-more input{width:100%;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-1,11px);box-sizing:border-box}
 .dsh-gw-pending-linkinput{display:flex;align-items:center;gap:4px;flex:1 1 110px;min-width:0}
 .dsh-gw-pending-linkinput input{flex:1 1 auto}
 .dsh-gw-front-field{display:flex;align-items:center;gap:6px;min-width:0}
@@ -403,35 +425,35 @@ window.__ModuleLoader__.load({
 .dsh-gw-front-preview{flex:0 0 auto;white-space:nowrap}
 .dsh-gw-sect-t{flex:0 1 auto;min-width:40px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-note-preview,.dsh-gw-note-preview p{text-wrap:pretty}
-.dsh-gw-sect{display:flex;flex-wrap:nowrap;align-items:center;gap:6px 8px;min-width:0;margin:16px 0 7px;font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-primary);text-transform:none}
+.dsh-gw-sect{display:flex;flex-wrap:nowrap;align-items:center;gap:6px 8px;min-width:0;margin:16px 0 7px;font-size:var(--gw-fz-3,12.5px);font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-primary);text-transform:none}
 .dsh-gw-sect:first-child{margin-top:0}
 /* 小标题竖条是唯一保留的记号：分块扫读够用，不再加 emoji / ↗ / 胶囊抢戏；颜色跟品牌琥珀（A3）。 */
 .dsh-gw-sect-t::before{content:'';display:inline-block;width:3px;height:11px;margin-right:6px;border-radius:2px;vertical-align:-1px;background:color-mix(in srgb,var(--gw-warm) 65%,transparent)}
 .dsh-gw-sect .dsh-gw-btn{font-weight:400;letter-spacing:0}
-.dsh-gw-pane :focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:1px;border-radius:6px}
+.dsh-gw-pane :focus-visible,.dsh-gw-panel :focus-visible,.dsh-gw-veil :focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:1px;border-radius:6px}
 .dsh-gw-conflict{max-width:min(920px,94vw);max-height:86vh}
-.dsh-gw-extbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 4px;padding:7px 9px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);box-shadow:inset 0 0 0 1px var(--dsw-alias-state-warn-primary);font-size:11.5px;line-height:1.5}
+.dsh-gw-extbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 4px;padding:7px 9px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);box-shadow:inset 0 0 0 1px var(--dsw-alias-state-warn-primary);font-size:var(--gw-fz-2,11.5px);line-height:1.5}
 .dsh-gw-extbar-text{flex:1 1 180px;min-width:0}
 .dsh-gw-diff{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0;flex:1}
 @media (max-width:720px){.dsh-gw-diff{grid-template-columns:1fr}}
 .dsh-gw-diff-col{min-width:0;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:6px 8px;background:var(--dsw-alias-bg-layer-1)}
-.dsh-gw-diff-head{position:sticky;top:0;background:inherit;font-size:11.5px;color:var(--dsw-alias-label-secondary);padding:2px 0 6px}
-.dsh-gw-diff-line{font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;padding:1px 4px;border-radius:3px}
+.dsh-gw-diff-head{position:sticky;top:0;background:inherit;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);padding:2px 0 6px}
+.dsh-gw-diff-line{font-size:var(--gw-fz-3,12.5px);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;padding:1px 4px;border-radius:3px}
 .dsh-gw-diff-line[data-only=true]{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent)}
-.dsh-gw-diff-raw{margin:0;padding:10px 12px;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:6px}
+.dsh-gw-diff-raw{margin:0;padding:10px 12px;overflow:auto;font-size:var(--gw-fz-3,12.5px);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:6px}
 .dsh-gw-field-hint-row{display:flex;align-items:flex-start;gap:6px}
 .dsh-gw-field-hint-row>div{flex:1 1 auto;min-width:0}
-.dsh-gw-hintmark{flex:none;width:16px;height:16px;margin-top:18px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:14px;text-align:center;cursor:help}
+.dsh-gw-hintmark{flex:none;width:16px;height:16px;margin-top:18px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);line-height:14px;text-align:center;cursor:help}
 .dsh-gw-aux{font-weight:400}
-.dsh-gw-pane :focus:not(:focus-visible){outline:none}
-.dsh-gw-err{margin:0 0 8px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5}
+.dsh-gw-pane :focus:not(:focus-visible),.dsh-gw-panel :focus:not(:focus-visible),.dsh-gw-veil :focus:not(:focus-visible){outline:none}
+.dsh-gw-err{margin:0 0 8px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);font-size:var(--gw-fz-3,12.5px);line-height:1.5}
 /* 可点的提示条（负面未处理）：整条是按钮，点一下筛选、再点取消 */
 .dsh-gw-err-btn{display:block;width:100%;text-align:left;background:none;cursor:pointer;font-family:inherit}
 .dsh-gw-err-btn:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent)}
 .dsh-gw-err-btn.is-on{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);font-weight:600}
-.dsh-gw-ok{margin:0 0 8px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary);font-size:12px}
-.dsh-gw-empty{padding:26px 8px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.7}
-.dsh-gw-table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.dsh-gw-ok{margin:0 0 8px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary);font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-empty{padding:26px 8px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-3,12.5px);line-height:1.7}
+.dsh-gw-table{width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--gw-fz-3,12.5px)}
 /* 表格外层：列宽再怎么算，也不许把面板撑出横向滚动。 */
 /* 卡片顶吸：面包屑 + 卡片标题/筛选条，滚内容时都留在上面 */
 .dsh-gw-body>.dsh-gw-card-crumb{position:sticky;top:0;z-index:8;margin:0 -14px 6px;padding:7px 14px;background:var(--gw-glass);border-bottom:1px solid var(--dsw-alias-border-l1)}
@@ -446,7 +468,7 @@ window.__ModuleLoader__.load({
 /* 吸顶区必须是实色：有些主题把 bg-base 做成透明，滚动内容会透出来 */
 .dsh-gw-body>.dsh-gw-card-crumb,.dsh-gw-card-top,.dsh-gw-rules-sticky{background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 /* 规则表：列宽全用百分比，面板多宽就多宽，不横向滚动 */
-.dsh-gw-rules{table-layout:fixed;border-collapse:collapse;width:100%;max-width:100%;font-size:11.5px}
+.dsh-gw-rules{table-layout:fixed;border-collapse:collapse;width:100%;max-width:100%;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-rules col.c-id{width:8%}
 .dsh-gw-rules col.c-title{width:27%}
 .dsh-gw-rules col.c-body{width:35%}
@@ -457,12 +479,12 @@ window.__ModuleLoader__.load({
 .dsh-gw-rules .dsh-gw-row-del{position:absolute;top:2px;right:2px;border:1px solid transparent;background:transparent;opacity:0;pointer-events:none}
 .dsh-gw-rules tr:hover .dsh-gw-row-del,.dsh-gw-rules .dsh-gw-row-del:focus-visible{opacity:.72;pointer-events:auto}
 @media (hover:none){.dsh-gw-rules .dsh-gw-row-del{opacity:1;pointer-events:auto}}
-.dsh-gw-rules th{padding:4px 5px;text-align:left;white-space:nowrap;overflow:hidden;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-rules th{padding:4px 5px;text-align:left;white-space:nowrap;overflow:hidden;font-size:var(--gw-fz-1,11px);font-weight:600;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-rules td{padding:5px;vertical-align:top;border-bottom:1px solid var(--dsw-alias-border-l1);overflow:hidden;overflow-wrap:anywhere}
-.dsh-gw-rules td.dsh-gw-td-id{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-variant-numeric:tabular-nums;font-size:11px}
+.dsh-gw-rules td.dsh-gw-td-id{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-variant-numeric:tabular-nums;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-rules .dsh-gw-rule-name{font-weight:600;line-height:1.35}
 .dsh-gw-rules .dsh-gw-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-rules .dsh-gw-rule-note{margin-top:2px;font-size:10.5px;line-height:1.4;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-rules .dsh-gw-rule-note{margin-top:2px;font-size:var(--gw-fz-1,11px);line-height:1.4;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-rules .dsh-gw-rule-empty{color:var(--dsw-alias-label-tertiary)}
 .dsh-gw-rules tr:hover td{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-rules tr.dsh-gw-rules-edit:hover td{background:var(--dsw-alias-bg-layer-2)}
@@ -471,14 +493,14 @@ window.__ModuleLoader__.load({
 .dsh-gw-rules-edit textarea.dsh-gw-rules-in{resize:vertical;min-height:46px;max-height:180px}
 .dsh-gw-rules-edit .dsh-gw-rules-in-title{font-weight:600}
 .dsh-gw-rules-edit .dsh-gw-rules-extra{margin-top:3px;display:grid;gap:3px}
-.dsh-gw-rules-edit .dsh-gw-rules-extra .dsh-gw-rules-in{font-size:10.5px;padding:1px 4px}
+.dsh-gw-rules-edit .dsh-gw-rules-extra .dsh-gw-rules-in{font-size:var(--gw-fz-1,11px);padding:1px 4px}
 .dsh-gw-rules td.dsh-gw-td-id .dsh-gw-rules-in{text-align:center;font-variant-numeric:tabular-nums;padding:2px 2px}
 .dsh-gw-rules-frame{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-rules-frame .dsh-gw-rules{border:none}
 /* 语调库：上筛选 / 中内容 / 下加规则，一屏装下；只有中间区域滚动。 */
 .dsh-gw-rules-card{display:flex;flex-direction:column;flex:1;min-height:0;height:100%;overflow:hidden}
 .dsh-gw-rules-filter{position:static;flex:none;margin:0 0 6px;padding:6px 0 5px}
-.dsh-gw-rules-tab{font-size:11.5px}
+.dsh-gw-rules-tab{font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-rules-scroll{flex:1;min-height:120px;overflow:auto;padding-right:2px}
 .dsh-gw-rules-add{flex:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-rules-add .dsh-gw-sect{margin:0 0 6px}
@@ -504,15 +526,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-chiprow{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
 /* 多选下拉（领域 / 标签 / 平台 …）：按钮 + 勾选面板。筛选行一行排开，不再铺两排 chip。 */
 .dsh-gw-ms{position:relative;flex:none}
-.dsh-gw-ms-btn{display:inline-flex;align-items:center;gap:5px;height:26px;max-width:240px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);padding:0 8px;font-size:12px;cursor:pointer;white-space:nowrap}
+.dsh-gw-ms-btn{display:inline-flex;align-items:center;gap:5px;height:26px;max-width:240px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);padding:0 8px;font-size:var(--gw-fz-3,12.5px);cursor:pointer;white-space:nowrap}
 .dsh-gw-ms-btn.is-on{color:var(--dsw-alias-label-primary);border-color:var(--gw-warm)}
 .dsh-gw-ms-label{color:var(--dsw-alias-label-tertiary)}
 .dsh-gw-ms-value{overflow:hidden;text-overflow:ellipsis;max-width:130px}
 .dsh-gw-ms-pop{position:absolute;top:calc(100% + 4px);left:0;z-index:40;min-width:190px;max-height:280px;overflow:auto;padding:6px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);box-shadow:0 12px 28px rgba(0,0,0,.30)}
-.dsh-gw-ms-item{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;font-size:12px;cursor:pointer;white-space:nowrap}
+.dsh-gw-ms-item{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;font-size:var(--gw-fz-3,12.5px);cursor:pointer;white-space:nowrap}
 .dsh-gw-ms-item:hover{background:var(--dsw-alias-bg-layer-1)}
-.dsh-gw-ms-empty{font-size:11.5px;color:var(--dsw-alias-label-tertiary);padding:4px 6px}
-.dsh-gw-ms-clear{margin-top:5px;width:100%;height:24px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font-size:11.5px;cursor:pointer}
+.dsh-gw-ms-empty{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-tertiary);padding:4px 6px}
+.dsh-gw-ms-clear{margin-top:5px;width:100%;height:24px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px);cursor:pointer}
 .dsh-gw-rules thead th{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-rules th,.dsh-gw-rules td{border-right:1px solid var(--dsw-alias-border-l1)}
 .dsh-gw-rules th:last-child,.dsh-gw-rules td:last-child{border-right:none}
@@ -533,23 +555,23 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    以前让它参与换行，列一窄就掉到下一行，同一张表里行高还跟着变。 */
 .dsh-gw-idea-acts>.dsh-gw-acts{flex:0 0 auto;margin-left:auto}
 .dsh-gw-source-cell{display:flex;align-items:center;gap:3px;min-width:0}
-.dsh-gw-source-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;font-size:11.5px;transition:all .15s ease}
+.dsh-gw-source-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;font-size:var(--gw-fz-2,11.5px);transition:all .15s ease}
 .dsh-gw-source-link:hover{border-bottom-style:solid;background:color-mix(in srgb,var(--dsw-alias-link) 10%,transparent)}
-.dsh-gw-source-open{flex:0 0 auto;color:var(--dsw-alias-label-secondary);text-decoration:none;font-size:11.5px}
+.dsh-gw-source-open{flex:0 0 auto;color:var(--dsw-alias-label-secondary);text-decoration:none;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-source-open:hover{color:var(--dsw-alias-link)}
 .dsh-gw-td-url{max-width:0}
 .dsh-gw-preview-mask{position:fixed;inset:0;z-index:9800;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:22px}
 .dsh-gw-preview-box{width:min(980px,100%);height:min(78vh,760px);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.42)}
 .dsh-gw-preview-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);font-weight:600}
 .dsh-gw-preview-frame{flex:1;width:100%;border:none;background:#000}
-.dsh-gw-preview-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11.5px;color:var(--dsw-alias-label-secondary);min-width:0}
+.dsh-gw-preview-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l1);font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);min-width:0}
 .dsh-gw-preview-foot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .dsh-gw-preview-foot a{color:var(--dsw-alias-link);text-decoration:none;white-space:nowrap}
 .dsh-gw-chat-preview{width:min(100%,920px);margin:6px auto 0;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .dsh-gw-chat-preview-head{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);min-width:0}
-.dsh-gw-chat-preview-title{font-size:12px;font-weight:600;white-space:nowrap}
-.dsh-gw-chat-preview-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-chat-preview-open{flex:0 0 auto;color:var(--dsw-alias-link);text-decoration:none;font-size:11.5px;white-space:nowrap}
+.dsh-gw-chat-preview-title{font-size:var(--gw-fz-3,12.5px);font-weight:600;white-space:nowrap}
+.dsh-gw-chat-preview-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-chat-preview-open{flex:0 0 auto;color:var(--dsw-alias-link);text-decoration:none;font-size:var(--gw-fz-2,11.5px);white-space:nowrap}
 .dsh-gw-chat-preview-frame{display:block;width:100%;height:min(34vh,260px);border:0;background:#000}
 .dsh-gw-chat-preview-resize{height:8px;cursor:ns-resize;user-select:none;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-chat-preview-resize:hover{background:var(--dsw-alias-link)}
@@ -558,25 +580,25 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    以前按钮写死 flex-basis:58px，比列还宽 → 被 td 的 overflow:hidden 切掉半截，
    看着像「溢出到框外」。现在改成 auto 基准 + 允许换行：
    放得下就一行，放不下就让文字自己折行、删除图标掉到下一行，宽度永远不超过单元格。 */
-.dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act .dsh-gw-idea-add{flex:0 1 auto;width:auto;min-width:0;max-width:100%;box-sizing:border-box;justify-content:center;text-align:center;font-size:11px;line-height:1.25;min-height:22px;padding:1px 3px;white-space:normal;overflow-wrap:anywhere;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);font-weight:500;opacity:1}
+.dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act .dsh-gw-idea-add{flex:0 1 auto;width:auto;min-width:0;max-width:100%;box-sizing:border-box;justify-content:center;text-align:center;font-size:var(--gw-fz-1,11px);line-height:1.25;min-height:22px;padding:1px 3px;white-space:normal;overflow-wrap:anywhere;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);font-weight:500;opacity:1}
 /* 操作列左右内边距压到 2px：13~16% 的列宽里每省 1px 都可能决定「按钮+删除图标」
    能不能挤在一行。挤不下时宁可折行，也不要让它顶出单元格。 */
 .dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act{padding-left:2px;padding-right:2px}
 /* 已关联选题的「改选题」= 完成态，跟「已排期」同用成功绿；未关联的「加入选题」= 进行态品牌蓝 */
 .dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act .dsh-gw-idea-add[data-linked=true]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
 .dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act .dsh-gw-idea-add:hover{background:color-mix(in srgb,var(--dsw-alias-link) 28%,transparent)}
-.dsh-gw-idea-dropped{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 12%,transparent);font-size:11px;line-height:1.25;color:var(--dsw-alias-label-secondary);max-width:100%;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box}
-.dsh-gw-idea-status{flex:0 0 auto;font-size:11px;line-height:1.2;height:22px;padding:1px 2px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);max-width:62px;box-sizing:border-box}
+.dsh-gw-idea-dropped{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 12%,transparent);font-size:var(--gw-fz-1,11px);line-height:1.25;color:var(--dsw-alias-label-secondary);max-width:100%;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box}
+.dsh-gw-idea-status{flex:0 0 auto;font-size:var(--gw-fz-1,11px);line-height:1.2;height:22px;padding:1px 2px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);max-width:62px;box-sizing:border-box}
 .dsh-gw-idea-filters{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap;max-width:100%}
-.dsh-gw-idea-filters .dsh-gw-catselect{height:22px;font-size:11px;border-radius:6px;padding:0 2px;max-width:104px;box-sizing:border-box}
-.dsh-gw-idea-search{height:22px;width:118px;font-size:11px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;box-sizing:border-box}
+.dsh-gw-idea-filters .dsh-gw-catselect{height:22px;font-size:var(--gw-fz-1,11px);border-radius:6px;padding:0 2px;max-width:104px;box-sizing:border-box}
+.dsh-gw-idea-search{height:22px;width:118px;font-size:var(--gw-fz-1,11px);border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;box-sizing:border-box}
 .dsh-gw-tablebox{width:100%;max-width:100%;box-sizing:border-box;overflow:visible;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-topiclist td{vertical-align:middle;padding:5px 8px}
 .dsh-gw-topiclist td:first-child{padding-left:9px}
 .dsh-gw-topiclist-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .dsh-gw-topiclist-title:hover{color:var(--dsw-alias-link);text-decoration:underline}
 .dsh-gw-topiclist-acts{display:flex;align-items:center;gap:4px;justify-content:flex-end}
-.dsh-gw-topiclist .dsh-gw-row-act{height:24px;padding:0 8px;font-size:11.5px}
+.dsh-gw-topiclist .dsh-gw-row-act{height:24px;padding:0 8px;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-table thead th,.dsh-gw-matrix thead th,.dsh-gw-rules thead th{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-card-top-h,0px));z-index:6;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 .dsh-gw-rules thead th{top:0;z-index:2}
 .dsh-gw-matrixbox>.dsh-gw-matrix th:first-child,.dsh-gw-matrixbox>.dsh-gw-matrix td:first-child{border-left:none}
@@ -607,7 +629,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-state{width:6%}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-act{width:16%}
 /* 窄档（<470）切成 5 列：日期 / 渠道 / 情感 / 标签折成「原文」格上面的一行 meta。 */
-.dsh-gw-fb-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:3px;font-size:10.5px;line-height:1.4;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-fb-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:3px;font-size:var(--gw-fz-1,11px);line-height:1.4;color:var(--dsw-alias-label-secondary)}
 .dsh-gw-fb-meta-tags{display:inline-flex;flex-wrap:wrap;gap:3px}
 .dsh-gw-fb-body{line-height:1.5;color:var(--dsw-alias-label-primary)}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table.dsh-gw-fb-compact col.c-body{width:38%}
@@ -639,7 +661,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-table tbody tr:nth-child(even),.dsh-gw-rules tbody tr:nth-child(even){background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-row:nth-child(even){background:color-mix(in srgb, var(--dsw-alias-bg-layer-1) 62%, var(--dsw-alias-bg-layer-2))}
 .dsh-gw-topics-table tbody tr{cursor:pointer}
-.dsh-gw-topics-table td:first-child{white-space:nowrap;font-size:11.5px}
+.dsh-gw-topics-table td:first-child{white-space:nowrap;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-topics-table tbody tr:hover{background:var(--dsh-alias-bg-layer-2)}
 .dsh-gw-topics-title{font-weight:500}
 /* 吸顶条里堆多个小节时留点缝（爆款拆解：笔记 / 搜索 / 分类 三行）。 */
@@ -660,13 +682,13 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 操作列宁可折行也不许撑破列宽——一旦超出，右侧的保存/取消就被顶出可视区了。 */
 .dsh-gw-table td.dsh-gw-td-act>.dsh-gw-act-wrap{display:flex;flex-wrap:nowrap;align-items:center;gap:3px;min-width:0;max-width:100%}
 /* 操作列放不下时先缩按钮、文字竖排，绝不允许把内容推出面板（那正是保存/取消消失的原因）。 */
-.dsh-gw-table td.dsh-gw-td-act .dsh-gw-btn{flex:0 1 auto;min-width:18px;white-space:normal;overflow-wrap:anywhere;height:auto;min-height:21px;padding:0 4px;line-height:1.15;font-size:11px;justify-content:center;text-align:center}
+.dsh-gw-table td.dsh-gw-td-act .dsh-gw-btn{flex:0 1 auto;min-width:18px;white-space:normal;overflow-wrap:anywhere;height:auto;min-height:21px;padding:0 4px;line-height:1.15;font-size:var(--gw-fz-1,11px);justify-content:center;text-align:center}
 .dsh-gw-table td.dsh-gw-td-act .dsh-gw-icon-btn{flex:none}
 .dsh-gw-table .dsh-gw-edit-acts{display:inline-flex;gap:3px;min-width:0}
 .dsh-gw-table .dsh-gw-edit-acts .dsh-gw-btn{flex:none;min-width:22px;padding:1px 5px;justify-content:center}
 /* 窄栏收缩：面板本身不再声明 container-type（那样会让内部 grid 退化），
    所以这里用一条能真正生效的兜底——把固定宽度降到最小值，靠 table-layout:fixed 自己分。 */
-.dsh-gw-table[data-narrow=true]{font-size:11.5px}
+.dsh-gw-table[data-narrow=true]{font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-table[data-narrow=true] th,.dsh-gw-table[data-narrow=true] td{padding:4px 5px}
 /* 窄档（<460px）：日期只剩月-日、状态只留下拉、去向常为空，能省就省，
    把宽裕留给操作列——保存/取消必须始终看得见。 */
@@ -674,35 +696,35 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 灵感箱「去向」：已建选题时直接点进那篇选题，并进入编辑态 */
 .dsh-gw-idea-outcome{display:block;max-width:100%;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal}
 .dsh-gw-idea-outcome:hover{text-decoration:underline}
-.dsh-gw-idea-outcome-kind{display:inline-block;padding:0 5px;margin-right:2px;border-radius:4px;font-size:10px;line-height:16px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-idea-outcome-kind{display:inline-block;padding:0 5px;margin-right:2px;border-radius:4px;font-size:var(--gw-fz-1,11px);line-height:16px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-idea-outcome-kind[data-kind="选题"]{color:var(--tone-progress,var(--dsw-alias-link));border-color:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 35%,transparent)}
 .dsh-gw-field{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
 .dsh-gw-field>.dsh-gw-platmulti{flex:0 0 auto}
-.dsh-gw-field label{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-field input,.dsh-gw-field textarea,.dsh-gw-field select{width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:12px;font-family:inherit}
+.dsh-gw-field label{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-field input,.dsh-gw-field textarea,.dsh-gw-field select{width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px);font-family:inherit}
 .dsh-gw-field textarea{min-height:150px;resize:vertical;line-height:1.6;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .dsh-gw-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 .dsh-gw-cal-party{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px;align-items:start}
 .dsh-gw-cal-party-left,.dsh-gw-cal-party-right{min-width:0}
 .dsh-gw-cal-party-right{border-left:1px dashed var(--dsw-alias-border-l2);padding-left:12px}
-.dsh-gw-cal-party-title{font-size:11.5px;color:var(--dsw-alias-label-secondary);margin:0 0 6px}
-.dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect,.dsh-gw-cal-addform .dsh-gw-field select.dsh-gw-cal-fieldselect{height:30px;min-height:30px;padding:0 26px 0 8px;border-radius:8px;font-size:12px;box-sizing:border-box;appearance:none;-webkit-appearance:none;background-color:var(--dsw-alias-bg-layer-1);background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E");background-position:calc(100% - 10px) center;background-size:10px 6px;background-repeat:no-repeat}
+.dsh-gw-cal-party-title{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);margin:0 0 6px}
+.dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect,.dsh-gw-cal-addform .dsh-gw-field select.dsh-gw-cal-fieldselect{height:30px;min-height:30px;padding:0 26px 0 8px;border-radius:8px;font-size:var(--gw-fz-3,12.5px);box-sizing:border-box;appearance:none;-webkit-appearance:none;background-color:var(--dsw-alias-bg-layer-1);background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E");background-position:calc(100% - 10px) center;background-size:10px 6px;background-repeat:no-repeat}
 .dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect::-webkit-calendar-picker-indicator,.dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect::-webkit-list-button{display:none!important;opacity:0;width:0;height:0;margin:0;padding:0}
 .dsh-gw-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-.dsh-gw-pre{margin:6px 0 0;padding:8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto}
-.dsh-gw-pill{display:inline-flex;align-items:center;height:auto;min-height:22px;padding:1px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:11px;line-height:1.25;color:var(--dsw-alias-label-primary);flex:0 1 auto;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box}
+.dsh-gw-pre{margin:6px 0 0;padding:8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--gw-fz-2,11.5px);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto}
+.dsh-gw-pill{display:inline-flex;align-items:center;height:auto;min-height:22px;padding:1px 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:var(--gw-fz-1,11px);line-height:1.25;color:var(--dsw-alias-label-primary);flex:0 1 auto;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box}
 .dsh-gw-pill[data-tone=warn]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent)}
 .dsh-gw-pill[data-tone=error]{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent)}
 .dsh-gw-pill[data-tone=ok]{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
 /* 风险旗（S5）：「风险 高/禁发」最重的状态用最显眼的信号，不再藏在灰色 meta 里。 */
-.dsh-gw-risk-flag{flex:none;display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:5px;padding:0 6px;line-height:1.6}
+.dsh-gw-risk-flag{flex:none;display:inline-flex;align-items:center;font-size:var(--gw-fz-1,11px);font-weight:600;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:5px;padding:0 6px;line-height:1.6}
 .dsh-gw-pill[data-tone=brand]{border-color:color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);color:var(--dsw-alias-link);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent)}
 .dsh-gw-pill-btn{cursor:pointer;font-family:inherit;line-height:1.5;transition:all .15s ease}
 .dsh-gw-pill-btn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);transform:translateY(-1px)}
-.dsh-gw-matrix{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}
+.dsh-gw-matrix{width:100%;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);table-layout:fixed}
 .dsh-gw-matrix th,.dsh-gw-matrix td{border:1px solid var(--dsw-alias-border-l1);padding:5px 6px;vertical-align:top;word-break:break-word}
 .dsh-gw-matrix th{background:var(--dsw-alias-bg-layer-2);font-weight:500}
-.dsh-gw-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:12px;padding:0}
+.dsh-gw-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-3,12.5px);padding:0}
 /* 图标按钮：全站只此一档尺寸（20×20、圆角 6、14px 线性图标）。
    垃圾桶=删除（data-tone=danger，悬停才亮红）；叉=关闭/清空；chevron=展开。 */
 .dsh-gw-icon{display:block;flex:none}
@@ -713,18 +735,18 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-ibtn[data-tone=danger]:hover{color:var(--dsw-alias-state-error-primary,#dc2626);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#dc2626) 14%,transparent)}
 .dsh-gw-ibtn[data-tone=brand]:hover{color:var(--dsw-alias-link)}
 .dsh-gw-ibtn[disabled]{opacity:.35;cursor:default}
-.dsh-gw-icon-btn{background:none;border:none;cursor:pointer;font-size:12px;line-height:1;padding:4px 6px;border-radius:6px;color:var(--dsw-alias-label-secondary);opacity:.72;font-weight:500}
+.dsh-gw-icon-btn{background:none;border:none;cursor:pointer;font-size:var(--gw-fz-3,12.5px);line-height:1;padding:4px 6px;border-radius:6px;color:var(--dsw-alias-label-secondary);opacity:.72;font-weight:500}
 .dsh-gw-icon-btn:hover{background:var(--dsw-alias-bg-layer-2);opacity:1}
 .dsh-gw-icon-btn[data-tone=danger]:hover{color:var(--dsw-alias-state-error-primary,#e5484d)}
 /* 面包屑：以前「← 运营 选题 / 爆款拆解」和「← 返回 Topics/333.md」各占一行、样式还不一样，
    现在合成一行：最左边一个返回箭头，后面是可点的路径段。 */
 /* 划词工具条 */
 .dsh-gw-markbar{position:fixed;z-index:9600;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:9px;background:var(--dsw-alias-bg-layer-1,#1f2126);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 6px 22px rgba(0,0,0,.28)}
-.dsh-gw-markbar-btn{background:none;border:none;cursor:pointer;font:inherit;font-size:12px;padding:4px 9px;border-radius:6px;color:var(--dsw-alias-label-primary)}
+.dsh-gw-markbar-btn{background:none;border:none;cursor:pointer;font:inherit;font-size:var(--gw-fz-3,12.5px);padding:4px 9px;border-radius:6px;color:var(--dsw-alias-label-primary)}
 .dsh-gw-markbar-btn:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-markbar-btn[data-tone=primary]{background:var(--dsw-alias-link);color:#fff}
-.dsh-gw-markbar-hint{font-size:11px;color:var(--dsw-alias-label-secondary);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-markbar-input{height:26px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:inherit;padding:0 8px;font-size:12px;outline:none}
+.dsh-gw-markbar-hint{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-markbar-input{height:26px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:inherit;padding:0 8px;font-size:var(--gw-fz-3,12.5px);outline:none}
 /* 高亮与批注 */
 .dsh-gw-mark{background:rgba(255,196,0,.28);color:inherit;padding:0 1px;border-radius:3px}
 @keyframes dsh-gw-jump-flash{0%{background-color:rgba(255,196,0,.55);box-shadow:0 0 0 3px rgba(255,196,0,.22)}100%{background-color:transparent;box-shadow:0 0 0 3px transparent}}
@@ -732,21 +754,21 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 搜索命中：跟「用户标注的高亮」（上面那条黄的）区分开，用品牌色、不加圆角，一眼看出是当前搜索的结果 */
 .dsh-gw-hit{background:color-mix(in srgb,var(--dsw-alias-link) 30%,transparent);color:var(--dsw-alias-label-primary);padding:0;border-radius:2px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-link) 55%,transparent)}
 .dsh-gw-tree-note .dsh-gw-hit,.dsh-gw-tree-dir .dsh-gw-hit{background:color-mix(in srgb,var(--dsw-alias-link) 34%,transparent)}
-.dsh-gw-tree-snippet{display:block;margin-top:1px;font-size:10.5px;line-height:1.35;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-sop-hitcount{flex:none;min-width:18px;text-align:center;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-tree-snippet{display:block;margin-top:1px;font-size:var(--gw-fz-1,11px);line-height:1.35;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-sop-hitcount{flex:none;min-width:18px;text-align:center;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-sop-outside{margin-top:8px;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l2)}
-.dsh-gw-sop-outside-head{padding:2px 0 4px 6px;font-size:10.5px;letter-spacing:.02em;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-sop-outside-head{padding:2px 0 4px 6px;font-size:var(--gw-fz-1,11px);letter-spacing:.02em;color:var(--dsw-alias-label-secondary)}
 .dsh-gw-tree-note[data-outside]{opacity:.92}
 .dsh-gw-sop-filter{display:flex;gap:4px;align-items:center}
 .dsh-gw-mark-annotated{cursor:help;box-shadow:inset 0 -2px 0 rgba(255,152,0,.55)}
-.dsh-gw-annot-note{font-size:11px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-radius:5px;padding:0 5px;margin-left:4px;white-space:normal}
+.dsh-gw-annot-note{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-radius:5px;padding:0 5px;margin-left:4px;white-space:normal}
 /* 正文栏贴顶：下滑超过它以后就固定在顶部，只有下面的正文跟着滚。
    背景必须用不透明的 bg-base，不然正文会从它底下透出来。 */
 /* 正文栏贴顶：下滑超过它以后固定在顶部，只有下面的正文滚。
    top 要让开上面两条吸顶的（卡片面包屑 z8 / 卡片标题条 z7），
    这两个高度由 useLayoutEffect 量出来喂给 CSS 变量，没有就退化成 0。
    背景必须不透明，不然正文会从它底下透出来。 */
-.dsh-gw-note-sectionhead{position:sticky;top:calc(var(--dsh-gw-crumb-h,0px) + var(--dsh-gw-card-top-h,0px));z-index:7;display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:12px;color:var(--dsw-alias-label-secondary);margin:0 -14px 8px;padding:7px 14px;background:var(--gw-glass);border-bottom:1px solid var(--dsw-alias-border-l1)}
+.dsh-gw-note-sectionhead{position:sticky;top:calc(var(--dsh-gw-crumb-h,0px) + var(--dsh-gw-card-top-h,0px));z-index:7;display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-label-secondary);margin:0 -14px 8px;padding:7px 14px;background:var(--gw-glass);border-bottom:1px solid var(--dsw-alias-border-l1)}
 /* 拆解脚本 / 版本脚本 = 一张带完整外框的内容框：操作条是框头，编辑器是框身，
    两块拼起来才有上圆角、下圆角和左右框线（中间不留缝，所以接缝处不画线）。
    不吸顶：框内吸顶的话滚动时框头会飘出框外，看起来像断开的两个元素。 */
@@ -759,24 +781,24 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-mode-btns{display:inline-flex;flex:none;gap:2px;align-items:center}
 .dsh-gw-mode-btns .dsh-gw-btn,.dsh-gw-mode-btns .dsh-gw-icon-btn{margin:0}
 .dsh-gw-note-actions > .dsh-gw-mode-btns{margin-right:2px}
-.dsh-gw-crumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0;flex:1;font-size:12px;line-height:1.6}
-.dsh-gw-crumb-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:13px;padding:2px 6px 2px 0;flex:none}
+.dsh-gw-crumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0;flex:1;font-size:var(--gw-fz-3,12.5px);line-height:1.6}
+.dsh-gw-crumb-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-4,13px);padding:2px 6px 2px 0;flex:none}
 .dsh-gw-crumb-back:hover{text-decoration:underline}
-.dsh-gw-crumb-seg{background:none;border:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px;padding:2px 5px;border-radius:5px;font:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.dsh-gw-crumb-seg{background:none;border:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px);padding:2px 5px;border-radius:5px;font:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 .dsh-gw-crumb-seg:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-link)}
 .dsh-gw-crumb-seg[data-current=true]{color:var(--dsw-alias-label-primary);font-weight:600;cursor:default}
 .dsh-gw-crumb-seg[data-current=true]:hover{background:none;color:var(--dsw-alias-label-primary)}
 .dsh-gw-crumb-sep{color:var(--dsw-alias-label-secondary);opacity:.5;flex:none;user-select:none}
 .dsh-gw-crumb-seg[data-context=true]{cursor:pointer;padding-left:5px;opacity:1}
 .dsh-gw-crumb-seg[data-context=true]:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-link)}
-.dsh-gw-tree{font-size:12.5px}
-.dsh-gw-tree-dir{display:flex;align-items:center;gap:6px;width:100%;text-align:left;padding:3px 0;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12.5px;font-weight:500}
+.dsh-gw-tree{font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-tree-dir{display:flex;align-items:center;gap:6px;width:100%;text-align:left;padding:3px 0;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px);font-weight:500}
 .dsh-gw-tree-dir:hover{color:var(--dsw-alias-label-primary)}
-.dsh-gw-tree-note{display:block;width:100%;text-align:left;padding:4px 6px;border-radius:6px;border:none;background:none;color:inherit;cursor:pointer;font-size:12.5px}
+.dsh-gw-tree-note{display:block;width:100%;text-align:left;padding:4px 6px;border-radius:6px;border:none;background:none;color:inherit;cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tree-note:hover{background:var(--dsw-alias-bg-layer-2)}
-.dsh-gw-tree-caret{width:9px;flex:none;opacity:.7;font-size:10px}
+.dsh-gw-tree-caret{width:9px;flex:none;opacity:.7;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-tree-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-tree-count{flex:none;font-size:11px;opacity:.55;font-variant-numeric:tabular-nums}
+.dsh-gw-tree-count{flex:none;font-size:var(--gw-fz-1,11px);opacity:.55;font-variant-numeric:tabular-nums}
 .dsh-gw-tree-note{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-tree-note[data-on=true]{background:color-mix(in srgb,var(--dsw-alias-link) 12%,transparent);box-shadow:inset 0 0 0 1.5px var(--dsw-alias-link);color:var(--dsw-alias-label-primary);font-weight:500}
 /* ── SOP 卡片：左树右预览 ── */
@@ -786,7 +808,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 星期表头吸顶：往下翻日期时「一 二 三 …」不跟着滚走。
    用 overflow:clip 而不是 hidden——hidden 会自己变成滚动容器，sticky 就失效了。 */
 .dsh-gw-cal-week:first-child{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-cal-head-h,40px));z-index:5;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:10px 10px 0 0;box-shadow:0 1px 0 var(--dsw-alias-border-l2)}
-.dsh-gw-cal-wd{text-align:center;font-size:11px;color:var(--dsw-alias-label-secondary);padding:5px 0}
+.dsh-gw-cal-wd{text-align:center;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);padding:5px 0}
 .dsh-gw-cal-cell{display:flex;flex-direction:column;gap:1px;align-items:stretch;min-height:42px;padding:2px 3px;overflow:hidden;box-sizing:border-box;width:100%;min-width:0;border:none;border-right:1px solid var(--dsw-alias-border-l2);border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;overflow:hidden}
 .dsh-gw-cal-week .dsh-gw-cal-cell:last-child{border-right:none}
 .dsh-gw-cal-cell:hover{background:var(--dsw-alias-bg-layer-2)}
@@ -795,10 +817,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-cell[data-today=true] .dsh-gw-cal-num{color:var(--gw-warm);font-weight:700}
 .dsh-gw-cal-blank{background:var(--dsw-alias-bg-base);opacity:.35;cursor:default}
 .dsh-gw-cal-blank:hover{background:var(--dsw-alias-bg-base)}
-.dsh-gw-cal-num{display:flex;align-items:center;gap:4px;font-size:11.5px;font-variant-numeric:tabular-nums}
-.dsh-gw-cal-dot{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:0;height:14px;padding:0 3px;border-radius:4px;max-width:100%;overflow:hidden;background:color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);color:var(--dsw-alias-link);font-size:10px;font-style:normal;font-weight:600}
+.dsh-gw-cal-num{display:flex;align-items:center;gap:4px;font-size:var(--gw-fz-2,11.5px);font-variant-numeric:tabular-nums}
+.dsh-gw-cal-dot{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:0;height:14px;padding:0 3px;border-radius:4px;max-width:100%;overflow:hidden;background:color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);color:var(--dsw-alias-link);font-size:var(--gw-fz-1,11px);font-style:normal;font-weight:600}
 .dsh-gw-cal-items{display:flex;flex-direction:column;gap:1px;min-width:0}
-.dsh-gw-cal-item{font-size:11px;line-height:1.2;padding:0 2px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--dsw-alias-bg-layer-2);cursor:grab}
+.dsh-gw-cal-item{font-size:var(--gw-fz-1,11px);line-height:1.2;padding:0 2px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--dsw-alias-bg-layer-2);cursor:grab}
 .dsh-gw-cal-item:active{cursor:grabbing}
 .dsh-gw-cal-cell[data-drop=true]{background:color-mix(in srgb,var(--dsw-alias-link) 20%,transparent);box-shadow:inset 0 0 0 1.5px var(--dsw-alias-link)}
 /* 数字角标在窄格子里不参与撑宽 */
@@ -817,27 +839,27 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-item[data-status=doing]{background:color-mix(in srgb,var(--tone-attention,var(--gw-warm)) 16%,transparent);color:var(--tone-attention,var(--gw-warm))}
 .dsh-gw-cal-item[data-status=done]{background:color-mix(in srgb,var(--tone-done,var(--dsw-alias-state-success-primary)) 16%,transparent);color:var(--tone-done,var(--dsw-alias-state-success-primary))}
 .dsh-gw-cal-item[data-status=back]{background:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 14%,transparent);color:var(--tone-progress,var(--dsw-alias-link))}
-.dsh-gw-cal-more{font-size:10.5px;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-cal-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary);padding:2px 4px 6px}
+.dsh-gw-cal-more{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-cal-hint{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);padding:2px 4px 6px}
 .dsh-gw-cal-cell[data-on=true] .dsh-gw-cal-num{color:var(--dsw-alias-link)}
 .dsh-gw-cal-cell[data-today=true] .dsh-gw-cal-num{color:var(--gw-warm)}
 .dsh-gw-cells{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
-.dsh-gw-num-m{display:flex;gap:2px;justify-content:space-between;font-size:10px}
+.dsh-gw-num-m{display:flex;gap:2px;justify-content:space-between;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-num-m span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-num-m span:first-child{color:var(--dsw-alias-link)}
-.dsh-gw-cal-more{font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-cal-more{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
 /* 折叠栏框架化（2026-11-08 用户要求）：每条折叠是一个圆角大框架，标题栏铺 layer-2 底色当
    框架标题；明细都收在框架里——Fold 的内容包在 .dsh-gw-fold-body，日历当天详情不走 Fold，
    由 .dsh-gw-cal-day 自己补内边距（见下面 cal-day 段）。summary:hover 旧规则撞色成了空操作，留着无害。 */
 .dsh-gw-fold{margin-top:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px}
-.dsh-gw-fold>summary{list-style:none;cursor:pointer;margin:0;padding:7px 11px;border-radius:10px;border-bottom:1px solid transparent;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:6px}
+.dsh-gw-fold>summary{list-style:none;cursor:pointer;margin:0;padding:7px 11px;border-radius:10px;border-bottom:1px solid transparent;background:var(--dsw-alias-bg-layer-2);font-size:var(--gw-fz-2,11.5px);font-weight:600;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:6px}
 .dsh-gw-fold[open]>summary{border-radius:10px 10px 0 0;border-bottom-color:var(--dsw-alias-border-l2)}
 .dsh-gw-fold-body{padding:8px 10px 10px}
 .dsh-gw-fold-act{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
-.dsh-gw-upcoming-filter{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-upcoming-filter .dsh-gw-date-input{height:24px;font-size:11.5px;padding:0 4px}
+.dsh-gw-upcoming-filter{display:inline-flex;align-items:center;gap:5px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-upcoming-filter .dsh-gw-date-input{height:24px;font-size:var(--gw-fz-2,11.5px);padding:0 4px}
 .dsh-gw-fold>summary::-webkit-details-marker{display:none}
-.dsh-gw-fold>summary::before{content:'▸';font-size:10px;opacity:.75}
+.dsh-gw-fold>summary::before{content:'▸';font-size:var(--gw-fz-1,11px);opacity:.75}
 .dsh-gw-fold[open]>summary::before{content:'▾'}
 .dsh-gw-fold>summary:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .dsh-gw-fold>summary .dsh-gw-pill{font-weight:400}
@@ -853,8 +875,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-day>.dsh-gw-cal-addform{order:1}
 .dsh-gw-cal-day>div:not(.dsh-gw-cal-addform){order:2}
 .dsh-gw-cal-addform{margin:0 0 10px;padding:10px 10px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:color-mix(in srgb, var(--gw-warm) 8%, var(--dsw-alias-bg-layer-2));box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
-.dsh-gw-cal-addform::before{content:'新建排期';display:block;grid-column:1/-1;margin:0 -10px 9px;padding:0 10px 7px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-primary)}
-.dsh-gw-cal-listhead{margin:0 0 6px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-cal-addform::before{content:'新建排期';display:block;grid-column:1/-1;margin:0 -10px 9px;padding:0 10px 7px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:var(--gw-fz-3,12.5px);font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-cal-listhead{margin:0 0 6px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-cal-day>summary{flex-wrap:nowrap;margin:0 -10px}
 .dsh-gw-cal-sum-title{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-cal-nav{display:inline-flex;gap:4px;margin-left:auto;flex:0 0 auto}
@@ -862,7 +884,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-side>div{min-width:0}
 .dsh-gw-side>.dsh-gw-sec{grid-column:1 / -1}
 .dsh-gw-append{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
-.dsh-gw-append>span{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-append>span{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-body[data-narrow=true] .dsh-gw-side{grid-template-columns:1fr}
 
 .dsh-gw-sect.dsh-gw-sec{margin:12px 0 5px}
@@ -880,7 +902,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal.small .dsh-gw-cal-hint{display:none}
 .dsh-gw-cal-hint{padding:2px 4px 6px}
 .dsh-gw-cal-day{border-top:1px solid var(--dsw-alias-border-l2);padding-top:8px}
-.dsh-gw-cal-tag{flex:none;font-size:11px;padding:1px 7px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-cal-tag{flex:none;font-size:var(--gw-fz-1,11px);padding:1px 7px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-cal-tag[data-status=idea]{color:var(--tone-progress,var(--dsw-alias-link));background:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 14%,transparent)}
 .dsh-gw-cal-tag[data-status=doing]{color:var(--tone-attention,var(--gw-warm));background:color-mix(in srgb,var(--tone-attention,var(--gw-warm)) 16%,transparent)}
 .dsh-gw-cal-tag[data-status=done]{color:var(--tone-done,var(--dsw-alias-state-success-primary));background:color-mix(in srgb,var(--tone-done,var(--dsw-alias-state-success-primary)) 16%,transparent)}
@@ -898,18 +920,18 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    层级压在宿主浮层之下（9000 那一档是模态），这样弹窗/通知仍然看得见。 */
 .dsh-gw-sop-zen{position:fixed;inset:0;z-index:8800;padding:14px 18px 18px;background:var(--dsw-alias-bg-base);border-radius:0;border-top:2px solid var(--gw-warm);display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden}
 .dsh-gw-sop-body{display:flex;flex-direction:column;gap:6px;min-height:0;flex:1}
-.dsh-gw-sop-filter input{flex:1 1 auto;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 8px;font-size:12px}
-.dsh-gw-sop-zenhint{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-sop-filter input{flex:1 1 auto;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 8px;font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-sop-zenhint{margin-left:auto;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-sop-zen .dsh-gw-sop-body{height:100%}
 .dsh-gw-sop-head{display:flex;align-items:center;gap:10px}
-.dsh-gw-sop-title{display:flex;align-items:center;gap:8px;font-size:14px}
-.dsh-gw-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#16a34a) 16%,transparent);color:var(--dsw-alias-state-success-primary,#16a34a);font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.dsh-gw-sop-title{display:flex;align-items:center;gap:8px;font-size:var(--gw-fz-5,14px)}
+.dsh-gw-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#16a34a) 16%,transparent);color:var(--dsw-alias-state-success-primary,#16a34a);font-size:var(--gw-fz-2,11.5px);font-weight:600;font-variant-numeric:tabular-nums}
 .dsh-gw-sop-tools{display:flex;align-items:center;gap:6px;margin-left:auto}
-.dsh-gw-sop-stats{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
-.dsh-gw-link{border:none;background:none;padding:0;color:var(--dsw-alias-link);cursor:pointer;font-size:11.5px}
-.dsh-gw-sop-crumb{font-size:11.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-sop-stats{display:flex;align-items:center;gap:10px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
+.dsh-gw-link{border:none;background:none;padding:0;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-2,11.5px)}
+.dsh-gw-sop-crumb{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-sop-create{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.dsh-gw-sop-create input{height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 8px;font-size:12px;flex:1;min-width:120px}
+.dsh-gw-sop-create input{height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 8px;font-size:var(--gw-fz-3,12.5px);flex:1;min-width:120px}
 /* 三列：目录 | 大纲 | 正文。以前只声明了两列，却在中间插了第三块（大纲），
    于是大纲被塞进隐式第三列，把正文顶出容器 —— 看起来就是"预览栏压住目录栏"。
    现在列数跟着内容走：无大纲时两列，有大纲时三列。都用 minmax(0,...) 才能真收缩。 */
@@ -923,24 +945,24 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-sop-zen .dsh-gw-sop-split[data-outline=on]{--sop-tree-w:20%;grid-template-columns:minmax(160px,var(--sop-tree-w)) var(--sop-outline-w,150px) minmax(0,1fr)}
 /* 目录栏：自己滚自己的。min-height:0 + 明确的 overflow 才不会被 grid 撑到无限高，
    否则整页跟着一起滚，顶部那一截就像被钉住一样。 */
-.dsh-gw-sop-tree{overflow:auto;overscroll-behavior:contain;padding:8px 6px;border-right:1px solid var(--dsw-alias-border-l2);font-size:12.5px;min-height:0;max-height:100%}
+.dsh-gw-sop-tree{overflow:auto;overscroll-behavior:contain;padding:8px 6px;border-right:1px solid var(--dsw-alias-border-l2);font-size:var(--gw-fz-3,12.5px);min-height:0;max-height:100%}
 .dsh-gw-sop-tree-split{position:absolute;top:0;bottom:0;left:calc(var(--sop-tree-w) - 3.5px);width:7px;z-index:2;cursor:col-resize;touch-action:none;background:transparent;border:none;padding:0}
 .dsh-gw-sop-tree-split::after{content:'';position:absolute;left:2px;top:0;bottom:0;width:1px;background:var(--dsw-alias-link);opacity:0;transition:opacity .1s}
 .dsh-gw-sop-tree-split:hover::after,.dsh-gw-sop-tree-split[data-dragging=true]::after{opacity:.75;width:2px;left:1.5px}
 .dsh-gw-sop-pane{display:flex;flex-direction:column;min-width:0;min-height:0;max-height:100%;overflow:hidden}
-.dsh-gw-note-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:12.5px}
+.dsh-gw-note-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-note{display:flex;flex-direction:column;min-height:0;flex:1}
 .dsh-gw-note-head{display:flex;align-items:flex-start;gap:8px;padding:8px 10px 6px;flex-wrap:wrap}
 .dsh-gw-note-meta{min-width:0;flex:1}
-.dsh-gw-note-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-note-path{font-size:11px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-note-title{font-size:var(--gw-fz-4,13px);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-note-path{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-note-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:none}
 /* 窄面板里标题和四个按钮抢同一行，按钮会被挤到右边看不见的地方。
    让标题占满一行、按钮整行靠左折行，才是侧栏里该有的样子。 */
 .dsh-gw-note-head > .dsh-gw-note-meta{flex:1 1 100%;min-width:0}
 .dsh-gw-note-head > .dsh-gw-note-actions{flex:1 1 100%;justify-content:flex-start}
-.dsh-gw-note-editor{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;flex:1 1 auto;min-height:220px;resize:vertical;border:none;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;padding:10px 12px;font-size:12.5px;line-height:1.65;font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace);outline:none}
-.dsh-gw-note-preview{flex:1;min-width:0;max-width:100%;box-sizing:border-box;overflow:auto;padding:4px 12px 14px;font-size:12.5px;line-height:1.75;border-top:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-note-editor{display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;flex:1 1 auto;min-height:220px;resize:vertical;border:none;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;padding:10px 12px;font-size:var(--gw-fz-3,12.5px);line-height:1.65;font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace);outline:none}
+.dsh-gw-note-preview{flex:1;min-width:0;max-width:100%;box-sizing:border-box;overflow:auto;padding:4px 12px 14px;font-size:var(--gw-fz-3,12.5px);line-height:1.75;border-top:1px solid var(--dsw-alias-border-l2)}
 /* 所见即所得：渲染出来的样子直接编辑，不再跳去 textarea */
 .dsh-gw-live-md,.dsh-gw-live-md .dsh-gw-live{display:block}
 .dsh-gw-live-body{outline:none;border-radius:4px;transition:background .12s}
@@ -950,13 +972,13 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-live-body > *{margin-top:0}
 .dsh-gw-live-body:empty::before{content:'空行，点这里写';color:var(--dsw-alias-label-secondary);opacity:.55}
 .dsh-gw-live-empty{color:var(--dsw-alias-label-secondary);padding:12px 4px}
-.dsh-gw-note-dirty{color:var(--dsw-alias-state-warn-primary,#d97706);margin-left:4px;font-size:10px;vertical-align:middle}
+.dsh-gw-note-dirty{color:var(--dsw-alias-state-warn-primary,#d97706);margin-left:4px;font-size:var(--gw-fz-1,11px);vertical-align:middle}
 /* 带历史候选的多选输入框（术语表的领域 / 标签） */
-.dsh-gw-chip{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:6px;padding:2px 9px;font-size:11.5px;cursor:pointer;white-space:nowrap;transition:all .15s ease}
+.dsh-gw-chip{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:6px;padding:2px 9px;font-size:var(--gw-fz-2,11.5px);cursor:pointer;white-space:nowrap;transition:all .15s ease}
 .dsh-gw-chip:hover{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);background:var(--dsw-alias-bg-layer-2);box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);transform:translateY(-1px)}
 .dsh-gw-chip.is-on{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);font-weight:500}
 /* 平台多选框：复刻 .dsh-gw-field select（对应商品那个原生下拉）的观感。 */
-.dsh-gw-platmulti{position:relative;display:flex;align-items:center;flex:1 1 auto;width:100%;min-width:0;min-height:30px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));color:var(--dsw-alias-label-primary,inherit);font-size:12px;font-family:inherit;gap:4px}
+.dsh-gw-platmulti{position:relative;display:flex;align-items:center;flex:1 1 auto;width:100%;min-width:0;min-height:30px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));color:var(--dsw-alias-label-primary,inherit);font-size:var(--gw-fz-3,12.5px);font-family:inherit;gap:4px}
 .dsh-gw-platmulti input{flex:1 1 auto;min-width:0;border:none;background:transparent;color:inherit;font:inherit;padding:6px 0;line-height:16px;height:auto}
 .dsh-gw-platmulti input:focus{outline:none}
 .dsh-gw-platmulti:focus-within{border-color:var(--dsw-alias-link)}
@@ -964,7 +986,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-platmulti-caret::before{content:'';display:block;width:6px;height:6px;margin-top:-3px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
 .dsh-gw-platmulti-caret:hover{color:var(--dsw-alias-link)}
 .dsh-gw-platmulti-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:20;display:flex;flex-direction:column;max-height:200px;overflow-y:auto;overflow-x:hidden;padding:3px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));backdrop-filter:blur(10px);box-shadow:0 8px 22px rgba(0,0,0,.35)}
-.dsh-gw-platmulti-opt{display:block;flex:0 0 auto;width:100%;box-sizing:border-box;border:none;background:transparent;color:inherit;text-align:left;font-size:12px;line-height:1.4;min-height:22px;padding:4px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsh-gw-platmulti-opt{display:block;flex:0 0 auto;width:100%;box-sizing:border-box;border:none;background:transparent;color:inherit;text-align:left;font-size:var(--gw-fz-3,12.5px);line-height:1.4;min-height:22px;padding:4px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-platmulti-opt:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-platmulti-opt.is-on{color:var(--dsw-alias-link);font-weight:600}
 /* 表格初始状态不越界：胶囊/徽标不许把格子撑破，超了就省略号；
@@ -985,27 +1007,27 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-topics-table tr:hover .dsh-gw-sched-cell .dsh-gw-row-del{opacity:.72;pointer-events:auto}
 @media (hover:none){.dsh-gw-sched-cell .dsh-gw-row-del{opacity:.72;pointer-events:auto}}
 /* 反馈状态下拉 = 状态标识，跟胶囊同一套配色：未处理=警示琥珀 / 跟进中=品牌蓝 / 已处理=成功绿 */
-.dsh-gw-fb-state{font-size:12px;font-weight:500;border-radius:6px;padding:1px 4px;min-width:0;max-width:100%;box-sizing:border-box}
+.dsh-gw-fb-state{font-size:var(--gw-fz-3,12.5px);font-weight:500;border-radius:6px;padding:1px 4px;min-width:0;max-width:100%;box-sizing:border-box}
 .dsh-gw-fb-state[data-state=未处理]{border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary)}
 .dsh-gw-fb-state[data-state=跟进中]{border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link)}
 .dsh-gw-fb-state[data-state=已处理]{border:1px solid color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
 /* 「看排期」跳过来时，和该选题相关的排期条目高亮，一眼找到。 */
 .dsh-gw-cal-item.is-hl{outline:1px solid var(--dsw-alias-link);font-weight:600}
 .dsh-gw-row-hl{box-shadow:inset 0 0 0 1px var(--dsw-alias-link);background:color-mix(in srgb,var(--dsw-alias-link) 8%,transparent)}
-.dsh-gw-catselect{flex:1;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 6px;font-size:12px}
-.dsh-gw-combo{position:relative;display:flex;align-items:center;flex:1 1 auto;width:100%;min-width:0;min-height:30px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));color:var(--dsw-alias-label-primary,inherit);font-size:12px;font-family:inherit;gap:4px}
+.dsh-gw-catselect{flex:1;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 6px;font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-combo{position:relative;display:flex;align-items:center;flex:1 1 auto;width:100%;min-width:0;min-height:30px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-1,transparent),var(--dsw-alias-bg-layer-1,transparent));color:var(--dsw-alias-label-primary,inherit);font-size:var(--gw-fz-3,12.5px);font-family:inherit;gap:4px}
 .dsh-gw-combo:focus-within{border-color:var(--dsw-alias-link);outline:none}
 /* 已选中的值：一个个小胶囊，悬停才冒出 × */
 .dsh-gw-combo-values{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden;white-space:nowrap}
 .dsh-gw-combo-chip{display:inline-flex;align-items:center;gap:2px;max-width:100%;padding:1px 4px 1px 6px;border-radius:4px;
-  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:11.5px;line-height:1.4}
+  background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-2,11.5px);line-height:1.4}
 .dsh-gw-combo-chip-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-combo-chip-x{flex:none;width:12px;height:12px;padding:0;border:none;border-radius:2px;background:none;color:var(--dsw-alias-label-secondary);
-  cursor:pointer;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s}
+  cursor:pointer;font-size:var(--gw-fz-1,11px);line-height:1;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .1s}
 .dsh-gw-combo-chip:hover .dsh-gw-combo-chip-x{opacity:1}
 .dsh-gw-combo-chip-x:hover{background:var(--dsw-alias-state-error-primary,#f87171);color:#fff}
 /* 输入框本身 */
-.dsh-gw-combo-input{flex:1 1 auto;min-width:40px;height:24px;border:none;outline:none;background:transparent;color:inherit;font-size:12px;padding:0}
+.dsh-gw-combo-input{flex:1 1 auto;min-width:40px;height:24px;border:none;outline:none;background:transparent;color:inherit;font-size:var(--gw-fz-3,12.5px);padding:0}
 /* ▾ 贴在输入框内部右端，不占外面一行 */
 .dsh-gw-combo-toggle{flex:none;display:flex;align-items:center;justify-content:center;width:20px;height:20px;min-width:0;min-height:0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;cursor:pointer}
 .dsh-gw-combo-toggle::before{content:'';display:block;width:6px;height:6px;margin-top:-3px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
@@ -1015,24 +1037,24 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
   border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));backdrop-filter:blur(10px);box-shadow:0 8px 22px rgba(0,0,0,.38);
   display:flex;flex-direction:column;gap:1px}
 .dsh-gw-combo-item{display:flex;align-items:center;gap:6px;border:none;background:none;text-align:left;padding:4px 7px;border-radius:5px;
-  color:inherit;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  color:inherit;font-size:var(--gw-fz-3,12.5px);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-combo-item:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-link)}
 .dsh-gw-combo-item[data-on=true]{color:var(--dsw-alias-link)}
-.dsh-gw-combo-tick{flex:none;width:10px;font-size:10px;color:var(--dsw-alias-link)}
-.dsh-gw-combo-empty{padding:5px 7px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-note-path{border:none;background:none;padding:0;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:11px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-combo-tick{flex:none;width:10px;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-link)}
+.dsh-gw-combo-empty{padding:5px 7px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-note-path{border:none;background:none;padding:0;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-1,11px);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-note-path:hover{color:var(--dsw-alias-link);text-decoration:underline}
 /* 大纲：预览模式下有大标题才出现 */
-.dsh-gw-outline{min-width:0;overflow:auto;overscroll-behavior:contain;padding:8px 6px;border-right:1px solid var(--dsw-alias-border-l2);font-size:11.5px;background:var(--dsw-alias-bg-layer-1);min-height:0;max-height:100%}
+.dsh-gw-outline{min-width:0;overflow:auto;overscroll-behavior:contain;padding:8px 6px;border-right:1px solid var(--dsw-alias-border-l2);font-size:var(--gw-fz-2,11.5px);background:var(--dsw-alias-bg-layer-1);min-height:0;max-height:100%}
 .dsh-gw-outline-item{color:var(--dsw-alias-label-secondary);cursor:pointer;padding:2px 4px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-outline-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-outline-item[data-level="1"]{font-weight:600;color:var(--dsw-alias-label-primary)}
 .dsh-gw-outline-item[data-level="2"]{padding-left:12px}
-.dsh-gw-outline-item[data-level="3"],.dsh-gw-outline-item[data-level="4"],.dsh-gw-outline-item[data-level="5"],.dsh-gw-outline-item[data-level="6"]{padding-left:22px;font-size:11px}
+.dsh-gw-outline-item[data-level="3"],.dsh-gw-outline-item[data-level="4"],.dsh-gw-outline-item[data-level="5"],.dsh-gw-outline-item[data-level="6"]{padding-left:22px;font-size:var(--gw-fz-1,11px)}
 /* 批注栏：与正文并排，展示这篇里所有高亮/备注 */
 .dsh-gw-annot-wrap{display:flex;min-width:0;min-height:260px;flex:1;align-items:stretch;overflow:hidden}
 .dsh-gw-annot-wrap > .dsh-gw-note-preview, .dsh-gw-annot-wrap > .dsh-gw-note-editor{flex:1;min-width:0}
-.dsh-gw-annot{flex:none;min-width:0;max-width:calc(100% - 8px);overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-1);padding:8px 6px;font-size:11.5px;max-height:100%;box-sizing:border-box}
+.dsh-gw-annot{flex:none;min-width:0;max-width:calc(100% - 8px);overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-layer-1);padding:8px 6px;font-size:var(--gw-fz-2,11.5px);max-height:100%;box-sizing:border-box}
 /* 正文与批注之间的分隔条：拖动改批注栏宽度，双击恢复默认。 */
 .dsh-gw-annot-split{flex:none;width:7px;cursor:col-resize;position:relative;background:transparent;border:none;padding:0;touch-action:none}
 .dsh-gw-annot-split::before{content:'';position:absolute;left:2px;top:0;bottom:0;width:1px;background:var(--dsw-alias-border-l2);transition:background .12s,left .12s,width .12s}
@@ -1048,10 +1070,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-annot-pill[data-open=true] .dsh-gw-annot-count{background:rgba(255,255,255,.22);color:#fff}
 .dsh-gw-annot-pill[data-empty=true]{cursor:not-allowed;opacity:.55;box-shadow:none;border-style:dashed;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-annot-pill[data-empty=true]:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
-.dsh-gw-annot-pill .dsh-gw-annot-count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-link);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;line-height:18px}
+.dsh-gw-annot-pill .dsh-gw-annot-count{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-link);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:var(--gw-fz-1,11px);line-height:18px}
 .dsh-gw-annot-pill[data-empty=true] .dsh-gw-annot-count{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
-.dsh-gw-note-acts .dsh-gw-annot-pill{min-height:22px;padding:1px 8px;border-radius:6px;gap:4px;font-size:11px;box-shadow:none;border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary)}
-.dsh-gw-note-acts .dsh-gw-annot-pill .dsh-gw-annot-count{min-width:16px;height:16px;font-size:10px;line-height:16px;padding:0 4px}
+.dsh-gw-note-acts .dsh-gw-annot-pill{min-height:22px;padding:1px 8px;border-radius:6px;gap:4px;font-size:var(--gw-fz-1,11px);box-shadow:none;border-color:var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-note-acts .dsh-gw-annot-pill .dsh-gw-annot-count{min-width:16px;height:16px;font-size:var(--gw-fz-1,11px);line-height:16px;padding:0 4px}
 .dsh-gw-note-acts .dsh-gw-annot-pill[data-open=true]{background:var(--dsw-alias-link);border-color:var(--dsw-alias-link);color:#fff}
 .dsh-gw-annot-count{font-weight:400;opacity:.8}
 .dsh-gw-annot-title{display:inline-flex;align-items:center;gap:4px}
@@ -1059,15 +1081,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-annot-item{display:block;width:100%;text-align:left;border:none;background:transparent;color:inherit;font:inherit;cursor:pointer;padding:4px 5px;border-radius:5px;margin-bottom:2px;line-height:1.45}
 .dsh-gw-annot-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-gw-annot-text{display:block;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-annot-note{display:block;color:var(--dsw-alias-label-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-gw-annot-line{color:var(--dsw-alias-label-secondary);opacity:.6;font-size:10px;margin-right:4px}
+.dsh-gw-annot-note{display:block;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-annot-line{color:var(--dsw-alias-label-secondary);opacity:.6;font-size:var(--gw-fz-1,11px);margin-right:4px}
 .dsh-gw-annot-del{flex:none}
 .dsh-gw-annot-row{display:flex;align-items:flex-start;gap:2px}
 .dsh-gw-annot-refresh{display:inline-flex;align-items:center;justify-content:center;flex:none;margin-left:auto;cursor:pointer;padding:2px;border-radius:5px;opacity:.7;border:none;background:transparent;color:inherit}
 .dsh-gw-annot-refresh:hover{opacity:1;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-link)}
 .dsh-gw-annot-close{display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer;padding:2px;border-radius:5px;opacity:.65;border:none;background:transparent;color:inherit}
 .dsh-gw-annot-close:hover{opacity:1;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-error-primary)}
-.dsh-gw-annot-toggle{flex:none;border:none;background:transparent;cursor:pointer;color:var(--dsw-alias-label-secondary);padding:2px 4px;border-radius:5px;font-size:12px}
+.dsh-gw-annot-toggle{flex:none;border:none;background:transparent;cursor:pointer;color:var(--dsw-alias-label-secondary);padding:2px 4px;border-radius:5px;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-annot-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-link)}
 /* 正文每行至少要 360px 才不难受；看不下就把批注栏换到下方（按面板宽度判断）。 */
 .dsh-gw-body[data-narrow=true] .dsh-gw-annot-wrap{flex-direction:column}
@@ -1078,9 +1100,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-md-h{font-weight:600;line-height:1.35;margin:14px 0 6px;scroll-margin-top:8px}
 .dsh-gw-md-h:first-child{margin-top:4px}
 .dsh-gw-md-h[data-level="1"]{font-size:16px;padding-bottom:5px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.dsh-gw-md-h[data-level="2"]{font-size:14.5px;padding-bottom:3px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.dsh-gw-md-h[data-level="3"]{font-size:13.5px}
-.dsh-gw-md-h[data-level="4"],.dsh-gw-md-h[data-level="5"],.dsh-gw-md-h[data-level="6"]{font-size:12.5px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-md-h[data-level="2"]{font-size:var(--gw-fz-5,14px);padding-bottom:3px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-md-h[data-level="3"]{font-size:var(--gw-fz-4,13px)}
+.dsh-gw-md-h[data-level="4"],.dsh-gw-md-h[data-level="5"],.dsh-gw-md-h[data-level="6"]{font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-md-p{margin:0 0 8px}
 .dsh-gw-md-list{margin:0 0 8px;padding-left:20px}
 .dsh-gw-md-list li{margin:1px 0}
@@ -1091,10 +1113,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-md-quote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:3px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-md-quote p{margin:0}
 .dsh-gw-md-pre{margin:0 0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
-.dsh-gw-md-lang{font-size:10px;color:var(--dsw-alias-label-secondary);padding:3px 9px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
-.dsh-gw-md-pre pre{margin:0;padding:8px 10px;overflow:auto;font-size:11.5px;line-height:1.6;font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace)}
+.dsh-gw-md-lang{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);padding:3px 9px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-md-pre pre{margin:0;padding:8px 10px;overflow:auto;font-size:var(--gw-fz-2,11.5px);line-height:1.6;font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace)}
 .dsh-gw-md-tablewrap{overflow:auto;margin:0 0 10px;max-width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
-.dsh-gw-md-table{border-collapse:collapse;width:100%;font-size:12px}
+.dsh-gw-md-table{border-collapse:collapse;width:100%;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-md-table th,.dsh-gw-md-table td{padding:4px 9px;border-right:1px solid var(--dsw-alias-border-l2);border-bottom:1px solid var(--dsw-alias-border-l2);text-align:left;vertical-align:top}
 .dsh-gw-md-table th:last-child,.dsh-gw-md-table td:last-child{border-right:none}
 .dsh-gw-md-table thead th{background:var(--dsw-alias-bg-layer-2);font-weight:600;white-space:nowrap}
@@ -1109,9 +1131,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-md-link:hover{text-decoration:underline}
 .dsh-gw-md-link-off{color:var(--dsw-alias-label-secondary);text-decoration:underline dotted;cursor:not-allowed}
 .dsh-gw-md-wikilink{color:var(--dsw-alias-link);background:color-mix(in srgb,var(--dsw-alias-link) 9%,transparent);border-radius:4px;padding:0 3px}
-.dsh-gw-md code{font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace);font-size:11.5px;padding:0 3px;border-radius:4px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-gw-md code{font-family:var(--dsw-alias-font-mono,ui-monospace,Consolas,monospace);font-size:var(--gw-fz-2,11.5px);padding:0 3px;border-radius:4px;background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-md-pre code{padding:0;background:none}
-.dsh-gw-warn{font-size:11.5px;color:var(--dsw-alias-label-secondary);padding:0 10px 4px;margin:0}
+.dsh-gw-warn{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);padding:0 10px 4px;margin:0}
 .dsh-gw-body[data-tight=true] .dsh-gw-sop-split,.dsh-gw-body[data-tight=true] .dsh-gw-sop-split[data-outline=on],.dsh-gw-body[data-tight=true] .dsh-gw-sop-zen .dsh-gw-sop-split,.dsh-gw-body[data-tight=true] .dsh-gw-sop-zen .dsh-gw-sop-split[data-outline=on]{grid-template-columns:minmax(0,1fr)}
 .dsh-gw-body[data-tight=true] .dsh-gw-sop-tree-split{display:none}
 .dsh-gw-body[data-tight=true] .dsh-gw-sop-tree{border-right:none;border-bottom:1px solid var(--dsw-alias-border-l2);max-height:34%}
@@ -1267,7 +1289,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         return false
       }
       const leaf = target.split('/').pop().replace(/\.md$/i, '')
-      if (!window.confirm('删除《' + leaf + '》？会先在 vault 的 Workbench/.backups 里留一份备份，但库里就没有这篇了。')) return false
+      if (!(await askConfirm('删除《' + leaf + '》？会先在 vault 的 Workbench/.backups 里留一份备份，但库里就没有这篇了。', '删除并备份', '保留'))) return false
       try {
         await call('/delete-note', { method: 'POST', body: { path: target } })
         notify('已删除《' + leaf + '》')
@@ -1531,6 +1553,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       external: ['M14.5 4.5H20V10', 'M20 4.5l-8.2 8.2', 'M18 14.2v4.3a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 18.5V7.5A1.5 1.5 0 0 1 5.5 6H10'],
       locate: ['M12 3.6v2.6', 'M12 17.8v2.6', 'M3.6 12h2.6', 'M17.8 12h2.6', 'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z'],
       search: ['M10.8 17.6a6.8 6.8 0 1 1 0-13.6 6.8 6.8 0 0 1 0 13.6z', 'M15.8 15.8L20 20'],
+      settings: ['M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8z', 'M12 2.8v2.1', 'M12 19.1v2.1', 'M4.7 4.7l1.5 1.5', 'M17.8 17.8l1.5 1.5', 'M2.8 12h2.1', 'M19.1 12h2.1', 'M4.7 19.3l1.5-1.5', 'M17.8 6.2l1.5-1.5'],
     }
 
     function Icon({ name, size }) {
@@ -1575,29 +1598,30 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     function summaryRows(cards, summary) {
       const value = summary ?? {}
       const map = {
-        topics: () => ({ num: value.topics ?? 0, meta: '内容 / 爆款拆解笔记' }),
-        studio: () => ({ num: value.topicsDoing ?? 0, meta: '创作中 ' + (value.topicsDoing ?? 0) + ' · 脚本已成稿 ' + (value.topicsScripted ?? 0) }),
-        calendar: () => ({ num: value.calendarPending ?? 0, meta: (value.calendarMonth ?? '') + ' · 待创作 ' + (value.calendarPending ?? 0) + ' / 共 ' + (value.calendarTotal ?? 0) }),
-        ideas: () => ({ num: value.ideasNew ?? 0, meta: '未用想法 ' + (value.ideasNew ?? 0) + ' / 共 ' + (value.ideasTotal ?? 0) }),
-        data: () => ({ num: value.dataCount ?? 0, meta: '最近周期 ' + (value.dataLatest === '' ? '还没写' : value.dataLatest) }),
-        contentdata: () => ({ num: value.contentDataCount ?? 0, meta: value.contentDataLatest === '' ? '回流台账还没有记录' : '最近数据 ' + value.contentDataLatest }),
-        products: () => ({ num: (value.productsMine ?? 0) + '/' + (value.productsRival ?? 0), meta: '自家 ' + (value.productsMine ?? 0) + ' · 竞品 ' + (value.productsRival ?? 0) }),
-        feedback: () => ({ num: value.feedbackNegativeOpen ?? 0, meta: '负面未处理 ' + (value.feedbackNegativeOpen ?? 0) + ' / 共 ' + (value.feedbackTotal ?? 0), tone: (value.feedbackNegativeOpen ?? 0) > 0 ? 'warn' : '' }),
-        campaigns: () => ({ num: value.campaignsActive ?? 0, meta: '进行中 ' + (value.campaignsActive ?? 0) + ' / 共 ' + (value.campaignsTotal ?? 0) }),
+        topics: () => ({ num: value.topics ?? 0, unit: '篇', meta: '拆解别人的案例' }),
+        studio: () => ({ num: value.topicsDoing ?? 0, unit: '条创作中', meta: '脚本已成稿 ' + (value.topicsScripted ?? 0) + ' 条' }),
+        calendar: () => ({ num: value.calendarPending ?? 0, unit: '条待创作', meta: (value.calendarMonth ?? '') + ' · 共 ' + (value.calendarTotal ?? 0) + ' 条排期' }),
+        ideas: () => ({ num: value.ideasNew ?? 0, unit: '条未用', meta: '共 ' + (value.ideasTotal ?? 0) + ' 条想法' }),
+        data: () => ({ num: value.dataCount ?? 0, unit: '份', meta: '最近周期 ' + (value.dataLatest === '' ? '还没写' : value.dataLatest) }),
+        contentdata: () => ({ num: value.contentDataCount ?? 0, unit: '条', meta: value.contentDataLatest === '' ? '回流台账还没有记录' : '最近数据 ' + value.contentDataLatest }),
+        products: () => ({ num: (value.productsMine ?? 0) + '/' + (value.productsRival ?? 0), unit: '自家 / 竞品', meta: '商品档案与竞品对照' }),
+        feedback: () => ({ num: value.feedbackNegativeOpen ?? 0, unit: '条未处理', meta: '负面共 ' + (value.feedbackTotal ?? 0) + ' 条', tone: (value.feedbackNegativeOpen ?? 0) > 0 ? 'warn' : '' }),
+        campaigns: () => ({ num: value.campaignsActive ?? 0, unit: '个进行中', meta: '共 ' + (value.campaignsTotal ?? 0) + ' 个方案' }),
         copyrules: () => {
           const counts = value.ruleCounts ?? {}
-          return { num: counts.hard ?? 0, meta: '禁忌 ' + (counts.hard ?? 0) + ' · 风格 ' + (counts.soft ?? 0) + ' · 待观察 ' + (counts.watch ?? 0) }
+          return { num: counts.hard ?? 0, unit: '条禁忌', meta: '风格 ' + (counts.soft ?? 0) + ' · 待观察 ' + (counts.watch ?? 0) }
         },
-        sop: () => ({ num: value.sopNotes ?? 0, meta: 'SOP 目录下的 md 笔记' }),
-        glossary: () => ({ num: value.glossary ?? 0, meta: '指标与黑话条目' }),
+        sop: () => ({ num: value.sopNotes ?? 0, unit: '篇', meta: 'SOP 目录下的 md 笔记' }),
+        glossary: () => ({ num: value.glossary ?? 0, unit: '条', meta: '指标与黑话条目' }),
       }
-      // 「待回流」这张卡的摘要：还有几条已发等内容回写数据。
+      // 「待回填数据」这张卡的摘要：还有几条已发等内容回写数据。
       map.pending = () => ({
         num: value.pendingCount ?? 0,
-        meta: (value.pendingCount ?? 0) > 0 ? '已发等回写' : '没有待回填的',
+        unit: '条待回填',
+        meta: (value.pendingCount ?? 0) > 0 ? '已发等回写数据' : '没有待回填的',
         tone: (value.pendingCount ?? 0) > 0 ? 'warn' : '',
       })
-      return cards.map((card) => ({ card, ...(map[card.id]?.() ?? { num: 0, meta: '' }) }))
+      return cards.map((card) => ({ card, stage: CARD_STAGE[card.id] ?? '资料', ...(map[card.id]?.() ?? { num: 0, unit: '', meta: '' }) }))
     }
 
     /* ────────────── 各卡片的取数 hook ────────────── */
@@ -2629,9 +2653,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       // 详情视图的标签候选必须在上面先算好再 return：tagOptions 是 const，
       // 早先这条 return 写在它声明之前，打开笔记就撞上 TDZ，直接抛
       // "Cannot access 'tagOptions' before initialization"，整张卡片挂掉。
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '内容 / 爆款拆解', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify, studioRecords: allRecords })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '爆款拆解（别人的）', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify, studioRecords: allRecords })
 
-      // 爆款拆解卡只放「拆解别人的案例」（type==='选题' 的是自己的选题，归创作台）。
+      // 爆款拆解卡只放「拆解别人的案例」（type==='选题' 的是自己的选题，归我的选题）。
       // 老笔记没写 type，两边照旧显示，等详情里归一次类。
       const records = allRecords.filter((record) => topicTypeOf(record) !== '选题'
         && matchRecord(record, filter.trim().toLowerCase())
@@ -2668,7 +2692,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           h(Field, { label: '链接' }, h('input', { value: draft.link, onChange: (event) => setDraft({ ...draft, link: event.target.value }) })),
           h(Field, { label: '标签' }, h(ComboField, { value: draft.tags, onChange: (value) => setDraft({ ...draft, tags: value }), options: tagOptions, placeholder: '输入后回车，或点 ▾ 选已用过的' })),
         ),
-        h('div', { className: 'dsh-gw-hint' }, '这里建的是拆解（别人的案例）：标题填原文标题、平台填它的发布平台。想拍同款→详情里点「用这条建选题」；自己的选题去创作台新建。日期自动取今天（' + draft.date + '）。'),
+        h('div', { className: 'dsh-gw-hint' }, '这里建的是拆解（别人的案例）：标题填原文标题、平台填它的发布平台。想拍同款→详情里点「用这条建选题」；自己的选题去我的选题新建。日期自动取今天（' + draft.date + '）。'),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建拆解笔记'))),
         list.loading ? h(Empty, null, t('loading')) : (list.data?.records ?? []).length === 0
           ? h(Empty, null, '还没有拆解笔记。在上面填一条；或去「灵感箱」，把某条灵感「收为拆解」。')
@@ -2716,7 +2740,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       )
     }
 
-    // 选题笔记的状态词表：和内容日历一致（CAL_STATUSES 同款）。创作台按它分区，
+    // 选题笔记的状态词表：和内容日历一致（CAL_STATUSES 同款）。我的选题按它分区，
     // 笔记详情也能直接改。声明放在两张卡之前，避开 TDZ 守卫。
     const TOPIC_STATUSES = ['在写', '待发', '已发', '待回填', '已归档']
     // 平台版本 / 日历 / 选题共用这一套旧值映射。老笔记里的七态不要求用户手动迁移，
@@ -2724,9 +2748,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     const LEGACY_STATUS = { 选题: '在写', 创作中: '在写', 待审: '待发', 已排期: '待发', 数据回流: '待回填', 已回填: '待回填' }
     const normalizeStatus = (value) => LEGACY_STATUS[String(value ?? '').trim()] ?? String(value ?? '').trim()
     // 拆解 vs 选题（2026-11-08 拆分）：拆解笔记=拆解别人的案例，只留在爆款拆解卡；
-    // 自己的选题才进创作台/日历管线（排期、平台版本、回流都只属于选题）。
+    // 自己的选题才进我的选题/日历管线（排期、平台版本、回流都只属于选题）。
     // type 是新加的 frontmatter 字段，老笔记没写过 —— 所以两边都用「排除」判断：
-    // 创作台排除 type==='拆解'，爆款拆解排除 type==='选题'，没写 type 的两边都显示，
+    // 我的选题排除 type==='拆解'，爆款拆解排除 type==='选题'，没写 type 的两边都显示，
     // 等在详情里归一次类就只出现在一边，谁也不会凭空消失。
     const topicTypeOf = (record) => String(record?.front?.type ?? '').trim()
     /**
@@ -2814,7 +2838,7 @@ const STAGE_OF_STATUS = {
     }
 
     /**
-     * 归档 / 恢复：详情页和创作台卡片行都要用，实现只能有一份 ——
+     * 归档 / 恢复：详情页和我的选题卡片行都要用，实现只能有一份 ——
      * 以前两处各写一遍，一处有防连点、一处没有，确认文案也不一样。
      * 这里只管「问一句 + 发请求」，通知和刷新由调用方按自己的列表做。
      */
@@ -2824,7 +2848,7 @@ const STAGE_OF_STATUS = {
       if (id === '' || variantInFlight.has(id)) return { skipped: true }
       const account = String(variant.front?.account ?? '')
       const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-      if (!window.confirm('归档「' + label + '」这一版？\n\n归档不是删除：它会挪到「已归档」，随时能恢复。')) return { cancelled: true }
+      if (!(await askConfirm('归档「' + label + '」这一版？\n\n归档不是删除：它会挪到「已归档」，随时能恢复。', '归档这一版', '先不归档'))) return { cancelled: true }
       variantInFlight.add(id)
       try {
         await post('/v2/variants/' + encodeURIComponent(id) + '/transition', { to: '已归档' })
@@ -2887,7 +2911,7 @@ const STAGE_OF_STATUS = {
     }
     /**
      * 把一个平台版本推进到某个内部状态，中间该走的格子由状态机算。
-     * 日历里标「已发」、创作台里改阶段，都走这一条：别在调用点各写一套顺序。
+     * 日历里标「已发」、我的选题里改阶段，都走这一条：别在调用点各写一套顺序。
      */
     async function advanceVariant(variant, to) {
       const from = normalizeStatus(variant?.status) || '在写'
@@ -2941,7 +2965,7 @@ const STAGE_OF_STATUS = {
       })
     }
 
-    // 创作台：和「内容 / 爆款拆解」是同一批 Topics/ 笔记，只是换成创作视角——
+    // 我的选题：和「爆款拆解（别人的）」是同一批 Topics/ 笔记，只是换成创作视角——
     // 拆解卡管「为什么火」（事后），日历管「哪天发」，这里管「这条怎么拍」：
     // 按状态分区（创作中置顶），每行给脚本进度和「写脚本」直达，详情复用 TopicDetail。
     // 「创作中」看两个来源：笔记 frontmatter 和日历排期行，任一说了就算——
@@ -3011,7 +3035,7 @@ const STAGE_OF_STATUS = {
         return accounts.filter((record) => first === '' || normalizePlatform(record.front?.platform) === first)
       }
       React.useEffect(() => {
-        // 带着 path 从别处跳进来（拆解页的「创作台」）= 我就是要写这一条，正文直接摊开。
+        // 带着 path 从别处跳进来（拆解页的「我的选题」）= 我就是要写这一条，正文直接摊开。
         if (presetPath !== '') { setBodyWanted(true); setOpenPath(presetPath) }
       }, [presetPath])
       React.useEffect(() => {
@@ -3030,12 +3054,12 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const rawRecords = list.data?.records ?? []
-      // 创作台只管自己的选题：type==='拆解'（拆解别人的案例）不进 选题→创作→回流 管线。
+      // 我的选题只管自己的选题：type==='拆解'（拆解别人的案例）不进 选题→创作→回流 管线。
       // 没写 type 的老笔记照旧显示，等详情里归一次类。详情页拿 rawRecords 反查源拆解/派生选题。
       const allVariants = list.data?.variants ?? []
       // 例外：拆解笔记下面已经建过平台版本的，必须留在列表里。2026-11-08 拆解/选题拆分
-      // 之前建的版本全挂在拆解笔记下，按 type 一刀切会把它们从创作台彻底抹掉，
-      // 只剩「日历 → 平台矩阵 → 去创作台」这条深链能撞见，离开就再也找不回来。
+      // 之前建的版本全挂在拆解笔记下，按 type 一刀切会把它们从我的选题彻底抹掉，
+      // 只剩「日历 → 平台矩阵 → 去我的选题」这条深链能撞见，离开就再也找不回来。
       const masterIdsWithVariants = new Set(allVariants.map((variant) => String(variant.front?.masterId ?? '')).filter((id) => id !== ''))
       const allRecords = rawRecords.filter((record) => topicTypeOf(record) !== '拆解' || masterIdsWithVariants.has(String(record.id ?? '')))
       const platforms = []
@@ -3050,7 +3074,7 @@ const STAGE_OF_STATUS = {
         }
       }
       // 早退必须放在 tagOptions 收集之后（TopicsCard 在这里撞过 TDZ，静态测试有守卫）。
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '创作台', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
 
       const stageOf = (record) => {
         if (record.stage === 'shipped' || record.stage === 'doing' || record.stage === 'backlog') return record.stage
@@ -3104,7 +3128,7 @@ const STAGE_OF_STATUS = {
         if (deletingId !== '') return
         const account = String(variant.front?.account ?? '')
         const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-        if (!window.confirm('删掉「' + label + '」这个平台版本？会先备份，拆解笔记不动。')) return
+        if (!(await askConfirm('删掉「' + label + '」这个平台版本？会先备份，拆解笔记不动。', '删除并备份', '保留'))) return
         setDeletingId(variant.id)
         try {
           await del('/v2/variants/' + encodeURIComponent(variant.id))
@@ -3161,7 +3185,7 @@ const STAGE_OF_STATUS = {
         const state = SCRIPT_STATE[record.script ?? 'none'] ?? SCRIPT_STATE.none
         const platform = normalizePlatform(record.front?.platform)
         // 已发那一段问的是「数据回来了没」，不是「去写」——回流按平台版本记，
-        // 没有版本就先建一个：这颗不再禁用，点进创作台并自动摊开「新建平台版本」。
+        // 没有版本就先建一个：这颗不再禁用，点进我的选题并自动摊开「新建平台版本」。
         const shippedRow = stageOf(record) === 'shipped'
         const hasNoVariant = variantsOf(record.id).length === 0
         return h('div', { className: 'dsh-gw-row' + (archived ? ' dsh-gw-row-archived' : ''), key: record.path, 'data-static': true },
@@ -3185,12 +3209,12 @@ const STAGE_OF_STATUS = {
             // 脚本进度在有版本之后才有意义：没版本的行上面那枚「还没有平台版本」已经说了状态，
             // 再挂一颗「还没建版本」就是同一句话说两遍，所以这里跳过。
             hasNoVariant ? null : h(Pill, { tone: state.tone, title: '脚本进度：' + state.label }, state.label),
-            // 每行只留一颗主按钮：进创作台写。整行最常用的动作就是它，所以实心铺底反白。
+            // 每行只留一颗主按钮：进我的选题写。整行最常用的动作就是它，所以实心铺底反白。
             shippedRow
               ? h('button', {
                 className: 'dsh-gw-row-act',
                 'data-tone': 'primary',
-                title: '回流按平台版本记：这条还没有平台版本，点这里进创作台建一个（建完就能记数据）',
+                title: '回流按平台版本记：这条还没有平台版本，点这里进我的选题建一个（建完就能记数据）',
                 onClick: (event) => {
                   event.stopPropagation()
                   // 不顺手掀开正文编辑器：详情页现在默认全收着，这颗的职责是
@@ -3204,7 +3228,7 @@ const STAGE_OF_STATUS = {
                 'data-tone': 'primary',
                 title: archived
                   ? '这条选题的版本都归档了：进去恢复某一版，或直接再开一个新版本'
-                  : '进创作台：选笔记、建平台版本、写脚本都在详情里',
+                  : '进我的选题：选笔记、建平台版本、写脚本都在详情里',
                 onClick: (event) => {
                   event.stopPropagation()
                   setOpenPath(record.path)
@@ -3246,8 +3270,8 @@ const STAGE_OF_STATUS = {
                   className: 'dsh-gw-row-act',
                   'data-tone': done ? 'ghost' : 'primary',
                   title: done
-                    ? '已回流：点开「内容数据复盘」并定位到这一条（' + String(metric.date ?? '') + '）'
-                    : '去「待回流」给这一版填播放 / 赞 / 评论（跳过去直接定位到这一行）',
+                    ? '已回流：点开「数据复盘」并定位到这一条（' + String(metric.date ?? '') + '）'
+                    : '去「待回填数据」给这一版填播放 / 赞 / 评论（跳过去直接定位到这一行）',
                   onClick: (event) => {
                     event.stopPropagation()
                     if (typeof openCard !== 'function') return
@@ -3259,7 +3283,7 @@ const STAGE_OF_STATUS = {
               : archived ? null : h('button', {
                 className: 'dsh-gw-row-act',
                 'data-tone': 'primary',
-                title: '进创作台写「' + platform + '」这一版，直接打开它的版本脚本',
+                title: '进我的选题写「' + platform + '」这一版，直接打开它的版本脚本',
                 onClick: (event) => { event.stopPropagation(); setBodyWanted(true); setPendingVariant(variant.id); setVariantRequest(variantRequest + 1); setOpenPath(record.path) },
               }, '创作'),
             // 归档 / 恢复：归档是「收起来」，卡片上就得有回来的按钮，
@@ -3311,7 +3335,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '一句话角度' }, h('input', { value: draft.angle, onChange: (event) => setDraft({ ...draft, angle: event.target.value }), placeholder: '这条凭什么值得看' })),
           h(Field, { label: '创建日期（只记录）' }, h('input', { type: 'date', value: draft.date, onChange: (event) => setDraft({ ...draft, date: event.target.value }) }))),
         h('div', { className: 'dsh-gw-actions' },
-          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；拆解别人的内容去「内容 / 爆款拆解」卡，从那里点「用这条建选题」', onClick: create }, '建选题')))
+          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；拆解别人的内容去「爆款拆解（别人的）」卡，从那里点「用这条建选题」', onClick: create }, '建选题')))
 
       // 选题列表：不再按状态拆成多个折叠，一条选题一行，平台 / 状态 / 标签分列。
       const topicRows = shown.map((record) => {
@@ -3373,7 +3397,7 @@ const STAGE_OF_STATUS = {
                     })()),
                     h('td', null, variants.length === 0 ? '无' : String(variants.length) + ' 个'),
                     h('td', null, h('div', { className: 'dsh-gw-topiclist-acts' },
-                      h('button', { className: 'dsh-gw-row-act', 'data-tone': 'primary', title: '进创作台：看这条选题的平台版本、写脚本', onClick: () => { setOpenPath(record.path); if (variants.length === 1) { setBodyWanted(true); setPendingVariant(variants[0].id); setVariantRequest(variantRequest + 1) } } }, '创作'),
+                      h('button', { className: 'dsh-gw-row-act', 'data-tone': 'primary', title: '进我的选题：看这条选题的平台版本、写脚本', onClick: () => { setOpenPath(record.path); if (variants.length === 1) { setBodyWanted(true); setPendingVariant(variants[0].id); setVariantRequest(variantRequest + 1) } } }, '创作'),
                       h(RowDelete, { path: record.path, notify, onDeleted: () => { list.reload() } })))))))))))
     }
 
@@ -3524,7 +3548,7 @@ const STAGE_OF_STATUS = {
     /**
      * 平台版本面板：一条主选题下面挂多个平台/账号版本。
      *
-     * 这是 v2 领域层在创作台里的入口。主选题只描述“讲什么”，
+     * 这是 v2 领域层在我的选题里的入口。主选题只描述“讲什么”，
      * 每个平台版本各自维护脚本、风险、发布自检和状态；不再让一篇笔记
      * 同时当“抖音版”和“小红书版”用。
      */
@@ -3546,7 +3570,7 @@ const STAGE_OF_STATUS = {
       }
       const [draft, setDraft] = React.useState({ platform: '抖音', account: '', accountId: '' })
       const [showCreate, setShowCreate] = React.useState(false)
-      // 这一整块默认收着（创作台详情摊开太占地）；「回流-无平台版本」跳进来时自动展开。
+      // 这一整块默认收着（我的选题详情摊开太占地）；「回流-无平台版本」跳进来时自动展开。
       const [panelOpen, setPanelOpen] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       // 风险等级 / 7 项自检就在行里改：它们卡着「能不能发」，藏起来等于没有。
@@ -3625,7 +3649,7 @@ const STAGE_OF_STATUS = {
           }
           notify('已推进到「' + String(last?.status ?? stage.target) + '」' + (steps.length > 1 ? '（中间经过 ' + steps.slice(0, -1).join(' → ') + '）' : ''))
           list.reload()
-          // 创作台列表的分区靠每条选题带的版本摘要：这里变了要让上面也重取，
+          // 我的选题列表的分区靠每条选题带的版本摘要：这里变了要让上面也重取，
           // 不然用户得手动刷新页面才能看到行挪进「创作中」。
           if (typeof onChanged === 'function') onChanged()
         } catch (error) {
@@ -3738,7 +3762,7 @@ const STAGE_OF_STATUS = {
             notify('已改到 ' + date.slice(5) + '，内容日历已同步')
           }
           list.reload()
-          // 排期也影响创作台列表的分区（日历状态算进 stage），一并让上面重取。
+          // 排期也影响我的选题列表的分区（日历状态算进 stage），一并让上面重取。
           if (typeof onChanged === 'function') onChanged()
         } catch (error) {
           notify(String(error.message), true)
@@ -3805,7 +3829,7 @@ const STAGE_OF_STATUS = {
         if (busy) return
         const account = accountNameOf(variant)
         const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-        if (!window.confirm('删掉「' + label + '」这个平台版本？会先备份，主选题不动。')) return
+        if (!(await askConfirm('删掉「' + label + '」这个平台版本？会先备份，主选题不动。', '删除并备份', '保留'))) return
         setBusy(true)
         try {
           await del('/v2/variants/' + encodeURIComponent(variant.id))
@@ -4078,9 +4102,9 @@ const STAGE_OF_STATUS = {
       const [doc, setDoc] = React.useState(null)
       const [docBody, setDocBody] = React.useState('')
       const [docSha1, setDocSha1] = React.useState('')
-      // 拆解脚本这一块可以折起来：创作台里默认收着，点一下笔记才展开（见拆解笔记列表）；
+      // 拆解脚本这一块可以折起来：我的选题里默认收着，点一下笔记才展开（见拆解笔记列表）；
       // 拆解页是「一条就是一条」，默认展开。
-      // 拆解脚本默认收着：创作台里不点笔记就不出现这一整块（功能行 + 编辑器）。
+      // 拆解脚本默认收着：我的选题里不点笔记就不出现这一整块（功能行 + 编辑器）。
       // openBody 是父层传下来的「进来就要开着」：点「创作」或者换一条笔记都算，
       // 否则换完笔记正文是收着的，看起来像退回了列表，还得再点一次那一条。
       const [bodyOpen, setBodyOpen] = React.useState(studio !== true || openBody === true)
@@ -4126,7 +4150,7 @@ const STAGE_OF_STATUS = {
       const sourceLink = String(front.sourceUrl ?? '').trim() !== '' ? String(front.sourceUrl) : String(front.link ?? '')
       const sourceTitle = String(front.sourceTitle ?? '').trim()
       // 拆解 ↔ 选题（2026-11-08 拆分）：
-      // - type==='拆解' 是拆解别人的案例，只留在爆款拆解卡；type==='选题' 是自己的，进创作台管线。
+      // - type==='拆解' 是拆解别人的案例，只留在爆款拆解卡；type==='选题' 是自己的，进我的选题管线。
       // - 拆解详情给「用这条建选题」：一键派生一篇自己的选题（POST /topics/derive，正文留空自己写）。
       // - 选题详情靠 front.sourceId 反查源拆解；拆解详情收「派生的选题」列表。
       const typeValue = String(record?.front?.type ?? '').trim()
@@ -4143,7 +4167,7 @@ const STAGE_OF_STATUS = {
           const created = res?.created ?? null
           const existing = res?.existing === true
           if (!existing && created !== null && created !== undefined) setDerivedExtra((prev) => prev.concat([created]))
-          if (!existing) notify(created === null || created === undefined ? '已建选题' : '已建选题「' + String(created.title ?? '') + '」，已放进创作台')
+          if (!existing) notify(created === null || created === undefined ? '已建选题' : '已建选题「' + String(created.title ?? '') + '」，已放进我的选题')
           if (created?.path && typeof openCard === 'function') {
             openCard(String(created?.front?.type ?? created?.type ?? '') === '选题' ? 'studio' : 'topics', { path: created.path, edit: true, variantOnly: true })
           }
@@ -4153,7 +4177,7 @@ const STAGE_OF_STATUS = {
           setDeriving(false)
         }
       }
-      // 类型不再手动归：新建入口都自动写 type（爆款拆解/灵感箱→拆解，创作台/日历/派生→选题），
+      // 类型不再手动归：新建入口都自动写 type（爆款拆解/灵感箱→拆解，我的选题/日历/派生→选题），
       // 老笔记没写 type 就两边都显示，要归类在 Obsidian 属性面板里加 type 字段即可。
       // 列表每行的来源：优先 sourceUrl（从来源抓来的原链接），退回 front.link（手填的）。
       const sourceOf = (item) => {
@@ -4176,7 +4200,7 @@ const STAGE_OF_STATUS = {
         try {
           await put(recordUrl, { body, front: nextFront, expectedSha1: String(record.sha1 ?? '') })
           setFront(nextFront)
-          notify('已归类为「' + next + '」：它只会出现在「' + (next === '拆解' ? '内容 / 爆款拆解' : '创作台') + '」里，正文没动')
+          notify('已归类为「' + next + '」：它只会出现在「' + (next === '拆解' ? '爆款拆解（别人的）' : '我的选题') + '」里，正文没动')
           detail.reload()
         } catch (error) {
           notify('归类失败：' + (error?.message ?? String(error)), true)
@@ -4246,10 +4270,10 @@ const STAGE_OF_STATUS = {
         },
       })
 
-      // 创作台顶部那份「拆解笔记」清单：只用来就地换笔记（拆解页没有这一块）。
-      // 数据由创作台统一拉一次传进来 —— 换笔记时这个组件会重挂载（key: openPath），
+      // 我的选题顶部那份「拆解笔记」清单：只用来就地换笔记（拆解页没有这一块）。
+      // 数据由我的选题统一拉一次传进来 —— 换笔记时这个组件会重挂载（key: openPath），
       // 如果这里自己再拉一遍，整张表会先空一帧再长回来，看着就是「标题列表在闪」。
-      // 清单只列选题（type==='拆解' 是案例，不进创作台）；studioRecords 保留全量供反查。
+      // 清单只列选题（type==='拆解' 是案例，不进我的选题）；studioRecords 保留全量供反查。
       const studioTopics = studio === true ? (studioRecords ?? []).filter((item) => topicTypeOf(item) !== '拆解') : []
 
       // 筛选候选只取「这份列表里真实出现过的值」：库里没有的平台/标签不该出现在筛选项里，
@@ -4415,12 +4439,12 @@ const STAGE_OF_STATUS = {
       }
 
       // 收起这一版：回到「只有拆解笔记 + 平台版本」的状态。
-      // 创作台里连拆解脚本也一起收 —— 否则收起版本后正文块会从平台版本下面跳回上面，
+      // 我的选题里连拆解脚本也一起收 —— 否则收起版本后正文块会从平台版本下面跳回上面，
       // 看上去就像上方的拆解笔记被点开了。拆解页没有平台版本，正文就是整页内容，留着。
       function closeVariantScript() {
         if (doc === null) return
         if (!confirmUnsavedIfNeeded(dirty, notify,
-          '这个版本脚本还有没保存的改动。\n\n' + (studio === true ? '收起它就回到创作台' : '回到拆解脚本会把它换掉') + '，改动就没了。\n\n继续？',
+          '这个版本脚本还有没保存的改动。\n\n' + (studio === true ? '收起它就回到我的选题' : '回到拆解脚本会把它换掉') + '，改动就没了。\n\n继续？',
           '已取消：先点「保存」再回去')) return
         setDoc(null)
         setDocBody('')
@@ -4537,8 +4561,8 @@ const STAGE_OF_STATUS = {
           })),
         h(ErrorBar, { error: detail.error }),
         // 这里原来有一行「＋ 新建拆解」：详情页已经是在写某一条了，再放一个新建入口
-        // 只会让人误点、把当前这条丢掉。新建留在创作台列表那一层。
-        // 创作台最上面问的是「我在写哪一条」：换一条，下面的平台版本跟着换，不用退回列表。
+        // 只会让人误点、把当前这条丢掉。新建留在我的选题列表那一层。
+        // 我的选题最上面问的是「我在写哪一条」：换一条，下面的平台版本跟着换，不用退回列表。
         // 拆解页没有这一块（那里一条就是一条）。
         false
           ? h(Fold, {
@@ -4667,10 +4691,10 @@ const STAGE_OF_STATUS = {
               ? h('span', { className: 'dsh-gw-row-meta' }, '归到哪张卡：')
               : null,
             typeValue === ''
-              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '拆解' ? 'true' : null, title: '标记成拆解：只出现在「内容 / 爆款拆解」里', onClick: () => { void classify('拆解') } }, '拆解')
+              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '拆解' ? 'true' : null, title: '标记成拆解：只出现在「爆款拆解（别人的）」里', onClick: () => { void classify('拆解') } }, '拆解')
               : null,
             typeValue === ''
-              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '选题' ? 'true' : null, title: '标记成选题：只出现在「创作台」里，可以排期、建平台版本', onClick: () => { void classify('选题') } }, '选题')
+              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '选题' ? 'true' : null, title: '标记成选题：只出现在「我的选题」里，可以排期、建平台版本', onClick: () => { void classify('选题') } }, '选题')
               : null,
             typeValue === ''
               ? h('span', { className: 'dsh-gw-row-meta' }, '（还没归类，选一个）')
@@ -4688,7 +4712,7 @@ const STAGE_OF_STATUS = {
                     value: String(front.accountId ?? ''),
                     onChange: (event) => { void saveAccount(event.target.value) },
                     title: '这条选题默认交给哪个账号做；平台版本里可以再换',
-                    style: { fontSize: 12, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    style: { fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   },
                     h('option', { value: '' }, '（不指定）'),
                     options.map((item) => h('option', { key: item.path, value: String(item.front?.id ?? '') }, String(item.front?.name ?? item.title))))
@@ -4710,7 +4734,7 @@ const STAGE_OF_STATUS = {
               ? (derivedTopics.concat(derivedExtra)).map((item) => h('button', {
                 key: item.path,
                 className: 'dsh-gw-chip',
-                title: '去创作台打开这条已建的选题',
+                title: '去我的选题打开这条已建的选题',
                 onClick: (event) => { event.preventDefault(); if (typeof openCard === 'function') openCard('studio', { path: item.path }) },
               }, '已建选题 · ' + String(item.title ?? '')))
               : null)
@@ -4725,7 +4749,7 @@ const STAGE_OF_STATUS = {
         // ② 拆解分析（core / memoryPoint / structure）—— 全仓没有读者，正文里的「## 一键拆解」
         //    才是真的拆解，同一件事摆两份草稿只会让人重复填。字段仍在 schema 里，老值原样保留。
         h('div', { style: { order: 3 } }, h(ExternalUpdateBar, { pending: sync.pending, onTake: sync.take, onDrop: sync.drop })),
-        // 拆解脚本默认收着：创作台里不点笔记就不出现这一整块（标题 + 功能行 + 编辑器）。
+        // 拆解脚本默认收着：我的选题里不点笔记就不出现这一整块（标题 + 功能行 + 编辑器）。
         showBody === false ? null : h('div', {
           className: 'dsh-gw-note-sectionhead dsh-gw-note-boxhead' + (doc === null ? '' : ' dsh-gw-note-boxmid'),
           style: { order: doc === null ? 3 : 5 },
@@ -4737,7 +4761,7 @@ const STAGE_OF_STATUS = {
             // 「预览」从上面那行字段搬过来：链接本身在 Obsidian 的基本信息里已经有了，
             // 但「把来源丢进右边对话看卡片」只有这一个入口。
             // 版本脚本状态下左边留空：收起这一版有两条更顺手的路（点上面那行的「版本脚本」、
-            // 或点拆解笔记里当前这一条），框头再挂一颗「← 回到创作台」是重复的按钮。
+            // 或点拆解笔记里当前这一条），框头再挂一颗「← 回到我的选题」是重复的按钮。
             doc === null && safeLinkTarget(sourceLink) !== ''
               ? h('button', {
                 className: 'dsh-gw-headact',
@@ -4771,22 +4795,22 @@ const STAGE_OF_STATUS = {
               },
             }, '发送至Agent'),
             // 拆解详情的主按钮按类型分流（2026-11-08 拆分）：
-            // 拆解案例（type!=='选题'）→「用这条建选题」，派生一篇自己的选题进创作台；
-            // 归类成「选题」的 → 原样去创作台建平台版本写稿。
+            // 拆解案例（type!=='选题'）→「用这条建选题」，派生一篇自己的选题进我的选题；
+            // 归类成「选题」的 → 原样去我的选题建平台版本写稿。
             studio === true || doc !== null || typeof openCard !== 'function' ? null
               : typeValue === '选题' ? h('button', {
                 className: 'dsh-gw-row-act',
-                title: '去创作台：先建平台版本，再写初稿',
+                title: '去我的选题：先建平台版本，再写初稿',
                 onClick: () => {
                   if (!confirmUnsavedIfNeeded(dirty, notify)) return
                   openCard('studio', { path })
                 },
-              }, '创作台')
+              }, '我的选题')
               : h('button', {
                 className: 'dsh-gw-row-act',
                 'data-tone': 'primary',
                 disabled: deriving,
-                title: '用这条拆解派生一篇「自己的选题」进创作台：标题/平台/标签先照搬，正文留空自己写',
+                title: '用这条拆解派生一篇「自己的选题」进我的选题：标题/平台/标签先照搬，正文留空自己写',
                 onClick: () => {
                   if (!confirmUnsavedIfNeeded(dirty, notify)) return
                   void deriveTopic()
@@ -4845,7 +4869,7 @@ const STAGE_OF_STATUS = {
     // 状态词表只有一套：就是平台版本那 7 个状态（lib/domain.js 的 VARIANT_STATUSES）。
     // 客户端从 VARIANT_NEXT 的键顺序取，不再自己维护第二张表 —— 以前日历一份四态、
     // 版本一份七态、分区一份四桶，同一个「待发」在三个地方各说一套。
-    // 日历是排期表：归档是内容管理动作，只在创作台 / 详情页做，日历下拉里不给这个选项。
+    // 日历是排期表：归档是内容管理动作，只在我的选题 / 详情页做，日历下拉里不给这个选项。
     const CAL_STATUSES = Object.keys(VARIANT_NEXT).filter((status) => status !== '已归档')
     // 颜色按「阶段」算，也不再单开一张「状态 → 颜色」的映射表。
     const calToneOf = (status) => {
@@ -4973,7 +4997,7 @@ const STAGE_OF_STATUS = {
 
     // 「发布队列」「平台矩阵」已删（2026-11-08 用户反馈「看不出意义」）：
     // 发布队列想回答「本月按日期要发什么」，但这正是日历+「未来 14 天」；
-    // 平台矩阵想回答「每条选题铺了哪些平台、走到哪一步」，但这正是创作台四区。
+    // 平台矩阵想回答「每条选题铺了哪些平台、走到哪一步」，但这正是我的选题四区。
 
     function CalendarCard({ notify, preset, onCrumb, openCard }) {
       const [month, setMonth] = React.useState(() => todayISO().slice(0, 7))
@@ -5123,11 +5147,11 @@ const STAGE_OF_STATUS = {
           // 只有一个版本时不用让人多点一次（多版本则必须自己选，绝不猜）。
           const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
           if (hit === undefined) {
-            notify('这条选题还没有平台版本：先去创作台建好选题和平台版本，再来排期', true)
+            notify('这条选题还没有平台版本：先去我的选题建好选题和平台版本，再来排期', true)
             return
           }
           if (candidates.length === 0) {
-            notify('「' + title + '」在所选平台还没有平台版本：先去创作台建一个版本，再来排期', true)
+            notify('「' + title + '」在所选平台还没有平台版本：先去我的选题建一个版本，再来排期', true)
             return
           }
           const variantId = draft.variantId !== '' ? draft.variantId : (candidates.length === 1 ? String(candidates[0].id) : '')
@@ -5256,7 +5280,7 @@ const STAGE_OF_STATUS = {
         if (String(topicPath ?? '') !== '') {
           const record = topicOptions.find((item) => String(item.path) === String(topicPath))
           if (record === undefined || variantsFor(record.front?.id, entry.platform).length === 0) {
-            notify('这条选题还没有平台版本：先去创作台建一个平台版本，再来挂到日历', true)
+            notify('这条选题还没有平台版本：先去我的选题建一个平台版本，再来挂到日历', true)
             return
           }
         }
@@ -5306,7 +5330,7 @@ const STAGE_OF_STATUS = {
       }
 
       async function remove(entry) {
-        if (!window.confirm(t('confirmDelete'))) return
+        if (!(await askConfirm('删除这条排期？会先留一份备份。', '删除这一条', '保留'))) return
         try {
           await del('/calendar?month=' + month + '&id=' + encodeURIComponent(entry.id))
           cal.reload()
@@ -5417,7 +5441,7 @@ const STAGE_OF_STATUS = {
               })))),
         h(UpcomingQueue, { openCard }),
         // 「平台矩阵」「发布队列」已删（2026-11-08 用户反馈看不出意义）：
-        // 矩阵和创作台四区重复，队列和日历+「未来 14 天」重复。
+        // 矩阵和我的选题四区重复，队列和日历+「未来 14 天」重复。
         // 选中日期的详情与新增：收在折叠块里，免得日历整体太占高度
         selected === null
           ? h('div', { className: 'dsh-gw-cal-hint' }, '点上面任意一天，看当天排期或加一条。')
@@ -5504,7 +5528,7 @@ const STAGE_OF_STATUS = {
                 const hit = topicOptions.find((item) => item.title === draft.topic.trim())
                 const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
                 if (candidates.length === 0) {
-                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '这条选题还没有平台版本：先排期，之后在创作台建版本时再回来绑')
+                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '这条选题还没有平台版本：先排期，之后在我的选题建版本时再回来绑')
                 }
                 return h('select', {
                   className: 'dsh-gw-cal-fieldselect',
@@ -5536,7 +5560,7 @@ const STAGE_OF_STATUS = {
                   (entry.platform === '' ? '' : entry.platform + ' · ') + entry.topic + (bound === null && String(entry.account ?? '') !== '' ? ' · ' + String(entry.account) : ''),
                   entry.note === '' || entry.note === undefined ? null : h('div', { className: 'dsh-gw-row-meta' }, entry.note),
                   entry.topicPath === '' || entry.topicPath === undefined ? null : h('div', { className: 'dsh-gw-row-meta' },
-                    '选题 ', h('a', { href: '#', onClick: (event) => { event.preventDefault(); openCard('studio', { path: String(entry.topicPath) }) }, title: '在创作台打开这篇选题' }, tailOf(entry.topicPath))),
+                    '选题 ', h('a', { href: '#', onClick: (event) => { event.preventDefault(); openCard('studio', { path: String(entry.topicPath) }) }, title: '在我的选题打开这篇选题' }, tailOf(entry.topicPath))),
                   candidates.length === 0 ? null : h('div', { className: 'dsh-gw-row-meta' },
                     bound === null
                       ? '版本：未指定（这平台有 ' + candidates.length + ' 个版本，在右边选一个）'
@@ -5549,14 +5573,14 @@ const STAGE_OF_STATUS = {
                     type: 'date',
                     value: String(entry.date ?? '').slice(0, 10),
                     title: '改这一条的日期（也可以直接在日历格里拖动）',
-                    style: { fontSize: 11.5, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    style: { fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     onChange: (event) => { void moveEntry(entry, event.target.value) },
                   }),
                   h('select', {
                     value: entry.status,
                     onChange: (event) => setStatus(entry, event.target.value),
-                    title: '标成「已发」后，这条会出现在「待回流」里等你填数据',
-                    style: { fontSize: 12, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    title: '标成「已发」后，这条会出现在「待回填数据」里等你填数据',
+                    style: { fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   }, calStatusOptions(entry.status).map((status) => h('option', { key: status, value: status }, status))),
                   // 平台也能补/改：一条内容可能分发多个平台，点开是多选胶囊。
                   h('button', {
@@ -5565,22 +5589,22 @@ const STAGE_OF_STATUS = {
                     onClick: () => setPlatformEdit(platformEdit !== null && platformEdit.id === entry.id ? null : { id: entry.id, value: String(entry.platform ?? '') }),
                   }, String(entry.platform ?? '') === '' ? '未选平台' : String(entry.platform ?? '')),
                   // 挂在行上的选题可以直接换：排期时多半先建好选题，发布后再回头补关联。
-                  // 不挂的话「待回流」填完数据也没处写，闭环就断在这儿。
+                  // 不挂的话「待回填数据」填完数据也没处写，闭环就断在这儿。
                   h('select', {
                     value: String(entry.topicPath ?? ''),
                     onChange: (event) => {
                       const hit = topicOptions.find((item) => item.path === event.target.value)
                       void setTopicPath(entry, event.target.value, hit?.title)
                     },
-                    title: '这条内容对应的选题笔记（待回流的播放/赞会写进它）',
-                    style: { fontSize: 11.5, maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    title: '这条内容对应的选题笔记（待回填数据的播放/赞会写进它）',
+                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   },
                     h('option', { value: '' }, '未选题'),
                     topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title))),
                   candidates.length === 0
                     ? h('button', {
                       className: 'dsh-gw-row-act',
-                      title: entry.topicPath === '' ? '先给这条排期挂一篇选题，再去创作台建平台版本' : '这个平台还没有版本：点这里去创作台建一个',
+                      title: entry.topicPath === '' ? '先给这条排期挂一篇选题，再去我的选题建平台版本' : '这个平台还没有版本：点这里去我的选题建一个',
                       disabled: entry.topicPath === '',
                       onClick: () => {
                         if (entry.topicPath === '') return
@@ -5592,7 +5616,7 @@ const STAGE_OF_STATUS = {
                       value: String(entry.variantId ?? ''),
                       onChange: (event) => { void setVariant(entry, event.target.value) },
                       title: '这条排期对应哪个平台版本：同选题同平台有多个版本时必须选清楚',
-                      style: { fontSize: 11.5, maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                      style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     },
                       h('option', { value: '' }, '未指定版本'),
                       candidates.map((variant) => h('option', { key: variant.id, value: variant.id }, variantLabelOf(variant)))),
@@ -5601,7 +5625,7 @@ const STAGE_OF_STATUS = {
                     value: String(entry.accountId ?? ''),
                     onChange: (event) => { void setAccount(entry, event.target.value) },
                     title: '这条排期由哪个账号发（账号档案里选）',
-                    style: { fontSize: 11.5, maxWidth: 130, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 130, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   },
                     h('option', { value: '' }, entry.account ? String(entry.account) : '未指定账号'),
                     accountsFor(entry.platform).map((record) => h('option', { key: record.path, value: String(record.front?.id ?? '') }, String(record.front?.name ?? record.title)))) : null,
@@ -5897,7 +5921,7 @@ const STAGE_OF_STATUS = {
       // 用户要的是「扔掉这一条」，所以这里按行删。
       async function removeEntry(entry) {
         const preview = String(entry.content ?? '').slice(0, 24)
-        if (!window.confirm('删掉这条想法？' + '\n\n' + preview + (String(entry.content ?? '').length > 24 ? '…' : '') + '\n\n' + '只删这一行，灵感箱笔记本身还在。')) return
+        if (!(await askConfirm('删掉这条想法？' + '\n\n' + preview + (String(entry.content ?? '').length > 24 ? '…' : '') + '\n\n' + '只删这一行，灵感箱笔记本身还在。', '删除这条想法', '保留'))) return
         try {
           await call('/ideas?id=' + encodeURIComponent(entry.id), { method: 'DELETE' })
           notify('已删掉这条想法')
@@ -5973,7 +5997,7 @@ const STAGE_OF_STATUS = {
                       h('select', {
                         value: relinkPath,
                         onChange: (event) => setRelinkPath(event.target.value),
-                        style: { flex: '1 1 140px', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', fontSize: 12, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                        style: { flex: '1 1 140px', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                       },
                         h('option', { value: '' }, '— 不关联 —'),
                         (topicList.data?.records ?? []).map((record) => h('option', { key: record.path, value: record.path }, record.title || tailOf(record.path))),
@@ -6026,7 +6050,7 @@ const STAGE_OF_STATUS = {
                     },
                   })
                   : entry.content),
-                h('td', { style: { fontSize: 11.5, color: 'var(--dsw-alias-label-secondary)' }, title: entry.outcome ?? '' },
+                h('td', { style: { fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)' }, title: entry.outcome ?? '' },
                   entry.outcome
                     ? h('a', {
                       className: 'dsh-gw-idea-outcome',
@@ -6267,7 +6291,7 @@ const STAGE_OF_STATUS = {
       const contentTop = (cf.needle === '' ? contentSorted : contentSorted.filter((item) => matchRecord(item, cf.needle))).slice(0, 50)
       const unmeasured = boards.data === null || boards.data === undefined ? 0 : boards.data.unmeasured.length
 
-      if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '内容数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
+      if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       return h('div', null,
         h('div', { className: 'dsh-gw-card-top' },
           contentAll.length === 0 && ledgers.length === 0 ? null : h(ListFilter, { filter: cf.filter, setFilter: cf.setFilter, placeholder: '搜索内容标题 / 平台 / 标签 / 台账', shown: contentTop.length, total: contentSorted.length })),
@@ -6280,10 +6304,10 @@ const STAGE_OF_STATUS = {
             onClick: (event) => { event.preventDefault(); event.stopPropagation(); setRankBy(key) },
           }, label))) },
           h(RankTable, { items: contentTop, rankBy, onOpen: (path) => setOpenPath(path) }),
-          unmeasured === 0 ? null : h('div', { className: 'dsh-gw-hint' }, '另有 ' + unmeasured + ' 篇拆解还没回填播放/点赞，不计入排名。到「待回流」填一下就会上榜。')),
+          unmeasured === 0 ? null : h('div', { className: 'dsh-gw-hint' }, '另有 ' + unmeasured + ' 篇拆解还没回填播放/点赞，不计入排名。到「待回填数据」填一下就会上榜。')),
         h('ErrorBar', { error: list.error }),
         list.loading ? h(Empty, null, t('loading')) : ledgers.length === 0
-          ? h(Empty, null, '还没有内容回流数据。到「待回流」按平台版本给已发布的内容填播放/点赞。')
+          ? h(Empty, null, '还没有内容回流数据。到「待回填数据」按平台版本给已发布的内容填播放/点赞。')
           : h(LedgerPanel, {
             paths: ledgers.map((record) => record.path),
             onOpenPath: (path) => setOpenPath(path),
@@ -6717,7 +6741,7 @@ const STAGE_OF_STATUS = {
             h('select', { className: 'dsh-gw-catselect', style: { flex: 'none', width: 98, height: 26, borderRadius: 7 }, value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), title: '按状态筛选' },
               h('option', { value: '' }, '状态：全部'),
               statusOptions.map((name) => h('option', { key: name, value: name }, '状态：' + name))),
-            h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' } },
+            h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' } },
               h('input', { type: 'checkbox', checked: onlyWithContent, onChange: (event) => setOnlyWithContent(event.target.checked) }),
               '只看带过内容')),
           h('div', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center' } },
@@ -6757,7 +6781,7 @@ const STAGE_OF_STATUS = {
                       }
                     },
                       idx === 0 ? h('td', { rowSpan: items.length, style: { fontWeight: 500, verticalAlign: 'middle' } }, tailOf(product.productPath)) : null,
-                      h('td', { style: { fontSize: '11.5px', color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } }, String(row.date || '—')),
+                      h('td', { style: { fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } }, String(row.date || '—')),
                       h('td', null,
                         h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } },
                           row.platform ? h('span', { className: 'dsh-gw-pill' }, String(row.platform)) : null,
@@ -6965,7 +6989,7 @@ const STAGE_OF_STATUS = {
       // 删单条反馈（同灵感箱的按行删：只删表格里这一行）。
       async function removeEntry(entry) {
         const preview = String(entry.content ?? '').slice(0, 24)
-        if (!window.confirm('删掉这条反馈？' + '\n\n' + preview + (String(entry.content ?? '').length > 24 ? '…' : '') + '\n\n' + '只删这一行。')) return
+        if (!(await askConfirm('删掉这条反馈？' + '\n\n' + preview + (String(entry.content ?? '').length > 24 ? '…' : '') + '\n\n' + '只删这一行。', '删除这条反馈', '保留'))) return
         try {
           await call('/feedback?id=' + encodeURIComponent(entry.id), { method: 'DELETE' })
           notify('已删掉这条反馈')
@@ -8240,7 +8264,7 @@ const STAGE_OF_STATUS = {
       }
 
       async function removeRule(item) {
-        if (!window.confirm(t('confirmDelete'))) return
+        if (!(await askConfirm('删除这条文案规则？会先留一份备份。', '删除这条规则', '保留'))) return
         await patch([{ id: item.id, remove: true }])
       }
 
@@ -8763,7 +8787,7 @@ const STAGE_OF_STATUS = {
 
       async function remove() {
         if (note === null) return
-        if (!window.confirm('删除《' + activePath.split('/').pop() + '》？会先留一份备份，但 vault 里就没有这篇了。')) return
+        if (!(await askConfirm('删除《' + activePath.split('/').pop() + '》？会先留一份备份，但 vault 里就没有这篇了。', '删除并备份', '保留'))) return
         setBusy(true)
         try {
           // 用刚保存过的 sha1 会把自己拒掉（保存后本地 sha1 可能还没刷新），
@@ -9154,7 +9178,7 @@ const STAGE_OF_STATUS = {
       }
 
       async function remove(entry) {
-        if (!window.confirm(t('confirmDelete'))) return
+        if (!(await askConfirm('删除这一条术语？会先留一份备份。', '删除这一条', '保留'))) return
         try {
           await del('/glossary?id=' + encodeURIComponent(entry.id))
           list.reload()
@@ -9452,7 +9476,7 @@ const STAGE_OF_STATUS = {
         // 目录变了就先问一句，别让人手滑把工作台指到别处去。
         const previousRoot = state?.config?.vaultRoot ?? ''
         if (String(vaultRoot).trim() !== String(previousRoot).trim()) {
-          const ok = window.confirm('把 vault 根目录改成「' + String(vaultRoot).trim() + '」？' + String.fromCharCode(10) + '插件之后读写这个目录下的笔记。')
+          const ok = await askConfirm('把 vault 根目录改成「' + String(vaultRoot).trim() + '」？' + String.fromCharCode(10) + '插件之后读写这个目录下的笔记。', '改到这个目录', '不改')
           if (!ok) return
         }
         setBusy(true)
@@ -9490,7 +9514,7 @@ const STAGE_OF_STATUS = {
 
       async function applyMigration() {
         if (migration === null) return
-        const ok = window.confirm('把 ' + String(migration.missingIdCount ?? 0) + ' 篇老选题补上稳定 ID，并建立 ' + String(migration.createVariantCount ?? 0) + ' 个平台版本？只会新增/补字段，不删笔记。')
+        const ok = await askConfirm('把 ' + String(migration.missingIdCount ?? 0) + ' 篇老选题补上稳定 ID，并建立 ' + String(migration.createVariantCount ?? 0) + ' 个平台版本？只会新增/补字段，不删笔记。', '开始迁移', '先不迁')
         if (!ok) return
         setMigrationBusy(true)
         setError(null)
@@ -9606,7 +9630,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 面板 ────────────── */
 
     /**
-     * 待回流：把各个月份里「已发」的条目汇总成一张待办清单。
+     * 待回填数据：把各个月份里「已发」的条目汇总成一张待办清单。
      *
      * 以前这一步全靠人记：日历里发完了标「已发」，然后就没有然后了——
      * 播放量不会自己回到拆解笔记里。这里一行一个已发内容，填完数字点保存，
@@ -9621,7 +9645,7 @@ const STAGE_OF_STATUS = {
       const [accountFilters, setAccountFilters] = React.useState([])
       // 行内编辑：entryKey 为 null 表示这是一条待新增的空行（最上面那行），否则就是表格里那一行。
       const [editing, setEditing] = React.useState(null)
-      // 从创作台那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
+      // 从我的选题那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
       const [hlId, setHlId] = React.useState('')
       const hlRef = React.useRef(null)
       const seenPreset = React.useRef(null)
@@ -10049,7 +10073,7 @@ const STAGE_OF_STATUS = {
           hideCreate === true ? null : h('button', {
             type: 'button',
             className: 'dsh-gw-btn',
-            style: { flex: 'none', padding: '2px 8px', fontSize: 11.5 },
+            style: { flex: 'none', padding: '2px 8px', fontSize: 'var(--gw-fz-2,11.5px)' },
             title: '新建一个账号档案并直接选上',
             onClick: () => setOpen(!open),
           }, open ? '收起' : '＋ 新建')),
@@ -10173,6 +10197,16 @@ const STAGE_OF_STATUS = {
       }
     }
 
+    function ConfirmDialog({ request, onDone }) {
+      return h('div', { className: 'dsh-gw-veil', style: { zIndex: 9900 } },
+        h('div', { className: 'dsh-gw-panel dsh-gw-confirm', role: 'dialog', 'aria-modal': 'true', 'aria-label': '确认一下' },
+          h('div', { className: 'dsh-gw-head' },
+            h('div', { className: 'dsh-gw-brand' }, h('b', null, '确认一下'))),
+          h('div', { className: 'dsh-gw-confirm-body' }, request.message),
+          h('div', { className: 'dsh-gw-confirm-actions' },
+            h('button', { type: 'button', className: 'dsh-gw-btn', autoFocus: true, onClick: () => onDone(false) }, request.cancelLabel ?? '保留'),
+            h('button', { type: 'button', className: 'dsh-gw-btn', 'data-tone': 'danger', onClick: () => onDone(true) }, request.okLabel ?? '确定'))))
+    }
     function Panel({ onClose }) {
       const [state, setState] = React.useState({ loading: true, data: null, error: null })
       const [workspace, setWorkspaceState] = React.useState(readWorkspace)
@@ -10218,10 +10252,29 @@ const STAGE_OF_STATUS = {
         try { return window.localStorage.getItem('dsh-growth:search-scope') === 'all' ? 'all' : 'workbench' } catch { return 'workbench' }
       })
 
+      const toastTimer = React.useRef(null)
       const notify = React.useCallback((message, isError) => {
-        setToast({ message, isError: isError === true })
-        window.setTimeout(() => setToast(null), 2600)
+        const error = isError === true
+        setToast({ message, isError: error })
+        if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+        toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast(null) }, error ? 6000 : 2600)
       }, [])
+      const [confirmState, setConfirmState] = React.useState(null)
+      const confirmRef = React.useRef(null)
+      React.useEffect(() => {
+        confirmBridge = (message, okLabel, cancelLabel) => new Promise((resolve) => {
+          if (confirmRef.current !== null) confirmRef.current(false)
+          confirmRef.current = resolve
+          setConfirmState({ message, okLabel, cancelLabel })
+        })
+        return () => { confirmBridge = null }
+      }, [])
+      const finishConfirm = (yes) => {
+        const resolve = confirmRef.current
+        confirmRef.current = null
+        setConfirmState(null)
+        if (resolve !== null) resolve(yes === true)
+      }
 
       const setWorkspace = (id) => {
         setWorkspaceState(id)
@@ -10373,12 +10426,12 @@ const STAGE_OF_STATUS = {
         if (searchActive) {
           return h('div', null,
             h(Sect, null,
-              searchScope === 'workbench' ? '工作台内' : '整个 vault',
+              searchScope === 'workbench' ? '工作台目录' : '整个 vault',
               h('button', {
                 className: 'dsh-gw-btn',
                 onClick: () => setSearchScope(searchScope === 'workbench' ? 'all' : 'workbench'),
                 title: searchScope === 'workbench' ? '改成搜整个 vault（会包含编程笔记等无关目录）' : '只搜工作台自己的目录',
-              }, searchScope === 'workbench' ? '搜全库' : '只搜工作台'),
+              }, searchScope === 'workbench' ? '扩大到整个 vault' : '只搜工作台目录'),
               h(Pill, null, hits.length + ' ' + t('hits'))),
             hits.length === 0
               // 区分「真的没有」和「工作台内没有、但全库有」：
@@ -10386,10 +10439,10 @@ const STAGE_OF_STATUS = {
               ? h(Empty, null,
                   searchScope === 'workbench' ? '工作台这几个目录里没搜到「' + query.trim() + '」。' : t('noHit'),
                   searchScope === 'workbench'
-                    ? h('div', { style: { marginTop: 8 } }, h('button', { className: 'dsh-gw-btn', onClick: () => setSearchScope('all') }, '去全库找找'))
+                    ? h('div', { style: { marginTop: 8 } }, h('button', { className: 'dsh-gw-btn', onClick: () => setSearchScope('all') }, '扩大到整个 vault 找找'))
                     : null)
               : h('div', { className: 'dsh-gw-searchlist' },
-                  hits.map((hit, index) => h('div', { key: hit.path + ':' + hit.line + ':' + index, className: 'dsh-gw-row', onClick: () => openInObsidian(hit.path, notify) },
+                  hits.map((hit, index) => h('div', { key: hit.path + ':' + hit.line + ':' + index, className: 'dsh-gw-row', tabIndex: 0, role: 'button', onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openInObsidian(hit.path, notify) } }, onClick: () => openInObsidian(hit.path, notify) },
                     h('div', { className: 'dsh-gw-row-main' },
                       h('div', { className: 'dsh-gw-row-title' }, hit.title, h(Pill, null, hit.group === '' ? '根目录' : hit.group)),
                       h('div', { className: 'dsh-gw-row-meta' }, 'L' + hit.line + ' · ' + hit.snippet)))),
@@ -10433,15 +10486,35 @@ const STAGE_OF_STATUS = {
           ]
         }
         const rows = summaryRows(workspaceCards, summary)
-        return h('div', null,
-          h(Sect, null, (WORKSPACES.find((item) => item.id === workspace)?.hint ?? '') + ' · 点一行进卡片'),
-          rows.map((row) => h('div', { key: row.card.id, className: 'dsh-gw-row', onClick: () => openCard(row.card.id) },
-            h('div', { className: 'dsh-gw-row-main' },
-              h('div', { className: 'dsh-gw-row-title' }, (row.card.icon ?? '') + ' ' + row.card.title, row.tone === 'warn' ? h(Pill, { tone: 'warn' }, '待处理') : null),
-              h('div', { className: 'dsh-gw-row-meta' }, row.meta)),
-            h('div', { className: 'dsh-gw-row-num' }, String(row.num)))),
-          rows.length === 0 ? h(Empty, null, '这个工作区的卡片都被关掉了，去设置里打开。') : null,
-        )
+        const rowNode = (row) => h('div', {
+          key: row.card.id, className: 'dsh-gw-row', tabIndex: 0, role: 'button',
+          'aria-label': row.card.title + '：' + row.meta,
+          onClick: () => openCard(row.card.id),
+          onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCard(row.card.id) } },
+        },
+          h('div', { className: 'dsh-gw-row-main' },
+            h('div', { className: 'dsh-gw-row-title' }, (row.card.icon ?? '') + ' ' + row.card.title, row.tone === 'warn' ? h(Pill, { tone: 'warn' }, '待处理') : null),
+            h('div', { className: 'dsh-gw-row-meta' }, row.meta)),
+          h('div', { className: 'dsh-gw-row-num' }, String(row.num),
+            row.unit === undefined || row.unit === null || row.unit === '' ? null : h('span', { className: 'dsh-gw-row-unit' }, row.unit)))
+        const nodes = [h(Sect, { key: 'hint' }, (WORKSPACES.find((item) => item.id === workspace)?.hint ?? '') + ' · 点一行进卡片')]
+        const warnRows = rows.filter((row) => row.tone === 'warn')
+        if (warnRows.length > 0) nodes.push(h(Sect, { key: 'stage-warn' }, '待处理 · ' + warnRows.length + ' 项'))
+        warnRows.forEach((row) => nodes.push(rowNode(row)))
+        const rest = rows.filter((row) => row.tone !== 'warn')
+        STAGE_ORDER.forEach((stage) => {
+          const inStage = rest.filter((row) => row.stage === stage)
+          if (inStage.length === 0) return
+          nodes.push(h(Sect, { key: 'stage-' + stage }, stage))
+          inStage.forEach((row) => nodes.push(rowNode(row)))
+        })
+        const unmapped = rest.filter((row) => STAGE_ORDER.indexOf(row.stage) === -1)
+        if (unmapped.length > 0) {
+          nodes.push(h(Sect, { key: 'stage-other' }, '其他'))
+          unmapped.forEach((row) => nodes.push(rowNode(row)))
+        }
+        if (rows.length === 0) nodes.push(h(Empty, { key: 'empty' }, '这个工作区的卡片都被关掉了，去设置里打开。'))
+        return h('div', null, nodes)
       }
 
       const closable = typeof onClose === 'function'
@@ -10456,13 +10529,16 @@ const STAGE_OF_STATUS = {
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title')), h('span', null, t('subtitle'))),
             h('div', { className: 'dsh-gw-search' },
               h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) })),
-            h('button', { className: 'dsh-gw-btn', onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, t('settings')),
-            h('button', { className: 'dsh-gw-btn', onClick: () => { loadState(); loadSummary() } }, t('refresh'))),
+            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
+            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { loadState(); loadSummary() } }, h(Icon, { name: 'refresh' }))),
           h('div', { className: 'dsh-gw-tabs' },
             WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
           h('div', { className: 'dsh-gw-body', ref: bodyRef }, body()),
-          toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', style: { margin: '0 14px 12px' } }, toast.message),
+          toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', role: toast.isError === true ? 'alert' : 'status', 'aria-live': toast.isError === true ? 'assertive' : 'polite', style: { margin: '0 14px 12px' } }, toast.message),
         ),
+        confirmState === null ? null : (createPortal === null
+          ? h(ConfirmDialog, { request: confirmState, onDone: finishConfirm })
+          : createPortal(h(ConfirmDialog, { request: confirmState, onDone: finishConfirm }), document.body)),
       )
     }
 

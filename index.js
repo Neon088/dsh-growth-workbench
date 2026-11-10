@@ -40,11 +40,11 @@ const PKG_VERSION = (() => {
 const DEFAULT_CARDS = [
   { id: 'accounts', workspace: 'ops', title: '账号档案', icon: '👤', enabled: true },
   { id: 'ideas', workspace: 'ops', title: '灵感箱', icon: '💡', enabled: true },
-  { id: 'topics', workspace: 'ops', title: '内容 / 爆款拆解', icon: '🎯', enabled: true },
-  { id: 'studio', workspace: 'ops', title: '创作台', icon: '🎬', enabled: true },
+  { id: 'topics', workspace: 'ops', title: '爆款拆解（别人的）', icon: '🎯', enabled: true },
+  { id: 'studio', workspace: 'ops', title: '我的选题', icon: '🎬', enabled: true },
   { id: 'calendar', workspace: 'ops', title: '内容日历', icon: '🗓️', enabled: true },
-  { id: 'pending', workspace: 'ops', title: '待回流', icon: '📥', enabled: true },
-  { id: 'contentdata', workspace: 'ops', title: '内容数据复盘', icon: '📊', enabled: true },
+  { id: 'pending', workspace: 'ops', title: '待回填数据', icon: '📥', enabled: true },
+  { id: 'contentdata', workspace: 'ops', title: '数据复盘', icon: '📊', enabled: true },
   { id: 'products', workspace: 'ecom', title: '商品 / 竞品库', icon: '🏷️', enabled: true },
   { id: 'data', workspace: 'ecom', title: '电商数据复盘', icon: '📈', enabled: true },
   { id: 'feedback', workspace: 'ecom', title: '客户反馈库', icon: '💬', enabled: true },
@@ -564,11 +564,11 @@ export function apply(ctx, config) {
             sha1: note.sha1,
             front: parsed.front,
             ...(kind === 'topics' ? { id } : {}),
-            // 列表里带上正文：创作台点「创作」换一条时，详情页拿它当首屏，
+            // 列表里带上正文：我的选题点「创作」换一条时，详情页拿它当首屏，
             // 不用等 /topics/record 回来才画，换笔记就不会闪一下白。
             // 选题正文很小（几百字），200 篇也就几百 KB，只在 topics 这一种集合上带。
             ...(kind === 'topics' ? { body: parsed.body } : {}),
-            // 创作台要按脚本进度显示；版本那边已经读过了，选题这里顺手算掉，
+            // 我的选题要按脚本进度显示；版本那边已经读过了，选题这里顺手算掉，
             // 前端就不用再逐篇拉 record。其它集合不背这个字段。
             ...(kind === 'topics' ? { script: scriptProgressWith(variantsByMaster.get(id) ?? [], parsed.body) } : {}),
             preview: parsed.body
@@ -672,7 +672,7 @@ export function apply(ctx, config) {
         { key: 'link', label: '链接', max: 300 },
         { key: 'status', label: '状态', max: 20 },
         // 拆解 vs 选题（2026-11-08 拆分）：type==='拆解' 是拆解别人的案例，只留在爆款拆解卡；
-        // type==='选题' 是自己的，才进创作台/日历管线。老笔记没写 type 时两边都显示。
+        // type==='选题' 是自己的，才进我的选题/日历管线。老笔记没写 type 时两边都显示。
         // 不进 schema 的字段会被 normalizeFront 丢掉，所以 type 必须在这里挂名。
         { key: 'type', label: '类型', max: 20 },
         { key: 'views', label: '播放/阅读', max: 20 },
@@ -962,7 +962,7 @@ export function apply(ctx, config) {
     return { ok: false, code: 'not_found', message: '找不到这篇选题笔记：' + clean }
   }
 
-  // 「待回流」的缺口：日历里标了「已发」，但同选题同平台还没有平台版本的排期。
+  // 「待回填数据」的缺口：日历里标了「已发」，但同选题同平台还没有平台版本的排期。
   // 服务端一次算完，前端不要再自己过滤一遍 —— 两个地方各算一次，迟早算出两个数。
   async function pendingGapsOf() {
     if (domain === null) return { variants: [], gaps: [], total: 0 }
@@ -979,7 +979,7 @@ export function apply(ctx, config) {
     for (const variant of allVariants) {
       // 只有「真的发出去过」的版本才算覆盖：已发 / 数据回流，或归档前发过的。
       // 以前草稿、待审也一并算上 —— 日历标了已发、版本还躺在草稿里，缺口被静默吞掉，
-      // 待回流上半段只收已发/数据回流，于是两边都不显示，这条内容凭空消失。
+      // 待回填数据上半段只收已发/数据回流，于是两边都不显示，这条内容凭空消失。
       const status = String(variant.status ?? '')
       const countsAsPublished = ['已发', '待回填'].includes(status)
         || (status === '已归档' && String(variant.front?.publishedAt ?? '').trim() !== '')
@@ -1076,7 +1076,7 @@ export function apply(ctx, config) {
   }
 
   // 概览卡片上那个数字：跨月还在等回流的条数。
-  // 和「待回流」卡完全同一个口径：已发布（已发/数据回流）的平台版本 + 日历里的缺口。
+  // 和「待回填数据」卡完全同一个口径：已发布（已发/数据回流）的平台版本 + 日历里的缺口。
   // 以前这里只数日历「已发」，而卡片上还有 v2 那一段，首页数字永远偏小 ——
   // 同一个概念两套算法，就是「重复」最典型的形态。
   async function pendingCountOf() {
@@ -1432,7 +1432,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
   }
 
   // 选题阶段只有一个口径：frontmatter 和日历排期里较「靠后」的那个状态说了算。
-  // 以前首页用这个合并口径、创作台只看 frontmatter，两个地方会同时显示
+  // 以前首页用这个合并口径、我的选题只看 frontmatter，两个地方会同时显示
   // 「创作中 0」和一张写着创作中的卡；现在统一由后端算好 `stage` 给前端。
   function topicStageOf(frontStatus, scheduleStatus) {
     const map = { 选题: '在写', 创作中: '在写', 待审: '待发', 已排期: '待发', 数据回流: '待回填', 已回填: '待回填' }
@@ -1462,7 +1462,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 回流台账也躺在 Data/ 下，但它记的是「按平台版本按天」的明细，不是周期复盘。
     // 不过滤的话首页「电商数据复盘」的条数会被台账文件撑大（3 个周期会显示成 5 条）。
     const dataPeriods = dataRecords.filter((record) => !String(record.path ?? '').includes('/回流台账/'))
-    // 创作台的摘要数字和卡片分区用同一口径：笔记 frontmatter 或日历排期任一说
+    // 我的选题的摘要数字和卡片分区用同一口径：笔记 frontmatter 或日历排期任一说
     // 「创作中」就算创作中；任一说已发/数据回流就算已发（回流写回是终态）。
     const studioSchedule = await topicsScheduleIndex()
     const stageOf = (record) => {
@@ -1479,7 +1479,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // sopDir 为空时「SOP」= 整个 vault，否则是整个库一篇都数不到。
     const sopPrefix = sopDirValue().replace(/^\/+|\/+$/g, '')
     const inSop = (path) => sopPrefix === '' || path === sopPrefix || path.startsWith(sopPrefix + '/')
-    // 内容数据复盘 = 回流台账里的记录条数（播放/赞/评/转的唯一来源）。
+    // 数据复盘 = 回流台账里的记录条数（播放/赞/评/转的唯一来源）。
     const metrics = domain === null ? [] : await domain.listMetrics()
     return {
       sopNotes: discovery.notes.filter((note) => inSop(note.path)).length,
@@ -1680,7 +1680,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (v2[0] === 'variants' && v2.length === 1 && method === 'GET') {
       const variants = await domain.listVariants(q('masterId'))
-      // 创作台卡片上的版本行也要显示「这一版排在哪天」：多版本各自排期之后，
+      // 我的选题卡片上的版本行也要显示「这一版排在哪天」：多版本各自排期之后，
       // 只看主选题的日期会以为两版同一天。
       const schedule = await variantScheduleIndex()
       for (const variant of variants) variant.schedule = scheduleForVariant(variant, schedule, samePlatformCount(variants, variant))
@@ -1759,14 +1759,14 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       items.sort((left, right) => String(left.variant.schedule?.date ?? '').localeCompare(String(right.variant.schedule?.date ?? '')) || String(left.master.title).localeCompare(String(right.master.title), 'zh'))
       return { month, items }
     }
-    // 「待回流」的数据来源：已发布（或已在回流中）的平台版本。
+    // 「待回填数据」的数据来源：已发布（或已在回流中）的平台版本。
     // 数据按版本记，不按选题记 —— 同一条选题在抖音和 小红书 的数字本来就不一样，
     // 写进同一篇选题笔记的 views/likes 只会互相覆盖（旧接口就吃过这个亏）。
     if (v2[0] === 'pending' && v2.length === 1 && method === 'GET') {
       const masters = realMasterRecords(await collections.topics.list({ limit: 1000 }))
       const masterById = new Map(masters.map((master) => [String(master.id ?? master.front?.id ?? ''), master]))
       const items = []
-      // 「已排/未排发布」以内容日历为准：把同选题+同平台的排期挂上，和创作台列表同一口径。
+      // 「已排/未排发布」以内容日历为准：把同选题+同平台的排期挂上，和我的选题列表同一口径。
       const schedule = await variantScheduleIndex()
       const allVariants = await domain.listVariants()
 
@@ -2078,7 +2078,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       }
       return result
     }
-    // 待回流：只给「缺口」—— 日历里标了「已发」但同选题同平台还没有平台版本的行。
+    // 待回填数据：只给「缺口」—— 日历里标了「已发」但同选题同平台还没有平台版本的行。
     // 有版本的行在上半段按平台版本录，这里再列一遍就是同一件事两个入口。
     if (route === 'pending' && method === 'GET') {
       const months = await calendarMonths()
@@ -2141,7 +2141,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       if (route === kind + '/record' && method === 'PUT') return { written: await collection.update(q('path'), body) }
     }
 
-    // 拆解 → 建选题：从一篇拆解笔记派生「自己的选题」进创作台（2026-11-08 拆分）。
+    // 拆解 → 建选题：从一篇拆解笔记派生「自己的选题」进我的选题（2026-11-08 拆分）。
     // 拆解笔记只管「为什么火」，不进 选题→创作→回流 管线；选题才排期、才建平台版本。
     // 标题/平台/标签先照搬源笔记，正文留空（新建不铺模板），frontmatter 带 sourceId 指回源拆解。
     if (route === 'topics/derive' && method === 'POST') {
