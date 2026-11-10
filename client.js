@@ -249,7 +249,8 @@ window.__ModuleLoader__.load({
 .dsh-gw-searchlist .dsh-gw-row{min-width:0;overflow:hidden}
 .dsh-gw-searchlist .dsh-gw-row-title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-searchlist .dsh-gw-row-title .dsh-gw-pill{vertical-align:middle;margin-left:6px}
-.dsh-gw-searchlist .dsh-gw-row-meta{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.dsh-gw-searchlist .dsh-gw-row-meta{white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.55}
+.dsh-gw-searchlist .dsh-gw-hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,#e8a33d) 38%,transparent);color:var(--dsw-alias-label-primary);border-radius:2px;padding:0 1px}
 .dsh-gw-row-act{flex:0 1 auto;opacity:1;height:auto;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);color:var(--dsw-alias-link);font-size:var(--gw-fz-1,11px);font-weight:500;line-height:1.25;display:inline-flex;align-items:center;justify-content:center;white-space:normal;overflow-wrap:anywhere;min-width:0;max-width:100%;cursor:pointer;box-sizing:border-box;transition:background .12s,border-color .12s,color .12s}
 .dsh-gw-note-acts{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto;min-width:0}
 .dsh-gw-note-acts .dsh-gw-row-act{background:transparent;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);min-height:22px;padding:1px 7px}
@@ -9153,6 +9154,25 @@ const STAGE_OF_STATUS = {
       return out
     }
 
+    // 搜索命中的是笔记里的原始行：表格行混着链接、vault 路径、内部 ID，
+    // 直接铺出来没法读。这里只留读得懂的格子，含关键词的格子一律保留。
+    function searchSnippetCells(raw, needle) {
+      const line = String(raw ?? '').trim()
+      const low = String(needle ?? '').toLowerCase()
+      const parts = line.split('|').map((cell) => cell.trim()).filter((cell) => cell !== '')
+      const kept = parts.filter((cell) => {
+        if (/^-{2,}$/.test(cell)) return false
+        const hit = low !== '' && cell.toLowerCase().includes(low)
+        if (hit) return true
+        if (/^https?:\/\/\S+$/i.test(cell)) return false
+        if (/\.md\s*$/i.test(cell) && cell.includes('/')) return false
+        if (/^[a-z0-9]{10,}$/i.test(cell) && /\d/.test(cell)) return false
+        if (/^[|()\s]+$/.test(cell)) return false
+        return true
+      })
+      return kept
+    }
+
     /* ────────────── 卡片：术语表 ────────────── */
 
     function GlossaryCard({ notify }) {
@@ -10503,10 +10523,17 @@ const STAGE_OF_STATUS = {
                     ? h('div', { style: { marginTop: 8 } }, h('button', { className: 'dsh-gw-btn', onClick: () => setSearchScope('all') }, '扩大到整个 vault 找找'))
                     : null)
               : h('div', { className: 'dsh-gw-searchlist' },
-                  hits.map((hit, index) => h('div', { key: hit.path + ':' + hit.line + ':' + index, className: 'dsh-gw-row', tabIndex: 0, role: 'button', onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openInObsidian(hit.path, notify) } }, onClick: () => openInObsidian(hit.path, notify) },
-                    h('div', { className: 'dsh-gw-row-main' },
-                      h('div', { className: 'dsh-gw-row-title' }, hit.title, h(Pill, null, hit.group === '' ? '根目录' : hit.group)),
-                      h('div', { className: 'dsh-gw-row-meta' }, 'L' + hit.line + ' · ' + hit.snippet)))),
+                  hits.map((hit, index) => {
+                    const key = hit.path + ':' + hit.line + ':' + index
+                    const needle = query.trim()
+                    const cells = searchSnippetCells(hit.snippet, needle)
+                    const joined = cells.join(' · ')
+                    const summary = joined.length > 200 ? joined.slice(0, 200) + '…' : joined
+                    return h('div', { key, className: 'dsh-gw-row', tabIndex: 0, role: 'button', onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openInObsidian(hit.path, notify) } }, onClick: () => openInObsidian(hit.path, notify) },
+                      h('div', { className: 'dsh-gw-row-main' },
+                        h('div', { className: 'dsh-gw-row-title' }, ...highlightNodes(hit.title, needle, key + '-t'), h(Pill, null, hit.group === '' ? '根目录' : hit.group)),
+                        h('div', { className: 'dsh-gw-row-meta' }, 'L' + hit.line + ' · ', ...highlightNodes(summary, needle, key + '-s'))))
+                  }),
                   hits.length >= 80 ? h('div', { className: 'dsh-gw-row-meta', style: { padding: '6px 4px' } }, '只显示前 80 条，再写细一点的关键词。') : null))
         }
         if (openComponent !== undefined && cardId !== null) {
