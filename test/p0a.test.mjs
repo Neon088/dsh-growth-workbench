@@ -139,5 +139,32 @@ const ledgerPut = await request('PUT', '/api/dsh-growth/data/record?path=' + enc
 check('body-only save on free note', ledgerPut, (r) => r.status === 200)
 check('free note body persisted', { status: 200, json: {} }, () => fs.readFileSync(path.join(vault, ledgerRel), 'utf8').includes('2026-11-08'))
 
+// 8) 反馈表加「来源」列：8 列 / 6 列老行都要读得回来且来源为空，
+//    新写的来源要能落盘、读回，表头换成 9 列。
+fs.mkdirSync(path.join(vault, 'Feedback'), { recursive: true })
+const fbFile = path.join(vault, 'Feedback', '客户反馈.md')
+const fb8 = ['# 客户反馈', '',
+  '| 日期 | 渠道 | 情感 | 内容 | 标签 | 处理意见 | 处理结果 | 状态 |',
+  '| --- | --- | --- | --- | --- | --- | --- | --- |',
+  '| 2026-11-01 | 抖音评论 | 负 | 包装破了 | 物流 | 补发 | 已补发 | 已处理 |', '', '---', ''].join('\n')
+fs.writeFileSync(fbFile, fb8, 'utf8')
+const fb8Read = await request('GET', '/api/dsh-growth/feedback')
+check('feedback 8-col legacy keeps columns', fb8Read, (r) => (r.json?.entries ?? []).length === 1 && r.json.entries[0].source === '' && r.json.entries[0].channel === '抖音评论' && r.json.entries[0].advice === '补发' && r.json.entries[0].status === '已处理')
+const fb6 = ['# 客户反馈', '',
+  '| 日期 | 渠道 | 情感 | 内容 | 标签 | 状态 |',
+  '| --- | --- | --- | --- | --- | --- |',
+  '| 2026-11-02 | 私信 | 正 | 挺好用 | 口碑 | 未处理 |', '', '---', ''].join('\n')
+fs.writeFileSync(fbFile, fb6, 'utf8')
+const fb6Read = await request('GET', '/api/dsh-growth/feedback')
+check('feedback 6-col legacy keeps columns', fb6Read, (r) => (r.json?.entries ?? []).length === 1 && r.json.entries[0].source === '' && r.json.entries[0].advice === '' && r.json.entries[0].resolution === '' && r.json.entries[0].status === '未处理')
+const fbAdd = await request('POST', '/api/dsh-growth/feedback', { date: '2026-11-03', channel: '评论区', source: '平台 · 抖音', sentiment: '负', content: '客服回复慢', tags: '客服', advice: '', resolution: '', status: '未处理' })
+check('feedback source accepted on add', fbAdd, (r) => r.status === 200)
+const fbAfter = await request('GET', '/api/dsh-growth/feedback')
+check('feedback source reads back', fbAfter, (r) => (r.json?.entries ?? []).some((entry) => entry.content === '客服回复慢' && entry.source === '平台 · 抖音'))
+check('feedback header has source column', { status: 200, json: {} }, () => {
+  const body = fs.readFileSync(fbFile, 'utf8')
+  return body.includes('| 日期 | 渠道 | 来源 |') && body.includes('平台 · 抖音')
+})
+
 console.log('\n' + (failures === 0 ? 'ALL PASSED' : failures + ' FAILED'))
 process.exitCode = failures === 0 ? 0 : 1

@@ -645,14 +645,15 @@ export function apply(ctx, config) {
       intro: '> 想到就丢一行，定期清进选题库。状态：新 / 已用 / 已废弃；已用的填「去向」，写上它变成了哪篇选题。来源URL 可直接在面板里预览。',
       label: '灵感',
     })
-    // 老版反馈表只有 6 列（没有处理意见/处理结果）：读到 6 列的行时在「标签」后补两个空列。
+    // 老反馈表有两种：8 列（还没有「来源」）和 6 列（还没有处理意见/处理结果）。
+    // 读到老行时按列数把缺的列补成空，idKeys 仍是日期+内容，老行 id 不变。
     tables.feedback = createTable({
-      header: ['日期', '渠道', '情感', '内容', '标签', '处理意见', '处理结果', '状态'],
-      keys: ['date', 'channel', 'sentiment', 'content', 'tags', 'advice', 'resolution', 'status'],
+      header: ['日期', '渠道', '来源', '情感', '内容', '标签', '处理意见', '处理结果', '状态'],
+      keys: ['date', 'channel', 'source', 'sentiment', 'content', 'tags', 'advice', 'resolution', 'status'],
       idKeys: ['date', 'content'],
-      legacy: [{ cells: 6, at: [{ index: 5 }, { index: 5 }] }],
+      legacy: [{ cells: 8, at: [{ index: 2 }] }, { cells: 6, at: [{ index: 2 }, { index: 5 }, { index: 5 }] }],
       heading: '# 客户反馈',
-      intro: '> 情感：正 / 负 / 中性。状态：未处理 / 跟进中 / 已处理。处理意见 / 处理结果：怎么打算处理的、最后处理成什么样。',
+      intro: '> 情感：正 / 负 / 中性。状态：未处理 / 跟进中 / 已处理。处理意见 / 处理结果：怎么打算处理的、最后处理成什么样。来源：平台 / 内容（发布过的文章或视频，也就是笔记）/ 商品（自家或竞品里挑具体一个）。',
       label: '反馈',
     })
 
@@ -1948,7 +1949,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       feedback: {
         table: () => tables.feedback,
         file: () => join(dirOf('feedbackDir'), '客户反馈.md'),
-        defaults: () => ({ date: today(), channel: '', sentiment: '', content: '', tags: '', advice: '', resolution: '', status: '未处理' }),
+        defaults: () => ({ date: today(), channel: '', source: '', sentiment: '', content: '', tags: '', advice: '', resolution: '', status: '未处理' }),
       },
     }
     if (route in simpleTables) {

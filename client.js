@@ -369,9 +369,9 @@ window.__ModuleLoader__.load({
 .dsh-gw-pane .dsh-gw-promote .dsh-gw-promote-platform input{flex:1 1 auto!important;min-width:0;width:100%}
 .dsh-gw-promote>.dsh-gw-btn{flex:0 0 auto;white-space:nowrap;max-width:100%}
 /* 取消/建是普通动作 */
-.dsh-gw-table input.dsh-gw-cell-in,.dsh-gw-table textarea.dsh-gw-cell-in{width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:1px 4px;font:inherit;font-size:var(--gw-fz-2,11.5px);border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit}
+.dsh-gw-table input.dsh-gw-cell-in,.dsh-gw-table textarea.dsh-gw-cell-in,.dsh-gw-table select.dsh-gw-cell-in{width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:1px 4px;font:inherit;font-size:var(--gw-fz-2,11.5px);border-radius:5px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit}
 .dsh-gw-table textarea.dsh-gw-cell-in{display:block;min-height:46px;max-height:220px;padding:4px 6px;line-height:1.55;resize:vertical;overflow:auto}
-.dsh-gw-table td[data-editing=true] input.dsh-gw-cell-in,.dsh-gw-table td[data-editing=true] textarea.dsh-gw-cell-in{border-color:var(--dsw-alias-link);background:var(--dsw-alias-bg-base)}
+.dsh-gw-table td[data-editing=true] input.dsh-gw-cell-in,.dsh-gw-table td[data-editing=true] textarea.dsh-gw-cell-in,.dsh-gw-table td[data-editing=true] select.dsh-gw-cell-in{border-color:var(--dsw-alias-link);background:var(--dsw-alias-bg-base)}
 .dsh-gw-autosave-dot{color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px)}
 .dsh-gw-rule-edit{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;min-width:0}
 .dsh-gw-rule-edit input{width:100%}
@@ -607,6 +607,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 列宽预算：9 列均分会让「原文」只剩 49px，一列装一个字。 */
 .dsh-gw-table.dsh-gw-fb-table col.c-date{width:8%}
 .dsh-gw-table.dsh-gw-fb-table col.c-channel{width:10%}
+.dsh-gw-table.dsh-gw-fb-table col.c-source{width:13%}
 .dsh-gw-table.dsh-gw-fb-table col.c-mood{width:8%}
 .dsh-gw-table.dsh-gw-fb-table col.c-body{width:30%}
 .dsh-gw-table.dsh-gw-fb-table col.c-tags{width:11%}
@@ -620,6 +621,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    （实测第 1、5 个可见格会拿到 0 宽），所以这里只重新分配列宽。 */
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-date{width:5%}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-channel{width:7%}
+.dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-source{width:9%}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-mood{width:4%}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-body{width:40%}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table col.c-tags{width:6%}
@@ -629,6 +631,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 窄档（<470）切成 5 列：日期 / 渠道 / 情感 / 标签折成「原文」格上面的一行 meta。 */
 .dsh-gw-fb-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:3px;font-size:var(--gw-fz-1,11px);line-height:1.4;color:var(--dsw-alias-label-secondary)}
 .dsh-gw-fb-meta-tags{display:inline-flex;flex-wrap:wrap;gap:3px}
+.dsh-gw-fb-meta-source{color:var(--dsw-alias-label-primary)}
 .dsh-gw-fb-body{line-height:1.5;color:var(--dsw-alias-label-primary)}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table.dsh-gw-fb-compact col.c-body{width:38%}
 .dsh-gw-table.dsh-gw-fb-table.dsh-gw-fb-compact col.c-body{width:38%}
@@ -6843,10 +6846,55 @@ const STAGE_OF_STATUS = {
       )
     }
 
+    // 客户反馈「来源」的候选清单：平台 / 发布过的文章或视频（笔记）/ 自家或竞品商品。
+    // 值写成「大类 · 具体名字」一句能直接读的话存进表格，不解析、不回填旧行。
+    function feedbackSourceGroups(platforms, topicRecords, productRecords, typeOf) {
+      const groups = []
+      const platformGroup = { label: '平台', options: [] }
+      const contentGroup = { label: '内容（文章 / 视频笔记）', options: [] }
+      const ownGroup = { label: '商品 · 自家', options: [] }
+      const rivalGroup = { label: '商品 · 竞品', options: [] }
+      ;(platforms ?? []).forEach((name) => {
+        const text = String(name ?? '').trim()
+        if (text !== '') platformGroup.options.push({ value: '平台 · ' + text, label: text })
+      })
+      ;(topicRecords ?? []).forEach((record) => {
+        const title = String(record.title ?? '').trim()
+        if (title !== '' && typeOf(record) !== '拆解') contentGroup.options.push({ value: '内容 · ' + title, label: title })
+      })
+      ;(productRecords ?? []).forEach((record) => {
+        const title = String(record.title ?? '').trim()
+        if (title === '') return
+        const rival = String(record.front?.kind ?? '').includes('竞品')
+        const value = '商品 · ' + (rival ? '竞品' : '自家') + ' · ' + title
+        const group = rival ? rivalGroup : ownGroup
+        group.options.push({ value, label: title })
+      })
+      groups.push(platformGroup, contentGroup, ownGroup, rivalGroup)
+      return groups.filter((group) => group.options.length > 0)
+    }
+
+    // 记一条、表格里改来源都用它：按类别分组的原生下拉，值就是写进表格的那句话。
+    // 已经存过、但这次候选里没有的值（笔记改名、商品删了）单列一组，别静默抹掉。
+    function SourceSelect({ value, groups, onChange, extra }) {
+      const current = String(value ?? '')
+      const known = current !== '' && groups.some((group) => group.options.some((option) => option.value === current))
+      const stale = current !== '' && known === false
+      const props = Object.assign({ value: current, onChange: (event) => onChange(event.target.value) }, extra ?? {})
+      return h('select', props,
+        h('option', { value: '' }, '（未标来源）'),
+        stale ? h('optgroup', { label: '已记录（不在当前候选里）' }, h('option', { value: current }, current)) : null,
+        groups.map((group) => h('optgroup', { key: group.label, label: group.label },
+          group.options.map((option) => h('option', { key: option.value, value: option.value }, option.label)))))
+    }
+
     /* ────────────── 卡片：客户反馈 ────────────── */
 
     function FeedbackCard({ notify }) {
       const list = useAsync(() => get('/feedback'), [])
+      const sourceTopicList = useAsync(() => get('/topics/list?limit=200'), [])
+      const sourceProductList = useAsync(() => get('/products/list?limit=200'), [])
+      const sourceGroups = feedbackSourceGroups(PLATFORMS, sourceTopicList.data?.records ?? [], sourceProductList.data?.records ?? [], topicTypeOf)
       // 胶囊筛选：情感 + 标签（沿用选题卡的下拉样式）。
       const fbTableRef = React.useRef(null)
       const [compact, setCompact] = React.useState(false)
@@ -6867,12 +6915,12 @@ const STAGE_OF_STATUS = {
       const [sentimentFilter, setSentimentFilter] = React.useState('全部')
       const [tagFilter, setTagFilter] = React.useState('全部标签')
       // 列宽可拖（语调库同款）：完整 9 列和窄档 5 列各留一份宽度，切换互不干扰。
-      const [fbFullWidths, setFbFullWidths] = React.useState([9, 11, 9, 31, 12, 12, 12, 4])
+      const [fbFullWidths, setFbFullWidths] = React.useState([8, 9, 13, 7, 27, 10, 11, 11, 4])
       const [fbCompactWidths, setFbCompactWidths] = React.useState([44, 24, 18, 14])
       const startFbFullResize = colResizeStart(fbFullWidths, setFbFullWidths)
       const startFbCompactResize = colResizeStart(fbCompactWidths, setFbCompactWidths)
       const [statusFilter, setStatusFilter] = React.useState('')
-      const [draft, setDraft] = React.useState({ channel: '', sentiment: '负', content: '', tags: '', status: '未处理' })
+      const [draft, setDraft] = React.useState({ channel: '', source: '', sentiment: '负', content: '', tags: '', status: '未处理' })
       const [busy, setBusy] = React.useState(false)
       const [editing, setEditing] = React.useState(null)
       const entries = list.data?.entries ?? []
@@ -6881,7 +6929,7 @@ const STAGE_OF_STATUS = {
         setBusy(true)
         try {
           await post('/feedback', draft)
-          setDraft({ channel: '', sentiment: '负', content: '', tags: '', status: '未处理' })
+          setDraft({ channel: '', source: '', sentiment: '负', content: '', tags: '', status: '未处理' })
           list.reload()
         } catch (error) {
           notify(String(error.message), true)
@@ -6891,8 +6939,8 @@ const STAGE_OF_STATUS = {
       }
 
       function startEdit(entry, cell) {
-        savedRef.current = JSON.stringify([String(entry.content ?? '').trim(), String(entry.channel ?? '').trim(), String(entry.tags ?? '').trim(), String(entry.advice ?? '').trim(), String(entry.resolution ?? '').trim()])
-        setEditing({ id: entry.id, focus: String(cell ?? 'content'), channel: String(entry.channel ?? ''), content: String(entry.content ?? ''), tags: String(entry.tags ?? ''), advice: String(entry.advice ?? ''), resolution: String(entry.resolution ?? '') })
+        savedRef.current = JSON.stringify([String(entry.content ?? '').trim(), String(entry.channel ?? '').trim(), String(entry.source ?? '').trim(), String(entry.tags ?? '').trim(), String(entry.advice ?? '').trim(), String(entry.resolution ?? '').trim()])
+        setEditing({ id: entry.id, focus: String(cell ?? 'content'), channel: String(entry.channel ?? ''), source: String(entry.source ?? ''), content: String(entry.content ?? ''), tags: String(entry.tags ?? ''), advice: String(entry.advice ?? ''), resolution: String(entry.resolution ?? '') })
       }
       // 点单元格文本就进编辑；正在编辑同一行时点别的列直接切过去，不打断。
       const pickCell = (entry, key) => (event) => {
@@ -6941,8 +6989,8 @@ const STAGE_OF_STATUS = {
         const original = entries.find((entry) => entry.id === row.id)
         if (original === undefined) return
         if (String(row.content).trim() === '') return
-        const payload = { ...original, channel: String(row.channel ?? '').trim(), content: String(row.content).trim(), tags: String(row.tags ?? '').trim(), advice: String(row.advice ?? '').trim(), resolution: String(row.resolution ?? '').trim() }
-        const stamp = JSON.stringify([payload.content, payload.channel, payload.tags, payload.advice, payload.resolution])
+        const payload = { ...original, channel: String(row.channel ?? '').trim(), source: String(row.source ?? '').trim(), content: String(row.content).trim(), tags: String(row.tags ?? '').trim(), advice: String(row.advice ?? '').trim(), resolution: String(row.resolution ?? '').trim() }
+        const stamp = JSON.stringify([payload.content, payload.channel, payload.source, payload.tags, payload.advice, payload.resolution])
         if (savedRef.current === stamp) return
         savingRef.current = true
         try {
@@ -6967,7 +7015,7 @@ const STAGE_OF_STATUS = {
         const original = entries.find((entry) => entry.id === editing.id)
         if (original === undefined) { setEditing(null); return }
         try {
-          await put('/feedback', { ...original, channel: editing.channel.trim(), content, tags: editing.tags.trim(), advice: String(editing.advice ?? '').trim(), resolution: String(editing.resolution ?? '').trim() })
+          await put('/feedback', { ...original, channel: editing.channel.trim(), source: String(editing.source ?? '').trim(), content, tags: editing.tags.trim(), advice: String(editing.advice ?? '').trim(), resolution: String(editing.resolution ?? '').trim() })
           setEditing(null)
           list.reload()
           notify('已改好')
@@ -7032,6 +7080,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '渠道' }, h('input', { value: draft.channel, onChange: (event) => setDraft({ ...draft, channel: event.target.value }), placeholder: '评论区 / 私信 / 售后' })),
           h(Field, { label: '情感' }, h('select', { value: draft.sentiment, onChange: (event) => setDraft({ ...draft, sentiment: event.target.value }) }, ['正', '负', '中性'].map((value) => h('option', { key: value, value }, value)))),
         ),
+        h(Field, { label: '来源' }, h(SourceSelect, { value: draft.source, groups: sourceGroups, onChange: (value) => setDraft({ ...draft, source: value }), extra: { title: '这条反馈从哪来：平台 / 文章或视频笔记 / 自家或竞品商品' } })),
         h(Field, { label: '原文' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.content, onChange: (event) => setDraft({ ...draft, content: event.target.value }), placeholder: '客户原话' })),
         h(Field, { label: '标签' }, h('input', { value: draft.tags, onChange: (event) => setDraft({ ...draft, tags: event.target.value }), placeholder: '物流 / 尺码 / 客服' })),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
@@ -7049,14 +7098,14 @@ const STAGE_OF_STATUS = {
           compact
             ? h('colgroup', null, ['c-body', 'c-fix', 'c-fix', 'c-state'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbCompactWidths[index] + '%' } })))
             : h('colgroup', null,
-              ['c-date', 'c-channel', 'c-mood', 'c-body', 'c-tags', 'c-fix', 'c-fix', 'c-state'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbFullWidths[index] + '%' } }))),
+              ['c-date', 'c-channel', 'c-source', 'c-mood', 'c-body', 'c-tags', 'c-fix', 'c-fix', 'c-state'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbFullWidths[index] + '%' } }))),
           compact
             ? h('thead', null, h('tr', null, ['原文', '处理意见', '处理结果', '状态'].map((label, index) => h('th', { key: label + index },
               label,
               index < 3 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startFbCompactResize(index) }) : null))))
-            : h('thead', null, h('tr', null, ['日期', '渠道', '情感', '原文', '标签', '处理意见', '处理结果', '状态'].map((label, index) => h('th', { key: label + index },
+            : h('thead', null, h('tr', null, ['日期', '渠道', '来源', '情感', '原文', '标签', '处理意见', '处理结果', '状态'].map((label, index) => h('th', { key: label + index },
               label,
-              index < 7 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startFbFullResize(index) }) : null)))),
+              index < 8 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startFbFullResize(index) }) : null)))),
           h('tbody', null, shownSorted.map((entry) => {
             const editingThis = editing !== null && editing.id === entry.id
             const cell = (key, node, extra) => h('td', Object.assign({ onClick: pickCell(entry, key), 'data-editing': editingThis ? 'true' : undefined }, extra ?? {}), node)
@@ -7068,7 +7117,9 @@ const STAGE_OF_STATUS = {
               : String(entry.tags).split(/[/,、;；]/).filter((part) => part.trim() !== '').map((part) => h(Pill, { key: part, tone: '' }, part.trim()))
             const mood = h(Pill, { tone: String(entry.sentiment).includes('负') ? 'error' : String(entry.sentiment).includes('正') ? 'ok' : '' }, entry.sentiment)
             const meta = h('div', { className: 'dsh-gw-fb-meta' },
-              h('span', null, entry.date), ' · ', h('span', null, entry.channel), ' ', mood, tags === null ? null : h('span', { className: 'dsh-gw-fb-meta-tags' }, tags))
+              h('span', null, entry.date), ' · ', h('span', null, entry.channel),
+              entry.source === '' || entry.source === undefined ? null : h('span', { className: 'dsh-gw-fb-meta-source' }, ' · ' + entry.source),
+              ' ', mood, tags === null ? null : h('span', { className: 'dsh-gw-fb-meta-tags' }, tags))
             return h('tr', { key: entry.id, className: 'dsh-gw-fb-row' },
               compact
                 ? [cell('content', [meta, h('div', { className: 'dsh-gw-fb-body' }, editingThis
@@ -7079,6 +7130,9 @@ const STAGE_OF_STATUS = {
               compact ? null : cell('channel', editingThis
                 ? h('input', { className: 'dsh-gw-cell-in', 'data-cell': 'channel', value: editing.channel, onChange: (event) => setEditing({ ...editing, channel: event.target.value }), onBlur: () => { void saveEditSilent() } })
                 : entry.channel),
+              compact ? null : cell('source', editingThis
+                ? h(SourceSelect, { value: editing.source, groups: sourceGroups, onChange: (value) => { const next = { ...editing, source: value }; setEditing(next); void saveEditSilent(next) }, extra: { className: 'dsh-gw-cell-in', 'data-cell': 'source', title: '这条反馈从哪来', onBlur: () => { void saveEditSilent() } } })
+                : (entry.source === '' || entry.source === undefined ? h('span', { className: 'dsh-gw-rule-empty' }, '—') : entry.source)),
               compact ? null : h('td', null, mood),
               compact ? null : cell('content', editingThis
                 ? h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', 'data-cell': 'content', rows: 3, value: editing.content, placeholder: '客户原话', onChange: (event) => setEditing({ ...editing, content: event.target.value }), onBlur: () => { void saveEditSilent() }, onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); void saveEditSilent(); setEditing(null) } if (event.key === 'Escape') setEditing(null) } })
