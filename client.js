@@ -24,6 +24,8 @@ window.__ModuleLoader__.load({
       createPortal = null
     }
     const h = React.createElement
+    // 卡片里的放大镜借这个插槽挂到面包屑行右端，不再自己占一条筛选项。
+    const CrumbSlot = React.createContext(null)
 
     /**
      * 本机时区的「今天」，YYYY-MM-DD。
@@ -172,6 +174,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-veil{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(8,10,14,.46);backdrop-filter:blur(2px)}
 .dsh-gw-panel{display:flex;flex-direction:column;width:min(1080px,100%);height:min(780px,100%);border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-glass-panel);-webkit-backdrop-filter:blur(32px) saturate(140%);backdrop-filter:blur(32px) saturate(140%);color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.34);overflow:hidden;font-size:var(--gw-fz-4,13px)}
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
+.dsh-gw-head .dsh-gw-brand{flex:1}
 .dsh-gw-brand{display:flex;flex-direction:column;min-width:0}
 .dsh-gw-brand b{font-size:var(--gw-fz-5,14px)}
 .dsh-gw-brand span{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
@@ -181,7 +184,10 @@ window.__ModuleLoader__.load({
 .dsh-gw-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
 .dsh-gw-search{flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
 .dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
-.dsh-gw-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}
+.dsh-gw-tabs{display:flex;gap:8px;padding:8px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;min-width:0}
+.dsh-gw-tablist{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
+.dsh-gw-tabs .dsh-gw-search{flex:none;min-width:0;width:168px;margin-left:auto}
+.dsh-gw-tabs .dsh-gw-search input{height:26px}
 .dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tab[data-on=true]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);box-shadow:inset 0 -2px 0 var(--gw-warm)}
 .dsh-gw-body{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:12px 14px 16px;display:flex;flex-direction:column;min-width:0}
@@ -782,6 +788,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-mode-btns .dsh-gw-btn,.dsh-gw-mode-btns .dsh-gw-icon-btn{margin:0}
 .dsh-gw-note-actions > .dsh-gw-mode-btns{margin-right:2px}
 .dsh-gw-crumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;min-width:0;flex:1;font-size:var(--gw-fz-3,12.5px);line-height:1.6}
+.dsh-gw-crumb-slot{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;min-width:0}
+.dsh-gw-listfilter{display:inline-flex;align-items:center;gap:2px}
+.dsh-gw-listfilter-btn{flex:none}
+.dsh-gw-listfilter-input{width:150px;max-width:42vw;height:24px;box-sizing:border-box;padding:0 8px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-2,11.5px);font-family:inherit}
 .dsh-gw-crumb-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-4,13px);padding:2px 6px 2px 0;flex:none}
 .dsh-gw-crumb-back:hover{text-decoration:underline}
 .dsh-gw-crumb-seg{background:none;border:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px);padding:2px 5px;border-radius:5px;font:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
@@ -2234,9 +2244,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       return { filter, setFilter, needle, shown }
     }
 
-    function ListFilter({ filter, setFilter, placeholder, shown, total, label, big }) {
-      // 常态只有一个放大镜图标：点一下就地展开成输入框（不换位置），
-      // 空值失焦或按 Esc 再收回图标。为了不占地方，非空时也不再挂计数角标。
+    function ListFilter({ filter, setFilter, placeholder }) {
+      // 放大镜常驻面包屑行右端：点一下就地展开一个小输入框，既不换位置、也不再冒出「搜索」标题。
+      const crumbSlot = React.useContext(CrumbSlot)
       const [expanded, setExpanded] = React.useState(false)
       const inputRef = React.useRef(null)
       React.useEffect(() => {
@@ -2247,25 +2257,26 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       React.useEffect(() => {
         if (String(filter ?? '').trim() !== '') setExpanded(true)
       }, [filter])
-      if (expanded === false) {
-        return h('button', {
-          className: 'dsh-gw-ibtn' + (big === true ? ' dsh-gw-ibtn-big' : ''),
-          title: placeholder ?? '搜索',
-          'aria-label': placeholder ?? '搜索',
-          onClick: () => setExpanded(true),
-        }, h(Icon, { name: 'search', size: big === true ? 17 : 14 }))
-      }
-      return h(Sect, null, label ?? '搜索',
-        h('input', {
+      const control = h('span', { className: 'dsh-gw-listfilter' },
+        h('button', {
+          type: 'button',
+          className: 'dsh-gw-ibtn dsh-gw-listfilter-btn',
+          title: placeholder ?? '过滤列表',
+          'aria-label': placeholder ?? '过滤列表',
+          'aria-expanded': expanded ? 'true' : 'false',
+          onClick: () => setExpanded((prev) => !prev),
+        }, h(Icon, { name: 'search', size: 14 })),
+        expanded === false ? null : h('input', {
           ref: inputRef,
-          style: { flex: 1, minWidth: 0, height: 26, borderRadius: 7, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit', padding: '0 8px' },
+          className: 'dsh-gw-listfilter-input',
           placeholder: placeholder ?? '目录 / 笔记名 / 标题 / 标签',
           value: filter,
           onChange: (event) => setFilter(event.target.value),
           onBlur: () => { if (String(filter ?? '').trim() === '') setExpanded(false) },
           onKeyDown: (event) => { if (event.key === 'Escape') { setFilter(''); setExpanded(false) } },
         }),
-        filter.trim() === '' ? null : h('button', { className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })))
+        expanded === false || String(filter ?? '').trim() === '' ? null : h('button', { type: 'button', className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })))
+      return crumbSlot !== null && createPortal !== null ? createPortal(control, crumbSlot) : control
     }
 
     /** 多选下拉：按钮显示「领域：全部 / 已选 n 项」，点开是一列勾选框。
@@ -2677,8 +2688,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
       return h('div', null,
         // 筛选区吸顶：列表一长，往下滚也得能改筛选（语调库同款吸顶条）。
+        h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: records.length, total: (list.data?.records ?? []).length }),
         h('div', { className: 'dsh-gw-card-top' },
-          h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: records.length, total: (list.data?.records ?? []).length }),
           allRecords.length === 0 ? null : h(Sect, null, '筛选',
             h('select', { className: 'dsh-gw-catselect', value: platformFilter, onChange: (event) => setPlatformFilter(event.target.value), title: '按平台筛选' },
               h('option', { value: '' }, '全部平台'),
@@ -3354,8 +3365,8 @@ const STAGE_OF_STATUS = {
         : topicRows.filter(({ statusText }) => String(statusText).split(' / ').some((status) => statusFilters.includes(status)))
       const statusToneOf = (text) => String(text).includes('已归档') ? '' : String(text).includes('已发') || String(text).includes('待回填') ? 'ok' : String(text).includes('在写') ? 'brand' : 'warn'
       return h('div', null,
+        h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: shown.length, total: allRecords.length }),
         h('div', { className: 'dsh-gw-card-top' },
-          h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: shown.length, total: allRecords.length }),
           h(MultiSelect, { label: '状态', options: TOPIC_STATUSES, value: statusFilters, onChange: setStatusFilters })),
         h(ErrorBar, { error: list.error }),
         list.loading ? h(Empty, null, t('loading')) : null,
@@ -6293,8 +6304,7 @@ const STAGE_OF_STATUS = {
 
       if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       return h('div', null,
-        h('div', { className: 'dsh-gw-card-top' },
-          contentAll.length === 0 && ledgers.length === 0 ? null : h(ListFilter, { filter: cf.filter, setFilter: cf.setFilter, placeholder: '搜索内容标题 / 平台 / 标签 / 台账', shown: contentTop.length, total: contentSorted.length })),
+        contentAll.length === 0 && ledgers.length === 0 ? null : h(ListFilter, { filter: cf.filter, setFilter: cf.setFilter, placeholder: '搜索内容标题 / 平台 / 标签 / 台账', shown: contentTop.length, total: contentSorted.length }),
         contentTop.length === 0 ? null : h(Fold, { title: '内容爆款榜', count: h('span', { className: 'dsh-gw-rank-tabs' },
           [['views', '按播放'], ['likes', '按点赞'], ['comments', '按评论'], ['shares', '按转发'], ['engagement', '按互动率']].map(([key, label]) => h('button', {
             key,
@@ -6439,8 +6449,8 @@ const STAGE_OF_STATUS = {
 
       if (openPath !== null) return h(NoteDetail, { kind: 'data', cardTitle: '电商数据复盘', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       return h('div', null,
+        records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: shownRecords.length, total: records.length }),
         h('div', { className: 'dsh-gw-card-top' },
-          records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: shownRecords.length, total: records.length }),
           records.length === 0 ? null : h('div', { className: 'dsh-gw-ledger-filters', style: { margin: '0 0 0 auto' } },
             h(MultiSelect, { label: '周期', options: periods, value: periodFilters, onChange: setPeriodFilters }),
             h(MultiSelect, { label: '平台', options: dataPlatforms, value: platformFilters, onChange: setPlatformFilters }),
@@ -6545,8 +6555,7 @@ const STAGE_OF_STATUS = {
       }
       void crumb
       return h('div', null,
-        h('div', { className: 'dsh-gw-card-top' },
-          h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '账号名 / 平台 / 定位 / 目标人群', shown: shown.length, total: records.length })),
+        h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '账号名 / 平台 / 定位 / 目标人群', shown: shown.length, total: records.length }),
         h(ErrorBar, { error: list.error }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有账号档案。在下面建第一个：填平台、账号名、这个号是做什么的、给谁看。')
@@ -6735,6 +6744,7 @@ const STAGE_OF_STATUS = {
       if (openPath !== null) return h(NoteDetail, { kind: 'products', cardTitle: '商品库', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify })
       void preset
       return h('div', null,
+        records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '商品名 / 平台 / 标签', shown: baseShown.length, total: records.length, big: true }),
         records.length === 0 ? null : h('div', { className: 'dsh-gw-card-top', style: { gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 } },
             h(MultiSelect, { label: '平台', options: platforms, value: platformFilters, onChange: setPlatformFilters }),
@@ -6743,9 +6753,7 @@ const STAGE_OF_STATUS = {
               statusOptions.map((name) => h('option', { key: name, value: name }, '状态：' + name))),
             h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' } },
               h('input', { type: 'checkbox', checked: onlyWithContent, onChange: (event) => setOnlyWithContent(event.target.checked) }),
-              '只看带过内容')),
-          h('div', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center' } },
-            h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '商品名 / 平台 / 标签', shown: baseShown.length, total: records.length, big: true }))),
+              '只看带过内容'))),
         rolled.length === 0 ? null : h(Fold, { title: '带过内容', count: h(Pill, null, String(totalItemsCount) + ' 条内容') },
           h('div', { className: 'dsh-gw-hint' }, '按日历里挂了商品档案、且已发布的内容明细。点击行可跳转到对应内容日历并定位。'),
           h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6, marginBottom: 8 } },
@@ -7279,8 +7287,7 @@ const STAGE_OF_STATUS = {
         h(CampaignMetricsPanel, { key: openPath, path: openPath, notify }),
         h(NoteDetail, { kind: 'campaigns', cardTitle: '营销活动', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify }))
       return h('div', null,
-        h('div', { className: 'dsh-gw-card-top' },
-          records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: rf.shown.length, total: records.length })),
+        records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: rf.shown.length, total: records.length }),
         h(ErrorBar, { error: list.error }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
           ? h(Empty, null, '还没有营销方案')
@@ -10278,6 +10285,7 @@ const STAGE_OF_STATUS = {
       const [preset, setPreset] = React.useState(null)
       const searchRef = React.useRef(null)
       const bodyRef = React.useRef(null)
+      const [crumbSlot, setCrumbSlot] = React.useState(null)
       // 面板宽度跟窗口宽度没关系：侧栏可以很窄而窗口很宽。所以按元素宽度打标记，
       // 不按视口写 @media（那种情况下一条都不会命中）。520 / 440 是内容区的两个拐点。
       useNarrow(bodyRef, 520, 440)
@@ -10530,7 +10538,8 @@ const STAGE_OF_STATUS = {
                   }
                   leaveCard()
                 },
-              })),
+              }),
+              h('span', { className: 'dsh-gw-crumb-slot', ref: setCrumbSlot })),
             h('div', { key: 'fill', className: 'dsh-gw-fill' },
               h(CardBoundary, { key: String(cardId), onEscape: () => { leaveCard() } },
                 h(openComponent, { notify, crumb: detailCrumb, onCrumb: setDetailCrumb, closeTicket, preset, openCard }))),
@@ -10575,13 +10584,15 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-panel' },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
-            h('div', { className: 'dsh-gw-search' },
-              h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { loadState(); loadSummary() } }, h(Icon, { name: 'refresh' }))),
           h('div', { className: 'dsh-gw-tabs' },
-            WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
-          h('div', { className: 'dsh-gw-body', ref: bodyRef }, body()),
+            h('div', { className: 'dsh-gw-tablist' },
+              WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
+            h('div', { className: 'dsh-gw-search' },
+              h('input', { ref: searchRef, value: query, placeholder: t('search'), onChange: (event) => setQuery(event.target.value) }))),
+          h(CrumbSlot.Provider, { value: crumbSlot },
+            h('div', { className: 'dsh-gw-body', ref: bodyRef }, body())),
           toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', role: toast.isError === true ? 'alert' : 'status', 'aria-live': toast.isError === true ? 'assertive' : 'polite', style: { margin: '0 14px 12px' } }, toast.message),
         ),
         confirmState === null ? null : (createPortal === null
