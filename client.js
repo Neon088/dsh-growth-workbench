@@ -168,13 +168,13 @@ window.__ModuleLoader__.load({
 .dsh-gw-btn-quiet:hover{color:var(--dsw-alias-link);background:var(--dsw-alias-interactive-bg-hover);opacity:1}
 .dsh-gw-btn-quiet[disabled]{opacity:.35}
 .dsh-gw-pane{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-4,13px)}
-/* 品牌三令牌（2026-11-08 视觉评审 S1/B1/B2）：琥珀=创作/进行（--gw-warm，想整体换创作色就改这一处），
-   玻璃色集中定义（面板底已调暖一档）；状态色先归到四个语义令牌，日历/版本状态统一引用。 */
-.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:var(--dsw-alias-state-warn-primary,#e8a33d);--gw-glass:color-mix(in srgb,var(--dsw-alias-bg-overlay,#1f2126) 90%,transparent);--gw-glass-panel:color-mix(in srgb,var(--dsw-alias-bg-overlay,#1f2126) 94%,transparent);--gw-fz-1:11px;--gw-fz-2:11.5px;--gw-fz-3:12.5px;--gw-fz-4:13px;--gw-fz-5:14px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--gw-warm);--tone-done:var(--dsw-alias-state-success-primary)}
+/* 轻量编辑台：中性表面沿用宿主；铜金只标创作，与真正的 warning 分开。
+   installHostAccent 从实际宿主 alias / color-scheme 取色并校验文字对比度，不只跟随 OS。 */
+.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:light-dark(#98672D,#DDB781);--gw-glass:var(--dsw-alias-bg-overlay);--gw-glass-panel:var(--dsw-alias-bg-layer-1);--gw-fz-1:12px;--gw-fz-2:12px;--gw-fz-3:13px;--gw-fz-4:14px;--gw-fz-5:16px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--dsw-alias-state-warn-primary);--tone-done:var(--dsw-alias-state-success-primary)}
 /* 高度一路传下去，专注模式才有满栏的参照系 */
 .dsh-gw-pane > .dsh-gw-panel,.dsh-gw-pane > .dsh-gw-veil > .dsh-gw-panel{flex:1;min-height:0}
 .dsh-gw-pane > .dsh-gw-veil{position:absolute;inset:0;padding:0;background:transparent;backdrop-filter:none;justify-content:stretch;align-items:stretch}
-.dsh-gw-pane .dsh-gw-panel{width:100%;height:100%;max-width:none;max-height:none;border:none;border-radius:0;box-shadow:none}
+.dsh-gw-pane .dsh-gw-panel{width:100%;height:100%;max-width:none;max-height:none;border:none;border-radius:0!important;box-shadow:none}
 .dsh-gw-veil{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(8,10,14,.46);backdrop-filter:blur(2px)}
 .dsh-gw-panel{display:flex;flex-direction:column;width:min(1080px,100%);height:min(780px,100%);border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-glass-panel);-webkit-backdrop-filter:blur(32px) saturate(140%);backdrop-filter:blur(32px) saturate(140%);color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.34);overflow:hidden;font-size:var(--gw-fz-4,13px)}
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
@@ -199,6 +199,9 @@ window.__ModuleLoader__.load({
 .dsh-gw-body{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:12px 14px 16px;display:flex;flex-direction:column;min-width:0}
 /* 卡片页：面包屑行直接顶到页签行下面，不留 body 的 12px 顶距 */
 .dsh-gw-body:has(>.dsh-gw-card-crumb){padding-top:0}
+/* 吸顶行必须直角：面板自身的圆角不能把顶部面包屑裁成圆头。 */
+.dsh-gw-panel:has(> .dsh-gw-body > .dsh-gw-card-crumb),.dsh-gw-panel:has(.dsh-gw-body .dsh-gw-card-crumb),.dsh-gw-panel:has(.dsh-gw-body .dsh-gw-card-top){border-top-left-radius:0!important;border-top-right-radius:0!important}
+.dsh-gw-body>.dsh-gw-card-crumb,.dsh-gw-card-top,.dsh-gw-rules-sticky,.dsh-gw-note-sectionhead,.dsh-gw-cal-week:first-child{border-radius:0!important}
 .dsh-gw-body > *{flex:none;min-width:0}
 .dsh-gw-body > .dsh-gw-sop{flex:1;min-height:0}
 /* body() 进卡片时包了一层 wrapper。不给它 flex:1;min-height:0 的话，
@@ -265,6 +268,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-note-acts .dsh-gw-row-act[data-tone=primary]:disabled{opacity:.55;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-note-acts-sep{flex:none;align-self:center;width:1px;height:14px;margin:0 1px;background:var(--dsw-alias-border-l1)}
 .dsh-gw-note-headleft{display:flex;align-items:center;gap:8px;min-width:0}
+.dsh-gw-note-title{font-size:var(--gw-fz-2,13px);font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary);white-space:nowrap}
 .dsh-gw-headact{background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-weight:400;line-height:1.4;min-height:22px;padding:1px 7px;cursor:pointer}
 .dsh-gw-headact:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-row-act[data-tone=danger]{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 55%,transparent);color:var(--dsw-alias-state-error-primary)}
@@ -275,7 +279,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-row-act:hover{opacity:1!important;background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link)}
 /* 行里只留一颗主按钮（创作）：品牌琥珀铺底（--gw-warm）—— 告警继续用 state-warn，两支色分开。 */
 .dsh-gw-row-side .dsh-gw-row-act[data-tone=primary]{background:color-mix(in srgb,var(--gw-warm) 16%,var(--dsw-alias-bg-layer-1));border-color:color-mix(in srgb,var(--gw-warm) 50%,transparent);color:var(--gw-warm)}
-.dsh-gw-row-side .dsh-gw-row-act[data-tone=primary]:hover{background:color-mix(in srgb,var(--gw-warm) 26%,var(--dsw-alias-bg-layer-1));border-color:color-mix(in srgb,var(--gw-warm) 75%,transparent);color:var(--gw-warm)}
+.dsh-gw-row-side .dsh-gw-row-act[data-tone=primary]:hover{background:color-mix(in srgb,var(--gw-warm) 16%,var(--dsw-alias-bg-layer-1));border-color:color-mix(in srgb,var(--gw-warm) 75%,transparent);color:var(--gw-warm)}
 .dsh-gw-row-side .dsh-gw-row-act[data-tone=primary]:disabled{opacity:.5;background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary)}
 .dsh-gw-row-act[data-tone=ghost]{background:transparent;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-row-act[data-tone=ghost]:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-link);color:var(--dsw-alias-label-primary)}
@@ -528,13 +532,18 @@ window.__ModuleLoader__.load({
 .dsh-gw-gloss-scroll{max-height:calc(100vh - 340px);overflow:auto;padding-right:2px}
 .dsh-gw-gloss-table thead th{position:sticky;top:0!important;z-index:2;background:var(--dsw-alias-bg-layer-2)}
 body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
-/* 术语表：按新列序分配宽度（领域→标签→中文→英文→备注→操作） */
+/* 术语表：按新列序分配宽度（领域→标签→中文→英文→备注）；删除按钮悬停在备注格右侧出现。 */
 .dsh-gw-gloss-table col.c-domain{width:12%}
 .dsh-gw-gloss-table col.c-tags{width:14%}
 .dsh-gw-gloss-table col.c-zh{width:16%}
 .dsh-gw-gloss-table col.c-en{width:16%}
-.dsh-gw-gloss-table col.c-note{width:32%}
-.dsh-gw-gloss-table col.c-act{width:10%}
+.dsh-gw-gloss-table col.c-note{width:42%}
+.dsh-gw-gloss-table td.dsh-gw-gloss-note{position:relative;padding-right:30px}
+.dsh-gw-gloss-table .dsh-gw-gloss-note-text{display:block;min-width:0;overflow-wrap:anywhere}
+.dsh-gw-gloss-table .dsh-gw-gloss-del{position:absolute;right:3px;top:3px;width:20px;height:20px;padding:0;border:1px solid transparent;background:transparent;opacity:0;pointer-events:none;transition:opacity .12s;display:inline-flex;align-items:center;justify-content:center;border-radius:4px}
+.dsh-gw-gloss-table tr:hover .dsh-gw-gloss-del,.dsh-gw-gloss-table .dsh-gw-gloss-del:focus-visible{opacity:.72;pointer-events:auto}
+.dsh-gw-gloss-table .dsh-gw-gloss-del:hover{opacity:1!important;background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}
+@media (hover:none){.dsh-gw-gloss-table .dsh-gw-gloss-del{opacity:.72;pointer-events:auto}}
 .dsh-gw-gloss-table th.is-sorted{color:var(--dsw-alias-link)}
 .dsh-gw-chiprow{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
 /* 多选下拉（领域 / 标签 / 平台 …）：按钮 + 勾选面板。筛选行一行排开，不再铺两排 chip。 */
@@ -602,6 +611,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-pane .dsh-gw-ideas td.dsh-gw-td-act .dsh-gw-idea-add:hover{background:color-mix(in srgb,var(--dsw-alias-link) 28%,transparent)}
 .dsh-gw-idea-dropped{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:1px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--dsw-alias-label-secondary) 40%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 12%,transparent);font-size:var(--gw-fz-1,11px);line-height:1.25;color:var(--dsw-alias-label-secondary);max-width:100%;white-space:normal;overflow-wrap:anywhere;box-sizing:border-box}
 .dsh-gw-idea-status{flex:0 0 auto;font-size:var(--gw-fz-1,11px);line-height:1.2;height:22px;padding:1px 2px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);max-width:62px;box-sizing:border-box}
+.dsh-gw-ideas-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 0;min-width:0}
+.dsh-gw-ideas-title{font-size:var(--gw-fz-3,12.5px);font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}
 .dsh-gw-idea-filters{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap;max-width:100%}
 .dsh-gw-idea-filters .dsh-gw-catselect{height:22px;font-size:var(--gw-fz-1,11px);border-radius:6px;padding:0 2px;max-width:104px;box-sizing:border-box}
 .dsh-gw-idea-search{height:22px;width:118px;font-size:var(--gw-fz-1,11px);border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;box-sizing:border-box}
@@ -666,7 +677,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 窄档下两个「处理」列只显示一行、长文用省略号，避免把整行撑高。 */
 .dsh-gw-body[data-narrow=true] .dsh-gw-fb-row td{max-height:none}
 .dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-fb-table td,.dsh-gw-body[data-narrow=true] .dsh-gw-table.dsh-gw-gloss-table td{overflow-wrap:anywhere;word-break:break-word}
-.dsh-gw-table th,.dsh-gw-table td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:top;overflow-wrap:anywhere}
+.dsh-gw-table th,.dsh-gw-table td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);vertical-align:top;overflow-wrap:anywhere}
 .dsh-gw-table th{color:var(--dsw-alias-label-secondary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 表格统一语调库的线条感：表头打底、列间竖线、末行收边；th 定位 relative 是给列宽把手用的。 */
 .dsh-gw-table thead th{background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent))}
@@ -705,10 +716,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 窄栏收缩：面板本身不再声明 container-type（那样会让内部 grid 退化），
    所以这里用一条能真正生效的兜底——把固定宽度降到最小值，靠 table-layout:fixed 自己分。 */
 .dsh-gw-table[data-narrow=true]{font-size:var(--gw-fz-2,11.5px)}
-.dsh-gw-table[data-narrow=true] th,.dsh-gw-table[data-narrow=true] td{padding:4px 5px}
+.dsh-gw-table[data-narrow=true] th,.dsh-gw-table[data-narrow=true] td{padding:3px 4px}
 /* 窄档（<460px）：日期只剩月-日、状态只留下拉、去向常为空，能省就省，
    把宽裕留给操作列——保存/取消必须始终看得见。 */
-.dsh-gw-table[data-narrow=true] th,.dsh-gw-table[data-narrow=true] td{padding:4px 5px}
+.dsh-gw-table[data-narrow=true] th,.dsh-gw-table[data-narrow=true] td{padding:3px 4px}
 /* 灵感箱「去向」：已建选题时直接点进那篇选题，并进入编辑态 */
 .dsh-gw-idea-outcome{display:block;max-width:100%;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal}
 .dsh-gw-idea-outcome:hover{text-decoration:underline}
@@ -720,10 +731,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-field input,.dsh-gw-field textarea,.dsh-gw-field select{width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px);font-family:inherit}
 .dsh-gw-field textarea{min-height:150px;resize:vertical;line-height:1.6;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .dsh-gw-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
-.dsh-gw-cal-party{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px;align-items:start}
-.dsh-gw-cal-party-left,.dsh-gw-cal-party-right{min-width:0}
-.dsh-gw-cal-party-right{border-left:1px dashed var(--dsw-alias-border-l2);padding-left:12px}
-.dsh-gw-cal-party-title{font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);margin:0 0 6px}
+.dsh-gw-cal-party{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0 10px;align-items:start}
 .dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect,.dsh-gw-cal-addform .dsh-gw-field select.dsh-gw-cal-fieldselect{height:30px;min-height:30px;padding:0 26px 0 8px;border-radius:8px;font-size:var(--gw-fz-3,12.5px);box-sizing:border-box;appearance:none;-webkit-appearance:none;background-color:var(--dsw-alias-bg-layer-1);background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E");background-position:calc(100% - 10px) center;background-size:10px 6px;background-repeat:no-repeat}
 .dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect::-webkit-calendar-picker-indicator,.dsh-gw-cal-addform .dsh-gw-field input.dsh-gw-cal-fieldselect::-webkit-list-button{display:none!important;opacity:0;width:0;height:0;margin:0;padding:0}
 .dsh-gw-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
@@ -828,7 +836,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-width:0}
 /* 星期表头吸顶：往下翻日期时「一 二 三 …」不跟着滚走。
    用 overflow:clip 而不是 hidden——hidden 会自己变成滚动容器，sticky 就失效了。 */
-.dsh-gw-cal-week:first-child{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-cal-head-h,40px));z-index:5;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:10px 10px 0 0;box-shadow:0 1px 0 var(--dsw-alias-border-l2)}
+.dsh-gw-cal-week:first-child{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-cal-head-h,40px));z-index:5;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:0;box-shadow:0 1px 0 var(--dsw-alias-border-l2)}
 .dsh-gw-cal-wd{text-align:center;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);padding:5px 0}
 .dsh-gw-cal-cell{display:flex;flex-direction:column;gap:1px;align-items:stretch;min-height:42px;padding:2px 3px;overflow:hidden;box-sizing:border-box;width:100%;min-width:0;border:none;border-right:1px solid var(--dsw-alias-border-l2);border-top:1px solid var(--dsw-alias-border-l2);background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;overflow:hidden}
 .dsh-gw-cal-week .dsh-gw-cal-cell:last-child{border-right:none}
@@ -846,16 +854,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-cell[data-drop=true]{background:color-mix(in srgb,var(--dsw-alias-link) 20%,transparent);box-shadow:inset 0 0 0 1.5px var(--dsw-alias-link)}
 /* 数字角标在窄格子里不参与撑宽 */
 .dsh-gw-cal-num{min-width:0;overflow:hidden}
-/* 排期条只有两三个字宽时，省略号比色块还难看：直接退成一小段色条。
-   :has() 支持度够（Chromium 105+），失败也只是退回原来的截断。 */
-/* 排期条只有两三个字宽时，省略号比色块还难看：直接退成一小段色条。
-   判据用面板自己的 data-tight（<440px），不再给每个日历格挂 container-type
-   —— 那样等于给面板加 42 个布局隔离区，拖侧栏时每帧都要逐格重算容器查询。 */
-.dsh-gw-body[data-tight=true] .dsh-gw-cal-item{color:transparent!important;min-width:0;height:4px;padding:0;border-radius:2px;background:var(--dsw-alias-border-l3,#5a5a66)}
-.dsh-gw-body[data-tight=true] .dsh-gw-cal-item[data-status=idea]{background:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 70%,transparent)}
-.dsh-gw-body[data-tight=true] .dsh-gw-cal-item[data-status=doing]{background:color-mix(in srgb,var(--tone-attention,var(--gw-warm)) 70%,transparent)}
-.dsh-gw-body[data-tight=true] .dsh-gw-cal-item[data-status=done]{background:color-mix(in srgb,var(--tone-done,var(--dsw-alias-state-success-primary)) 70%,transparent)}
-.dsh-gw-body[data-tight=true] .dsh-gw-cal-item[data-status=back]{background:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 70%,transparent)}
+/* Narrow month cells keep readable titles; the full title/account stays in the day label.
+   One panel data-tight flag avoids per-cell layout observers. */
+.dsh-gw-body[data-tight=true] .dsh-gw-cal-item{min-width:0;padding:0 2px;border-radius:2px}
 .dsh-gw-cal-item[data-status=idea]{background:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 14%,transparent);color:var(--tone-progress,var(--dsw-alias-link))}
 .dsh-gw-cal-item[data-status=doing]{background:color-mix(in srgb,var(--tone-attention,var(--gw-warm)) 16%,transparent);color:var(--tone-attention,var(--gw-warm))}
 .dsh-gw-cal-item[data-status=done]{background:color-mix(in srgb,var(--tone-done,var(--dsw-alias-state-success-primary)) 16%,transparent);color:var(--tone-done,var(--dsw-alias-state-success-primary))}
@@ -879,6 +880,14 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-fold-act{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
 .dsh-gw-upcoming-filter{display:inline-flex;align-items:center;gap:5px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-upcoming-filter .dsh-gw-date-input{height:24px;font-size:var(--gw-fz-2,11.5px);padding:0 4px}
+.dsh-gw-upcoming-body{display:flex;flex-direction:column;min-width:0}
+.dsh-gw-upcoming-pager{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 4px 2px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-upcoming-pager-info{margin-right:auto}
+.dsh-gw-upcoming-pager-now{font-variant-numeric:tabular-nums;white-space:nowrap}
+.dsh-gw-upcoming-body{min-width:0}
+.dsh-gw-upcoming-pager{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 4px 2px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px)}
+.dsh-gw-upcoming-pager-info{margin-right:auto;min-width:0;overflow-wrap:anywhere}
+.dsh-gw-upcoming-pager-now{font-variant-numeric:tabular-nums;white-space:nowrap}
 .dsh-gw-fold>summary::-webkit-details-marker{display:none}
 .dsh-gw-fold>summary::before{content:'▸';font-size:var(--gw-fz-1,11px);opacity:.75}
 .dsh-gw-fold[open]>summary::before{content:'▾'}
@@ -891,12 +900,16 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    「拆解分析」那块表单已经拿掉，分隔线样式也一起撤了，不留没人用的规则。
    原来正文区头上还有一条「版本脚本 · 抖音·主号 · 保存写在这里」的横幅，也撤了：
    版本是哪一版，平台版本列表里高亮那一行已经写着，横幅只是同一句话的第二行。 */
-.dsh-gw-cal-day{display:flex;flex-direction:column;padding:0 10px 10px}
-.dsh-gw-cal-day>summary{order:0}
-.dsh-gw-cal-day>.dsh-gw-cal-addform{order:1}
-.dsh-gw-cal-day>div:not(.dsh-gw-cal-addform){order:2}
+.dsh-gw-cal-day{display:block;padding:0 10px 10px}
+.dsh-gw-cal-day>.dsh-gw-cal-addform{margin-top:8px}
+.dsh-gw-cal-day>div:not(.dsh-gw-cal-addform){margin-top:8px}
 .dsh-gw-cal-addform{margin:0 0 10px;padding:10px 10px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:color-mix(in srgb, var(--gw-warm) 8%, var(--dsw-alias-bg-layer-2));box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .dsh-gw-cal-addform::before{content:'新建排期';display:block;grid-column:1/-1;margin:0 -10px 9px;padding:0 10px 7px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:var(--gw-fz-3,12.5px);font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-cal-candidates{display:flex;flex-direction:column;max-height:180px;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-cal-candidate{display:flex;align-items:baseline;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--gw-fz-3,12.5px);text-align:left;cursor:pointer}
+.dsh-gw-cal-candidate:hover,.dsh-gw-cal-candidate:focus-visible{background:var(--dsw-alias-bg-layer-2)}
+.dsh-gw-cal-candidate-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-cal-candidate-path{flex:0 1 auto;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-cal-listhead{margin:0 0 6px;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-cal-day>summary{flex-wrap:nowrap;margin:0 -10px}
 .dsh-gw-cal-sum-title{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1007,6 +1020,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-platmulti-caret::before{content:'';display:block;width:6px;height:6px;margin-top:-3px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
 .dsh-gw-platmulti-caret:hover{color:var(--dsw-alias-link)}
 .dsh-gw-platmulti-drop{position:absolute;top:calc(100% + 3px);left:0;right:0;z-index:20;display:flex;flex-direction:column;max-height:200px;overflow-y:auto;overflow-x:hidden;padding:3px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));backdrop-filter:blur(10px);box-shadow:0 8px 22px rgba(0,0,0,.35)}
+.dsh-gw-platmulti-drop.is-up{top:auto;bottom:calc(100% + 3px)}
 .dsh-gw-platmulti-opt{display:block;flex:0 0 auto;width:100%;box-sizing:border-box;border:none;background:transparent;color:inherit;text-align:left;font-size:var(--gw-fz-3,12.5px);line-height:1.4;min-height:22px;padding:4px 9px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dsh-gw-platmulti-opt:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-platmulti-opt.is-on{color:var(--dsw-alias-link);font-weight:600}
@@ -1131,6 +1145,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-md-li[data-depth="1"]{margin-left:14px}
 .dsh-gw-md-li[data-depth="2"]{margin-left:28px}
 .dsh-gw-md-li{list-style-position:outside}
+.dsh-gw-md-li[data-placeholder]::after{content:'（' attr(data-placeholder) '）';color:var(--dsw-alias-label-secondary);font-size:.92em;margin-left:2px}
 .dsh-gw-md-quote{margin:0 0 8px;padding:2px 0 2px 10px;border-left:3px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-md-quote p{margin:0}
 .dsh-gw-md-pre{margin:0 0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
@@ -1159,6 +1174,159 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-body[data-tight=true] .dsh-gw-sop-tree-split{display:none}
 .dsh-gw-body[data-tight=true] .dsh-gw-sop-tree{border-right:none;border-bottom:1px solid var(--dsw-alias-border-l2);max-height:34%}
 .dsh-gw-body[data-tight=true] .dsh-gw-outline{max-height:28%}
+
+/* Text desk: host-neutral surfaces, a 4px rhythm, copper reserved for creation. */
+.dsh-gw-panel,.dsh-gw-pane{min-width:0}
+.dsh-gw-body{min-width:0;max-width:100%;overflow-x:hidden}
+.dsh-gw-title,.dsh-gw-note-page-title{font-size:16px;line-height:1.4}
+.dsh-gw-sect-t{font-size:14px}
+.dsh-gw-sect-t::before{display:none}
+.dsh-gw-sect,.dsh-gw-actions,.dsh-gw-note-acts,.dsh-gw-card-top{gap:4px}
+.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact{min-height:28px;height:28px;white-space:nowrap;overflow-wrap:normal;flex-shrink:0;font-size:12px;line-height:1.2;padding:0 8px;border-radius:4px}
+.dsh-gw-note-acts .dsh-gw-row-act,.dsh-gw-topiclist .dsh-gw-row-act{height:28px;min-height:28px;padding:0 8px}
+.dsh-gw-row,.dsh-gw-version-unit{min-width:0}
+.dsh-gw-row-name{font-size:14px;line-height:1.45}
+.dsh-gw-row-meta{font-size:12px;line-height:1.45}
+.dsh-gw-variant-row{flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:8px;border-radius:4px;border:1px solid transparent}
+.dsh-gw-variant-row .dsh-gw-row-main{flex:1 1 160px;min-width:0}
+.dsh-gw-variant-row .dsh-gw-row-side{flex:0 0 auto;gap:4px;flex-wrap:nowrap;align-self:flex-start}
+.dsh-gw-variant-row[data-current=true]{background:color-mix(in srgb,var(--gw-warm) 4%,var(--dsw-alias-bg-layer-1));border-color:color-mix(in srgb,var(--gw-warm) 24%,var(--dsw-alias-border-l2))}
+.dsh-gw-variant-row .dsh-gw-row-act[data-tone=primary],.dsh-gw-topiclist .dsh-gw-row-act[data-tone=primary]{color:var(--gw-warm);border-color:color-mix(in srgb,var(--gw-warm) 36%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--gw-warm) 8%,var(--dsw-alias-bg-layer-1))}
+.dsh-gw-variant-row .dsh-gw-row-act[data-tone=primary]:hover,.dsh-gw-topiclist .dsh-gw-row-act[data-tone=primary]:hover{background:color-mix(in srgb,var(--gw-warm) 16%,var(--dsw-alias-bg-layer-1));color:var(--gw-warm)}
+.dsh-gw-vstage-btn,.dsh-gw-sched-input,.dsh-gw-row-sched{height:28px;min-height:28px;white-space:nowrap;font-size:12px;border-radius:4px}
+.dsh-gw-variant-schedule{display:flex;gap:4px;align-items:flex-end;margin:4px 8px 8px}
+.dsh-gw-variant-schedule .dsh-gw-field{flex:0 1 220px;min-width:0}
+.dsh-gw-fold{border:0;border-top:1px solid var(--dsw-alias-border-l2);border-radius:0;box-shadow:none;background:transparent;margin:8px 0}
+.dsh-gw-fold>summary{min-height:28px;padding:4px;background:transparent;border-radius:0;font-size:14px;gap:4px}
+.dsh-gw-fold>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-gw-fold[open]>summary{border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-fold>*:not(summary){min-width:0}
+.dsh-gw-create-card,.dsh-gw-fold.dsh-gw-create-card{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);margin:8px 0;overflow:hidden;box-shadow:none}
+.dsh-gw-fold.dsh-gw-create-card>summary{min-height:34px;padding:7px 11px;border-radius:10px 10px 0 0;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:13px;font-weight:600}
+.dsh-gw-fold.dsh-gw-create-card[open]>summary{border-bottom-color:var(--dsw-alias-border-l2)}
+.dsh-gw-create-card-head{padding:7px 11px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-create-card-body{padding:8px 10px 10px}
+.dsh-gw-platform-create{margin-top:4px}
+.dsh-gw-note-preview,.dsh-gw-note-editor{font-size:14px;line-height:1.55;padding:8px 12px 12px}
+.dsh-gw-note-preview .dsh-gw-md{font-size:14px;line-height:1.55}
+.dsh-gw-note-sectionhead.dsh-gw-note-boxhead{margin-top:8px;padding:4px 8px;border-radius:6px 6px 0 0;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-annot-wrap.dsh-gw-note-boxbody{border-radius:0 0 6px 6px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-note-page .dsh-gw-note-acts{gap:4px}
+.dsh-gw-tablebox{min-width:0;max-width:100%;overscroll-behavior-inline:contain}
+.dsh-gw-tablebox.dsh-gw-topiclist-box{overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable}
+.dsh-gw-topiclist-box .dsh-gw-topiclist thead th{top:0}
+.dsh-gw-topiclist{min-width:540px}
+.dsh-gw-topiclist td{font-size:12px;padding:4px 6px}
+.dsh-gw-topiclist td:first-child{font-size:13px}
+.dsh-gw-topiclist-acts{flex-wrap:nowrap;gap:8px}
+.dsh-gw-topiclist-acts .dsh-gw-row-del{border-left:1px solid var(--dsw-alias-border-l2);margin-left:4px}
+.dsh-gw-th-sort{font:inherit;color:inherit;display:inline-flex;align-items:center;gap:2px;min-height:28px;max-width:100%;padding:0;border:0;background:transparent;text-align:left;white-space:nowrap;cursor:pointer}
+.dsh-gw-th-sort:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}
+.dsh-gw-list-range{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:4px 0 8px;min-width:0}
+.dsh-gw-list-range>.dsh-gw-row-meta{flex:1 1 180px;min-width:0}
+.dsh-gw-range-search{width:min(240px,100%);min-width:0;height:28px}
+.dsh-gw-account-picker{width:100%;max-width:100%}
+.dsh-gw-account-picker>span:first-child{flex-wrap:wrap}
+.dsh-gw-account-picker select{height:32px;padding:4px 24px 4px 8px;line-height:1.35;font-size:13px;flex:1 1 160px;min-width:140px;max-width:100%;width:auto;text-overflow:ellipsis}
+.dsh-gw-account-candidates{min-width:0;max-width:100%;font-size:12px}
+.dsh-gw-account-candidates>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);line-height:1.6}
+.dsh-gw-account-candidates[open]{padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px}
+.dsh-gw-account-candidates .dsh-gw-list-range{margin:4px 0 0}
+.dsh-gw-account-candidate{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-width:0;margin:2px 0;padding:5px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:inherit;text-align:left;font:inherit;cursor:pointer}
+.dsh-gw-account-candidate:hover,.dsh-gw-account-candidate:focus-visible{border-color:var(--dsw-alias-link);background:var(--dsw-alias-interactive-bg-hover);outline:none}
+.dsh-gw-account-candidate>strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600}
+.dsh-gw-account-candidate>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-more{position:relative;display:inline-flex;flex:0 0 auto;min-width:0}
+.dsh-gw-more-trigger{background:transparent!important;color:var(--dsw-alias-label-secondary)!important;border-color:var(--dsw-alias-border-l2)!important}
+.dsh-gw-more-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:80;display:flex;flex-direction:column;min-width:160px;max-width:min(280px,70vw);max-height:50vh;overflow:auto;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.dsh-gw-more-item{display:block;min-height:28px;border:0;border-radius:2px;padding:4px 8px;text-align:left;font:inherit;font-size:13px;line-height:1.45;color:var(--dsw-alias-label-primary);background:transparent;white-space:nowrap;cursor:pointer}
+.dsh-gw-more-item:hover,.dsh-gw-more-item:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-gw-more-item[data-separated=true]{border-top:1px solid var(--dsw-alias-border-l2);margin-top:4px;padding-top:8px}
+.dsh-gw-more-item[data-tone=danger]{color:var(--dsw-alias-state-error-primary)}
+.dsh-gw-more-item:disabled{opacity:.5;cursor:not-allowed}
+.dsh-gw-field[data-wide=true]{grid-column:1/-1;min-width:0}
+.dsh-gw-cal-cell{min-height:58px;padding:4px;gap:2px}
+.dsh-gw-cal-item{font-size:11px;line-height:1.35;min-height:14px}
+.dsh-gw-body[data-tight=true] .dsh-gw-cal-cell{min-height:54px;padding:3px}
+.dsh-gw-body[data-tight=true] .dsh-gw-cal-item{font-size:10px;height:auto;min-height:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsh-gw-cal-title{font-size:16px}
+.dsh-gw-cal-addform{padding:8px;border-radius:4px;background:var(--dsw-alias-bg-layer-1);box-shadow:none;gap:8px}
+.dsh-gw-cal-addform::before{display:none}
+.dsh-gw-cal-addform>.dsh-gw-list-range{grid-column:1/-1}
+.dsh-gw-cal-party{min-width:0;padding:0;background:transparent;border:0;box-shadow:none;gap:8px}
+.dsh-gw-cal-party-right{padding-left:8px}
+.dsh-gw-cal-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 8px;padding:8px 4px}
+.dsh-gw-cal-row>.dsh-gw-row-main{flex:1 1 calc(100% - 64px);min-width:0}
+.dsh-gw-cal-row-title{font-size:14px;line-height:1.55;white-space:normal;overflow-wrap:anywhere}
+.dsh-gw-cal-row-identity{white-space:normal;overflow-wrap:anywhere}
+.dsh-gw-cal-row .dsh-gw-cal-ctrls{flex:1 1 100%;display:flex;gap:4px;justify-content:flex-end;align-items:flex-start;flex-wrap:wrap}
+.dsh-gw-cal-ctrls>input,.dsh-gw-cal-ctrls>select{height:28px;font-size:12px;border-radius:4px}
+.dsh-gw-cal-row-links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px;min-width:0;font-size:12px}
+.dsh-gw-cal-row-links>summary{cursor:pointer;min-height:28px;box-sizing:border-box;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent}
+.dsh-gw-cal-row-links[open]{flex:1 1 100%;display:flex;flex-wrap:wrap;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px}
+.dsh-gw-cal-row-links[open]>summary{flex:1 1 100%;margin-bottom:4px;border:0}
+.dsh-gw-cal-row-links>select,.dsh-gw-cal-row-links>.dsh-gw-field{flex:1 1 160px;max-width:100%;min-width:140px;margin:4px}
+.dsh-gw-cal-row-links select{height:32px;padding:4px 24px 4px 8px;line-height:1.35;font-size:12.5px;box-sizing:border-box}
+.dsh-gw-cal-row-links>.dsh-gw-field{display:flex;flex-direction:column;gap:2px}
+.dsh-gw-cal-row-links>.dsh-gw-field>select,.dsh-gw-cal-row-links>.dsh-gw-field .dsh-gw-account-picker{width:100%;min-width:0}
+.dsh-gw-tablebox.dsh-gw-pending-box{position:relative;isolation:isolate;overflow:auto;max-width:100%;max-height:min(62vh,580px);font-variant-numeric:tabular-nums}
+.dsh-gw-pending-box .dsh-gw-pending-table{width:852px;min-width:852px;table-layout:fixed;font-size:12px}
+.dsh-gw-pending-table th,.dsh-gw-pending-table td{font-size:12px;padding:4px;line-height:1.45;font-variant-numeric:tabular-nums}
+.dsh-gw-pending-table thead th{position:sticky;top:0;z-index:3;background:var(--dsw-alias-bg-layer-2);white-space:nowrap}
+.dsh-gw-pending-table td:not([colspan]):nth-child(-n+3){position:sticky;z-index:2;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-pending-table th:nth-child(1),.dsh-gw-pending-table td:not([colspan]):nth-child(1){left:0}
+.dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:64px}
+.dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:152px;border-right:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-pending-table thead th:nth-child(-n+3){z-index:4}
+.dsh-gw-pending-table td:nth-child(n+5):nth-child(-n+8){text-align:right}
+.dsh-gw-more-trigger:focus-visible,.dsh-gw-th-sort:focus-visible,.dsh-gw-account-candidates>summary:focus-visible,.dsh-gw-cal-row-links>summary:focus-visible,.dsh-gw-pending-box:focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
+/* Editorial worktable: cool paper in light mode, blue-violet ink layers in dark mode. */
+.dsh-gw-panel[data-gw-scheme=light]{--gw-canvas:#f3f4fa;--gw-paper:#fbfbfe;--gw-paper-raised:#ffffff;--gw-paper-soft:#eceef7;--gw-ink:#242438;--gw-muted:#64687d;--gw-faint:#85899e;--gw-rule:#d8dbea;--gw-rule-strong:#c2c7dc;--gw-accent:#6448ab;--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#aeb5d0;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#e6e4f3;--gw-glass-panel:var(--gw-canvas)}
+.dsh-gw-panel[data-gw-scheme=dark]{--gw-canvas:#151826;--gw-paper:#1d2133;--gw-paper-raised:#292e45;--gw-paper-soft:#24293e;--gw-ink:#f3f2fa;--gw-muted:#b6b8cb;--gw-faint:#9296ad;--gw-rule:#343a55;--gw-rule-strong:#48506f;--gw-accent:#c1b2ff;--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#5d668c;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#303650;--gw-glass-panel:var(--gw-canvas)}
+.dsh-gw-panel[data-gw-scheme]{background:var(--gw-canvas);color:var(--gw-ink);box-shadow:none}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-head,.dsh-gw-panel[data-gw-scheme] .dsh-gw-tabs{background:var(--gw-paper)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-body{background:var(--gw-canvas)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row,.dsh-gw-panel[data-gw-scheme] .dsh-gw-tablebox,.dsh-gw-panel[data-gw-scheme] .dsh-gw-cal-addform{background:var(--gw-paper)}
+/* One table contract: local scroll, stable headers, bounded cells and visible resize affordances. */
+.dsh-gw-tablebox.dsh-gw-adjustable-box{overflow:auto;max-width:100%;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-adjustable-box .dsh-gw-adjustable-table thead th{top:0}
+.dsh-gw-adjustable-table{min-width:620px}
+/* 排期列表只有 5 个短列，窄侧栏要能整体收紧，不该被通用 620px 画布宽度钉死。 */
+.dsh-gw-table.dsh-gw-upcoming{min-width:0;table-layout:fixed;width:100%}
+.dsh-gw-adjustable-table th,.dsh-gw-adjustable-table td{overflow:hidden;text-overflow:ellipsis;word-break:normal}
+.dsh-gw-adjustable-table th,.dsh-gw-cell-nowrap,.dsh-gw-adjustable-table td:last-child{white-space:nowrap;overflow-wrap:normal}
+.dsh-gw-adjustable-table .dsh-gw-cell-wrap{white-space:normal;overflow-wrap:anywhere}
+.dsh-gw-adjustable-table .dsh-gw-row-act,.dsh-gw-adjustable-table .dsh-gw-btn{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.dsh-gw-platform-badge{display:inline-flex;flex:none;white-space:nowrap;overflow-wrap:normal;word-break:keep-all}
+.dsh-gw-rollup-topic{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Account identity and action rails share one label column: the account name sits
+   above the positioning label, while status/platform pills start exactly where
+   the audience value starts on the second line. The first column is max-content,
+   so it naturally takes the width of “定位 · 人群” instead of the shorter name. */
+.dsh-gw-account-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:16px;min-height:60px;padding:8px 10px}
+.dsh-gw-account-row .dsh-gw-row-main{display:grid;grid-template-columns:90px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;row-gap:3px;align-items:center;min-width:0}
+.dsh-gw-account-row .dsh-gw-row-name{grid-column:1;grid-row:1;justify-self:stretch;width:100%;max-width:100%;padding:1px 6px;border-radius:6px;background:color-mix(in srgb,var(--gw-accent) 7%,var(--gw-paper));font-size:16px;font-weight:700;line-height:1.35;letter-spacing:.01em;white-space:nowrap}
+.dsh-gw-account-row .dsh-gw-row-name-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-account-row .dsh-gw-account-flags{grid-column:2;grid-row:1;display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.dsh-gw-account-row .dsh-gw-account-meta-lead{grid-column:1;grid-row:2;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.dsh-gw-account-row .dsh-gw-row-meta{grid-column:2;grid-row:2;min-height:17px;margin:0;max-width:72ch;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-account-row .dsh-gw-account-meta-tail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-gw-account-row .dsh-gw-account-acts{justify-self:end;white-space:nowrap}
+/* Full-vault association results are actionable, not just a count. */
+.dsh-gw-source-results{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px;min-width:0}
+.dsh-gw-source-result{display:inline-flex;align-items:center;max-width:100%;min-height:28px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.dsh-gw-source-result:hover,.dsh-gw-source-result:focus-visible,.dsh-gw-source-result[data-selected=true]{border-color:var(--dsw-alias-link);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-link);outline:none}
+.dsh-gw-source-result>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Copy Rules owns one scrollport; the header stays pinned above editable rows. */
+.dsh-gw-rules-scroll{isolation:isolate;overflow:auto}
+.dsh-gw-rules-scroll>.dsh-gw-rules-frame{overflow:visible;min-width:680px}
+.dsh-gw-rules-scroll .dsh-gw-rules thead th{position:sticky;top:0;z-index:6;background:var(--dsw-alias-bg-layer-2)}
+/* Pending keeps its first three identity columns pinned while their widths are adjusted. */
+.dsh-gw-pending-box .dsh-gw-pending-table{width:var(--gw-pending-width,852px);min-width:var(--gw-pending-width,852px)}
+.dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:var(--gw-pending-left-2,64px)}
+.dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:var(--gw-pending-left-3,152px)}
+@media(max-width:520px){.dsh-gw-account-row{grid-template-columns:minmax(0,1fr);row-gap:8px}.dsh-gw-account-row .dsh-gw-account-acts{justify-self:start}}
+@media (prefers-reduced-motion:reduce){.dsh-gw-panel *{scroll-behavior:auto;transition:none!important}}
 `
 
     const BUILD = '2026-11-04b'
@@ -1214,8 +1382,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         .filter((node) => !node.hidden && (typeof node.getClientRects !== 'function' || node.getClientRects().length > 0))
       const first = () => root.querySelector('[data-modal-default]') ?? focusable()[0] ?? root
       const onKey = (event) => {
-        if (!top()) return
+        if (!top() || event.defaultPrevented) return
         if (event.key === 'Escape') {
+          // A submenu owns its first Escape; the next Escape may close the dialog.
+          const menu = event.target?.closest?.('.dsh-gw-more')
+          if (menu && root.contains(menu) && menu.querySelector('[role="menu"]')) return
           event.preventDefault()
           event.stopImmediatePropagation()
           onEscape()
@@ -1242,11 +1413,120 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         else if (opener && opener.isConnected !== false && typeof opener.focus === 'function') opener.focus()
       }
     }
+    function parseSurfaceColor(value) {
+      const text = String(value ?? '').trim()
+      const hex = /^#([\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.exec(text)?.[1]
+      if (hex) { const full = hex.length === 3 ? hex.split('').map((part) => part + part).join('') : hex; return [0, 2, 4].map((at) => parseInt(full.slice(at, at + 2), 16) / 255) }
+      const rgb = /^rgba?\(([^)]+)\)$/i.exec(text)
+      if (rgb) { const parts = rgb[1].split(/[,\s/]+/).filter(Boolean); if (parts.length >= 3) { const result = parts.slice(0, 3).map((part) => parseFloat(part) / (part.endsWith('%') ? 100 : 255)); if (result.every(Number.isFinite)) return result.map((part) => Math.max(0, Math.min(1, part))) } }
+      const srgb = /^color\(srgb\s+([^)]+)\)$/i.exec(text)
+      if (srgb) { const result = srgb[1].split(/[\s/]+/).slice(0, 3).map(Number); if (result.length === 3 && result.every(Number.isFinite)) return result.map((part) => Math.max(0, Math.min(1, part))) }
+      return null
+    }
+    function surfaceLuminance(rgb) {
+      const linear = rgb.map((part) => part <= 0.04045 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4)
+      return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+    }
+    function surfaceContrast(a, b) {
+      const left = surfaceLuminance(a), right = surfaceLuminance(b)
+      return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05)
+    }
+    function hostAccent(background, label, scheme = 'light') {
+      const base = parseSurfaceColor(background)
+      const actualScheme = base ? (surfaceLuminance(base) < 0.3 ? 'dark' : 'light') : scheme === 'dark' ? 'dark' : 'light'
+      const candidate = parseSurfaceColor(actualScheme === 'dark' ? '#DDB781' : '#98672D')
+      const fallbackInk = parseSurfaceColor(actualScheme === 'dark' ? '#FFFFFF' : '#000000')
+      const labelInk = parseSurfaceColor(label)
+      // A host can briefly expose mismatched aliases while switching themes. Never steer
+      // the creative accent toward a label token that is itself illegible on this surface.
+      const ink = labelInk && (!base || surfaceContrast(labelInk, base) >= 4.5) ? labelInk : fallbackInk
+      let tone = candidate, contrast = null
+      if (base) {
+        // 16% is the strongest creative hover tint; both plain and tinted surfaces must pass AA.
+        for (let step = 0; step <= 20; step++) {
+          tone = candidate.map((part, index) => Math.round((part * (1 - step / 20) + ink[index] * step / 20) * 255) / 255)
+          const tinted = base.map((part, index) => part * 0.84 + tone[index] * 0.16)
+          contrast = Math.min(surfaceContrast(tone, base), surfaceContrast(tone, tinted))
+          if (contrast >= 4.5) break
+        }
+      }
+      const color = '#' + tone.map((part) => Math.round(part * 255).toString(16).padStart(2, '0')).join('')
+      return { scheme: actualScheme, color, contrast }
+    }
+    function installHostAccent(node, host = window, doc = document) {
+      if (!node || typeof host.getComputedStyle !== 'function') return () => {}
+      // Resolve aliases via computed colour, including nested var()/color-mix() values.
+      const probe = doc.createElement('span')
+      probe.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none'
+      node.appendChild(probe)
+      let stopped = false
+      const apply = () => {
+        if (stopped || node.isConnected === false) return
+        probe.style.color = 'var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base))'
+        const background = host.getComputedStyle(probe).color
+        probe.style.color = 'var(--dsw-alias-label-primary)'
+        const label = host.getComputedStyle(probe).color
+        const colorScheme = host.getComputedStyle(node.parentElement ?? node).colorScheme
+        const result = hostAccent(background, label, colorScheme)
+        // Scope the workbench palette to the surface the host is actually rendering.
+        // This avoids inheriting a flat grey host canvas while still following light/dark changes.
+        if (node.dataset !== undefined) { if (node.dataset.gwScheme !== result.scheme) node.dataset.gwScheme = result.scheme }
+        else if (typeof node.setAttribute === 'function') node.setAttribute('data-gw-scheme', result.scheme)
+        if (node.style.colorScheme !== result.scheme) node.style.colorScheme = result.scheme
+        const localAccent = hostAccent(result.scheme === 'dark' ? '#1D2133' : '#FBFBFE', result.scheme === 'dark' ? '#F3F2FA' : '#242438', result.scheme)
+        if (node.style.getPropertyValue('--gw-warm') !== localAccent.color) node.style.setProperty('--gw-warm', localAccent.color)
+      }
+      apply()
+      const Observer = host.MutationObserver
+      const observer = typeof Observer === 'function' ? new Observer(apply) : null
+      // Watch only real host ancestors, never our own writes or editor text mutations.
+      for (let parent = node.parentElement; observer && parent; parent = parent.parentElement) observer.observe(parent, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-color-scheme'] })
+      const media = typeof host.matchMedia === 'function' ? host.matchMedia('(prefers-color-scheme: dark)') : null
+      media?.addEventListener?.('change', apply)
+      return () => { stopped = true; observer?.disconnect(); media?.removeEventListener?.('change', apply); probe.remove() }
+    }
+
+    function installActionMenu(root, trigger, dismiss, doc = document) {
+      if (!root) return () => {}
+      const items = () => Array.from(root.querySelectorAll('[role="menuitem"]:not([disabled])'))
+      const restore = () => { dismiss(); if (trigger?.isConnected !== false) trigger?.focus?.() }
+      const onDown = (event) => { if (!root.contains(event.target)) dismiss() }
+      const onFocusOut = (event) => { if (!root.contains(event.relatedTarget)) dismiss() }
+      const onKey = (event) => {
+        if (event.defaultPrevented || !root.contains(event.target)) return
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); restore(); return }
+        const options = items(), index = options.indexOf(doc.activeElement)
+        let target = null
+        if (event.key === 'ArrowDown') target = options[(index + 1) % options.length]
+        else if (event.key === 'ArrowUp') target = options[(index - 1 + options.length) % options.length]
+        else if (event.key === 'Home') target = options[0]
+        else if (event.key === 'End') target = options[options.length - 1]
+        if (target) { event.preventDefault(); target.focus() }
+        // Tab is deliberately not trapped; focusout closes the menu without stealing focus.
+      }
+      doc.addEventListener('pointerdown', onDown, true)
+      root.addEventListener('keydown', onKey)
+      root.addEventListener('focusout', onFocusOut)
+      items()[0]?.focus()
+      return () => { doc.removeEventListener('pointerdown', onDown, true); root.removeEventListener('keydown', onKey); root.removeEventListener('focusout', onFocusOut) }
+    }
+    function ActionMenu({ label = '更多操作', items, disabled }) {
+      const [open, setOpen] = React.useState(false)
+      const root = React.useRef(null), trigger = React.useRef(null)
+      const id = useStableFieldId('dsh-gw-menu')
+      React.useLayoutEffect(() => open ? installActionMenu(root.current, trigger.current, () => setOpen(false)) : undefined, [open])
+      React.useEffect(() => { if (disabled) setOpen(false) }, [disabled])
+      return h('span', { className: 'dsh-gw-more', ref: root },
+        h('button', { type: 'button', ref: trigger, className: 'dsh-gw-row-act dsh-gw-more-trigger', disabled, 'aria-label': label, 'aria-haspopup': 'menu', 'aria-controls': id, 'aria-expanded': open, title: label, onClick: (event) => { event.stopPropagation(); setOpen((value) => !value) }, onKeyDown: (event) => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); event.stopPropagation(); setOpen(true) } } }, '更多'),
+        open ? h('span', { id, role: 'menu', 'aria-label': label, className: 'dsh-gw-more-menu' }, (items ?? []).filter(Boolean).map((item, index, all) => h('button', { key: item.label, type: 'button', role: 'menuitem', tabIndex: -1, className: 'dsh-gw-more-item', disabled: item.disabled, 'data-tone': item.danger ? 'danger' : undefined, 'data-separated': item.danger && !all[index - 1]?.danger ? 'true' : undefined, title: item.title, onClick: (event) => { event.stopPropagation(); setOpen(false); trigger.current?.focus(); item.onSelect?.() } }, item.label))) : null)
+    }
+
     function ModalShell({ label, onEscape, panelClass, zIndex, children }) {
       const root = React.useRef(null)
       const escape = React.useRef(onEscape)
       escape.current = onEscape
       React.useLayoutEffect(() => installModalFocus(root.current, () => escape.current?.()), [])
+      React.useLayoutEffect(() => installHostAccent(root.current), [])
       return h('div', { className: 'dsh-gw-veil', style: { zIndex: zIndex ?? 9900 }, onMouseDown: (event) => {
         event.stopPropagation()
         if (event.target === event.currentTarget) escape.current?.()
@@ -1335,11 +1615,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       )
     }
 
-    function Field({ label, children }) {
+    function Field({ label, children, wide = false }) {
       const id = useStableFieldId()
       const labelId = id + '-label'
       const linked = associateField(children, id, labelId)
-      return h('div', { className: 'dsh-gw-field' }, h('label', { id: labelId, htmlFor: linked.controlId }, label), linked.controls)
+      return h('div', { className: 'dsh-gw-field', 'data-wide': wide || undefined }, h('label', { id: labelId, htmlFor: linked.controlId }, label), linked.controls)
     }
 
     /**
@@ -1698,6 +1978,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         data: () => ({ num: value.dataCount ?? 0, unit: '份', meta: '最近周期 ' + (value.dataLatest === '' ? '还没写' : value.dataLatest) }),
         contentdata: () => ({ num: value.contentDataCount ?? 0, unit: '条', meta: value.contentDataLatest === '' ? '回流台账还没有记录' : '最近数据 ' + value.contentDataLatest }),
         products: () => ({ num: (value.productsMine ?? 0) + '/' + (value.productsRival ?? 0), unit: '自家 / 竞品', meta: '商品档案与竞品对照' }),
+        accounts: () => ({ num: value.accountsTotal ?? 0, unit: '个账号', meta: '平台 / 定位 / 目标人群' }),
         feedback: () => ({ num: value.feedbackNegativeOpen ?? 0, unit: '条未处理', meta: '负面共 ' + (value.feedbackTotal ?? 0) + ' 条', tone: (value.feedbackNegativeOpen ?? 0) > 0 ? 'warn' : '' }),
         campaigns: () => ({ num: value.campaignsActive ?? 0, unit: '个进行中', meta: '共 ' + (value.campaignsTotal ?? 0) + ' 个方案' }),
         copyrules: () => {
@@ -1878,15 +2159,16 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         setData: (next) => { reads.current.invalidate(); setState((prev) => ({ ...prev, data: { ...(typeof next === 'function' ? next(prev.data) : next), _listScope: scope }, loading: false })) },
       }
     }
-    function ListPager({ list, label }) {
+    function ListPager({ list, label, search = true }) {
       if (!list || typeof list.loadMore !== 'function') return null
-      const count = list.data?.records?.length ?? 0
-      const total = list.data?.total
-      return h('div', { className: 'dsh-gw-list-range', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, margin: '8px 0' } },
-        h('span', { className: 'dsh-gw-row-meta', role: 'status', title: '来源范围；分类与本地筛选仅针对已载入内容，可全库检索或继续载入' },
-          (label ? label + '：' : '') + '已载入 ' + count + (total === null || total === undefined ? ' 条（来源未给出总量）' : ' / ' + total + ' 条') + (list.data?.truncated ? '，还有未载入内容；本地筛选仅针对已载入范围' : '')),
-        list.externalSearch ? null : h('input', { className: 'dsh-gw-input', style: { width: 'min(220px,100%)' }, value: list.query, placeholder: '搜索全库（含旧笔记 / 正文）', 'aria-label': (label ?? '笔记') + '全库搜索', onChange: (event) => list.setQuery(event.target.value) }),
-        list.data?.truncated ? h('button', { type: 'button', className: 'dsh-gw-btn', disabled: list.loading, onClick: list.loadMore }, list.loading ? '读取中…' : '载入下一批') : null,
+      const count = list.data?.records?.length ?? 0, total = list.data?.total
+      const next = Number.isFinite(list.data?.nextOffset) ? list.data.nextOffset : count
+      const scopeLabel = label ? label.replace(/^可关联的全库/, '') : '当前卡片'
+      return h('div', { className: 'dsh-gw-list-range', 'data-total': total ?? 'unknown', 'data-offset': list.data?.offset ?? 0, 'data-next-offset': next, 'data-truncated': Boolean(list.data?.truncated) },
+        h('span', { className: 'dsh-gw-row-meta', role: 'status', title: scopeLabel + '搜索包含正文；平台 / 状态等本地筛选只作用于已载入范围。来源 offset=' + (list.data?.offset ?? 0) + '；nextOffset=' + next },
+          (label ? label + '：' : '') + (String(list.query ?? '').trim() ? '匹配结果 ' : '已载入 ') + count + (total === null || total === undefined ? ' 条 · 总量未知' : ' / ' + total + ' 条') + (list.data?.truncated ? ' · 有更多，下一批从第 ' + (next + 1) + ' 条载入；本地筛选仅已载入' : '')),
+        list.externalSearch || !search ? null : h('input', { className: 'dsh-gw-input dsh-gw-range-search', value: list.query, placeholder: '搜索' + scopeLabel + '（含正文）', 'aria-label': scopeLabel + '搜索', onChange: (event) => list.setQuery(event.target.value) }),
+        list.data?.truncated ? h('button', { type: 'button', className: 'dsh-gw-btn', disabled: list.loading, title: '从来源第 ' + (next + 1) + ' 条继续载入当前卡片结果', onClick: list.loadMore }, list.loading ? '读取中…' : '载入下一批') : null,
         list.loading && count > 0 ? h('span', { className: 'dsh-gw-row-meta' }, '正在重新读取…') : null)
     }
     function useLinkedRecords(kind, records, links) {
@@ -2576,6 +2858,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const [expanded, setExpanded] = React.useState(false)
       const inputRef = React.useRef(null)
       const controlRef = React.useRef(null)
+      const triggerRef = React.useRef(null)
+      const inputId = useStableFieldId()
       const cancel = () => setExpanded(false)
       React.useEffect(() => {
         if (expanded === false) return
@@ -2596,16 +2880,16 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       }, [expanded])
       const control = h('span', { className: 'dsh-gw-listfilter', ref: controlRef },
         expanded === false ? null : h('input', {
-          ref: inputRef,
+          ref: inputRef, id: inputId, 'aria-label': placeholder ?? '过滤列表',
           className: 'dsh-gw-listfilter-input',
           placeholder: placeholder ?? '目录 / 笔记名 / 标题 / 标签',
           value: filter,
           onChange: (event) => setFilter(event.target.value),
-          onKeyDown: (event) => { if (event.key === 'Escape') { setFilter(''); setExpanded(false) } },
+          onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setFilter(''); setExpanded(false); triggerRef.current?.focus() } },
         }),
         expanded === false || String(filter ?? '').trim() === '' ? null : h('button', { type: 'button', className: 'dsh-gw-ibtn', onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 })),
         h('button', {
-          type: 'button',
+          type: 'button', ref: triggerRef, 'aria-controls': expanded ? inputId : undefined,
           className: 'dsh-gw-ibtn dsh-gw-listfilter-btn',
           title: placeholder ?? '过滤列表',
           'aria-label': placeholder ?? '过滤列表',
@@ -2710,6 +2994,37 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         if (sizeObserver !== null) sizeObserver.unobserve(el)
       }
     }
+    function createMeasuredHeightTracker(onHeight, observe = watchSize) {
+      let current = null, cleanup = null, lastHeight = null
+      function stop() { current = null; lastHeight = null; const owned = cleanup; cleanup = null; owned?.() }
+      return {
+        attach(node) {
+          if (node === current && cleanup !== null) return
+          stop()
+          if (!node) return
+          current = node
+          cleanup = observe(node, () => {
+            if (current !== node || node.isConnected === false) return
+            const measured = Number(node.getBoundingClientRect().height)
+            if (!Number.isFinite(measured) || measured < 0) return
+            const next = Math.round(measured)
+            if (next === lastHeight) return
+            lastHeight = next
+            onHeight(next)
+          })
+        },
+        stop,
+      }
+    }
+    function useMeasuredBlockHeight(initialHeight = 40) {
+      const [height, setHeight] = React.useState(initialHeight)
+      const node = React.useRef(null), tracker = React.useRef(null), attach = React.useRef(null)
+      if (tracker.current === null) tracker.current = createMeasuredHeightTracker((next) => setHeight((previous) => previous === next ? previous : next))
+      if (attach.current === null) attach.current = (element) => { node.current = element; tracker.current.attach(element) }
+      React.useEffect(() => { if (node.current !== null) tracker.current.attach(node.current); return () => tracker.current.stop() }, [])
+      return [attach.current, height]
+    }
+
     function useSqueeze(ref) {
       React.useLayoutEffect(() => {
         const el = ref.current
@@ -2786,6 +3101,28 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const cleanup = React.useRef(null)
       React.useEffect(() => () => cleanup.current?.(), [])
       return (index) => (event) => { cleanup.current?.(); cleanup.current = installColumnDrag(event, widths, index, setWidths) }
+    }
+    function shiftedPixelColumnWidths(widths, index, delta, minimums = []) {
+      const next = [...widths]
+      if (index < 0 || index + 1 >= next.length) return next
+      const leftMin = Number(minimums[index] ?? 48), rightMin = Number(minimums[index + 1] ?? 48)
+      const shift = Math.max(-(next[index] - leftMin), Math.min(next[index + 1] - rightMin, delta))
+      next[index] = Math.round(next[index] + shift); next[index + 1] = Math.round(next[index + 1] - shift)
+      return next
+    }
+    function installPixelColumnDrag(event, widths, index, setWidths, minimums, doc = document, host = window) {
+      event.preventDefault(); event.stopPropagation()
+      const table = event.currentTarget.closest('table'), startX = event.clientX
+      let active = true
+      const finish = () => { if (!active) return; active = false; doc.removeEventListener('pointermove', move); doc.removeEventListener('pointerup', finish); doc.removeEventListener('pointercancel', finish); host.removeEventListener('blur', finish); doc.body.classList.remove('dsh-gw-resizing-col') }
+      const move = (next) => { if (table?.isConnected === false) { finish(); return }; setWidths(shiftedPixelColumnWidths(widths, index, next.clientX - startX, minimums)) }
+      doc.addEventListener('pointermove', move); doc.addEventListener('pointerup', finish); doc.addEventListener('pointercancel', finish); host.addEventListener('blur', finish); doc.body.classList.add('dsh-gw-resizing-col')
+      return finish
+    }
+    function pixelColResizeStart(widths, setWidths, minimums) {
+      const cleanup = React.useRef(null)
+      React.useEffect(() => () => cleanup.current?.(), [])
+      return (index) => (event) => { cleanup.current?.(); cleanup.current = installPixelColumnDrag(event, widths, index, setWidths, minimums) }
     }
 
     function Sect(props) {
@@ -2960,9 +3297,46 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       return h('textarea', Object.assign({ ref, value }, rest))
     }
 
+    function collectionSortValue(row, field) {
+      const record = row.record ?? row
+      if (field === 'title') return String(record.title ?? '')
+      if (field === 'platform') {
+        const names = [...new Set((row.variants ?? []).map((variant) => normalizePlatform(variant.front?.platform)).filter(Boolean))]
+        return names.length === 0 ? normalizePlatform(record.front?.platform) : names.join(' / ')
+      }
+      if (field === 'status') return String(row.statusText ?? record.front?.status ?? '')
+      if (field === 'tags') return splitTags(record.front?.tags).join(' / ')
+      if (field === 'versions') return (row.variants ?? []).length
+      if (field === 'date') return String(record.front?.date ?? '')
+      if (field === 'schedule') return String(record.schedule?.date ?? '')
+      if (field === 'views') { const value = Number(record.metrics?.views ?? record.front?.views ?? 0); return Number.isFinite(value) ? value : 0 }
+      return ''
+    }
+    function sortCollectionRows(rows, sort) {
+      if (!sort?.field) return rows
+      return rows.map((row, index) => ({ row, index })).sort((left, right) => {
+        const a = collectionSortValue(left.row, sort.field), b = collectionSortValue(right.row, sort.field)
+        const compared = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'zh-CN', { numeric: true, sensitivity: 'base' })
+        return compared === 0 ? left.index - right.index : (sort.desc ? -1 : 1) * compared
+      }).map((item) => item.row)
+    }
+    function toggledCollectionSort(current, field) {
+      return { field, desc: current?.field === field ? !current.desc : false }
+    }
+    function CollectionSortHead({ label, field, sort, onSort, children, style }) {
+      if (!field) return h('th', { scope: 'col', style }, label, children)
+      const active = sort?.field === field
+      const direction = active ? (sort.desc ? 'descending' : 'ascending') : 'none'
+      return h('th', { scope: 'col', style, 'aria-sort': direction },
+        h('button', { type: 'button', className: 'dsh-gw-th-sort', title: '按' + label + '排序', 'aria-label': '按' + label + '排序', onClick: () => onSort(field) }, label, h('span', { 'aria-hidden': 'true' }, active ? (sort.desc ? ' ▾' : ' ▴') : '')),
+        children)
+    }
+
     function TopicsCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
-      const [filter, setFilter] = React.useState('')
       const list = usePagedList('/topics/list?limit=200')
+      const rf = useRecordFilter(list.data?.records ?? [], list)
+      const { filter, setFilter } = rf
+      const [topicSort, setTopicSort] = React.useState({ field: '', desc: false })
       const presetPath = preset !== null && preset !== undefined && typeof preset.path === 'string' ? preset.path : ''
       const [openPath, setOpenPath] = React.useState(presetPath === '' ? null : presetPath)
       React.useEffect(() => {
@@ -2976,7 +3350,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const [topicWidths, setTopicWidths] = React.useState([15, 10, 31, 17, 9, 18])
       const startTopicResize = colResizeStart(topicWidths, setTopicWidths)
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -3007,9 +3381,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
       // 爆款拆解卡只放「拆解别人的案例」（type==='选题' 的是自己的选题，归我的选题）。
       // 老笔记没写 type，两边照旧显示，等详情里归一次类。
-      const records = allRecords.filter((record) => topicTypeOf(record) !== '选题'
-        && matchRecord(record, filter.trim().toLowerCase())
-        && (platformFilter === '' || normalizePlatform(record.front?.platform) === platformFilter))
+      // q is evaluated by the server over all records, including body-only matches.
+      const records = sortCollectionRows(allRecords.filter((record) => topicTypeOf(record) !== '选题'
+        && (platformFilter === '' || normalizePlatform(record.front?.platform) === platformFilter)), topicSort)
 
       async function create() {
         setBusy(true)
@@ -3027,7 +3401,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
       return h('div', null,
         // 筛选区吸顶：列表一长，往下滚也得能改筛选（语调库同款吸顶条）。
-        h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: records.length, total: (list.data?.records ?? []).length }),
+        h(ListFilter, { filter, setFilter, placeholder: '搜索当前卡片：标题 / 标签 / 正文', shown: records.length, total: (list.data?.records ?? []).length }),
         h('div', { className: 'dsh-gw-card-top' },
           allRecords.length === 0 ? null : h(Sect, null, '筛选',
             h('select', { className: 'dsh-gw-catselect', value: platformFilter, onChange: (event) => setPlatformFilter(event.target.value), title: '按平台筛选' },
@@ -3053,12 +3427,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
               h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
               h('table', { className: 'dsh-gw-table dsh-gw-topics-table' },
               h('colgroup', null, ['c-date', 'c-platform', 'c-title', 'c-tags', 'c-views', 'c-sched'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: topicWidths[index] + '%' } }))),
-              h('thead', null, h('tr', null, ['日期', '平台', '标题', '标签', '数据', '排期'].map((label, index) => h('th', { key: label + index, style: index === 4 ? { textAlign: 'right' } : undefined },
-                label,
+              h('thead', null, h('tr', null, ['日期', '平台', '标题', '标签', '数据', '排期'].map((label, index) => h(CollectionSortHead, { key: label + index, label, field: ['date', 'platform', 'title', 'tags', 'views', 'schedule'][index], sort: topicSort, onSort: (field) => setTopicSort((current) => toggledCollectionSort(current, field)), style: index === 4 ? { textAlign: 'right' } : undefined },
                 index < 6 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startTopicResize(index) }) : null)))),
               h('tbody', null, records.map((record) => {
                 const tagPills = String(record.front?.tags ?? '').split(/[/,、;；]/).map((part) => part.trim()).filter((part) => part !== '')
-                return h('tr', { key: record.path, onClick: () => setOpenPath(record.path) },
+                return h('tr', { key: record.path, tabIndex: 0, onClick: () => setOpenPath(record.path), onKeyDown: (event) => keyboardActivate(event, () => setOpenPath(record.path)) },
                   h('td', null, record.front?.date ?? h('span', { className: 'dsh-gw-rule-empty' }, '—')),
                   h('td', null, normalizePlatform(record.front?.platform) === '' ? h('span', { className: 'dsh-gw-rule-empty' }, '—') : normalizePlatform(record.front?.platform)),
                   h('td', { className: 'dsh-gw-topics-title' }, record.title),
@@ -3071,7 +3444,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
                   // 排期列本身就是入口：已排的落到已排那天，没排的落到今天。
                   // 不再单独放「排期/看排期」按钮——和这一列重复，留一个就够。
                   h('td', {
-                    className: 'dsh-gw-td-sched',
+                    className: 'dsh-gw-td-sched', tabIndex: 0, role: 'button',
+                    onKeyDown: (event) => keyboardActivate(event, () => { if (typeof openCard === 'function') openCard('calendar', { topicPath: record.path, topic: record.title, platform: normalizePlatform(record.front?.platform), date: record.schedule?.date || todayISO() }) }),
                     title: record.schedule !== undefined
                       ? '已排进 ' + String(record.schedule.date) + '（' + String(record.schedule.status) + '），点开去内容日历'
                       : '还没排期，点开去内容日历排',
@@ -3360,8 +3734,10 @@ const STAGE_OF_STATUS = {
     }
 
     function StudioCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
-      const [filter, setFilter] = React.useState('')
+      const [studioSort, setStudioSort] = React.useState({ field: '', desc: false })
       const [statusFilters, setStatusFilters] = React.useState([])
+      const [studioWidths, setStudioWidths] = React.useState([30, 13, 20, 17, 7, 13])
+      const startStudioResize = colResizeStart(studioWidths, setStudioWidths)
       const [busy, setBusy] = React.useState(false)
       // 正在删的版本 id：删完之前那颗垃圾桶先禁用，免得连点两次。
       const [deletingId, setDeletingId] = React.useState('')
@@ -3395,13 +3771,11 @@ const STAGE_OF_STATUS = {
         const [topics, variants] = await Promise.all([get(uri), get('/v2/variants')])
         return { ...topics, records: topics?.records ?? [], variants: variants?.variants ?? [] }
       })
+      const rf = useRecordFilter(list.data?.records ?? [], list)
+      const { filter, setFilter } = rf
       // 账号档案是可复用的：新建选题时先选一个默认账号，建平台版本时再按平台挑具体账号。
       const accountList = usePagedList('/accounts/list?limit=300')
       const accounts = accountList.data?.records ?? []
-      const accountsFor = (platform) => {
-        const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
-        return accounts.filter((record) => first === '' || normalizePlatform(record.front?.platform) === first)
-      }
       React.useEffect(() => {
         // 带着 path 从别处跳进来（拆解页的「我的选题」）= 我就是要写这一条，正文直接摊开。
         if (presetPath !== '') { setBodyWanted(true); setOpenPath(presetPath) }
@@ -3412,7 +3786,7 @@ const STAGE_OF_STATUS = {
         setVariantCreateRequest((n) => n + 1)
       }, [preset])
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：关详情回列表（票号只在被点时才变，和 TopicsCard 同款）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -3441,8 +3815,29 @@ const STAGE_OF_STATUS = {
           if (clean !== '' && !tagOptions.includes(clean)) tagOptions.push(clean)
         }
       }
+
+      const newTopicForm = h(React.Fragment, null,
+        h('div', { className: 'dsh-gw-grid2' },
+          h(Field, { label: '标题（= 文件名）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }) })),
+          h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (next) => setDraft({ ...draft, platform: next, account: '', accountId: '' }), options: platforms, placeholder: '小红书 / 抖音 / 视频号' })),
+          h(Field, { label: '账号（可选）' }, h(AccountPicker, {
+            platform: draft.platform,
+            options: accounts,
+            value: draft.accountId,
+            onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
+            notify,
+            hideCreate: true,
+          })),
+          h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '这条说给谁听' })),
+          h(Field, { label: '内容目标' }, h('input', { value: draft.goal, onChange: (event) => setDraft({ ...draft, goal: event.target.value }), placeholder: '想让他看完做什么' })),
+          h(Field, { label: '一句话角度' }, h('input', { value: draft.angle, onChange: (event) => setDraft({ ...draft, angle: event.target.value }), placeholder: '这条凭什么值得看' })),
+          h(Field, { label: '创建日期（只记录）' }, h('input', { type: 'date', value: draft.date, onChange: (event) => setDraft({ ...draft, date: event.target.value }) }))),
+        h('div', { className: 'dsh-gw-actions' },
+          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；拆解别人的内容去「爆款拆解（别人的）」卡，从那里点「用这条建选题」', onClick: create }, '建选题')))
+      const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', className: 'dsh-gw-create-card', open: allRecords.length === 0 || preset?.createTopic === true }, newTopicForm)
+
       // 早退必须放在 tagOptions 收集之后（TopicsCard 在这里撞过 TDZ，静态测试有守卫）。
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, onReturnCalendar: calendarIntent === null ? null : (record) => openCard('calendar', { ...calendarIntent, calendarDraft: calendarIntent, topic: record.title, topicPath: record.path, variantId: '' }), openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, newTopicForm, onReturnCalendar: calendarIntent === null ? null : (record) => openCard('calendar', { ...calendarIntent, calendarDraft: calendarIntent, topic: record.title, topicPath: record.path, variantId: '' }), openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
 
       const stageOf = (record) => {
         if (record.stage === 'shipped' || record.stage === 'doing' || record.stage === 'backlog') return record.stage
@@ -3452,7 +3847,8 @@ const STAGE_OF_STATUS = {
         return ['在写', '待发'].includes(front) || ['在写', '待发'].includes(sched) ? 'doing' : 'backlog'
       }
       const keyword = filter.trim().toLowerCase()
-      const shown = allRecords.filter((record) => matchRecord(record, keyword))
+      // Keep body-only server q hits; the server already searched the complete vault.
+      const shown = allRecords
       // 脚本以平台版本为单位：同一条选题可能抖音在拍、小红书 已经发了。
       // 所以「创作中 / 已发」按版本分区，「储备」仍按选题 —— 版本只要有一个在
       // 进行中，选题本身就不再占储备那一行，免得同一条内容在列表里出现两次。
@@ -3532,6 +3928,8 @@ const STAGE_OF_STATUS = {
         try {
           const created = await post('/topics/create', { ...draft, status: '在写', type: '选题' })
           if (calendarIntent !== null && created?.created?.path) { setCalendarIntent({ ...calendarIntent, topic: draft.title, topicPath: created.created.path }); setCreateVariantPlatform(draft.platform); setVariantCreateRequest((n) => n + 1); setOpenPath(created.created.path) }
+          // 从详情里的「新建选题」卡创建时，直接切到刚建的那条，别把人留在旧选题上。
+          if (openPath !== null && created?.created?.path) { setOpenPath(created.created.path); setBodyWanted(false); setPendingVariant(''); setVariantRequest(0) }
           const empty = { title: '', platform: '', date: todayISO(), account: '', accountId: '', audience: '', goal: '', angle: '' }; draftBaseline.current = JSON.stringify(empty); setDraft(empty)
           notify('已建选题（状态=在写）；脚本写在平台版本里，不在这篇')
           list.reload()
@@ -3680,25 +4078,6 @@ const STAGE_OF_STATUS = {
             }, h(Icon, { name: 'trash' }))))
       }
 
-      const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', open: allRecords.length === 0 || preset?.createTopic === true },
-        h('div', { className: 'dsh-gw-grid2' },
-          h(Field, { label: '标题（= 文件名）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }) })),
-          h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (next) => setDraft({ ...draft, platform: next, account: '', accountId: '' }), options: platforms, placeholder: '小红书 / 抖音 / 视频号' })),
-          h(Field, { label: '账号（可选）' }, h(AccountPicker, {
-            platform: draft.platform,
-            options: accountsFor(draft.platform),
-            value: draft.accountId,
-            onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
-            notify,
-            onCreated: () => accountList.reload(),
-          })),
-          h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '这条说给谁听' })),
-          h(Field, { label: '内容目标' }, h('input', { value: draft.goal, onChange: (event) => setDraft({ ...draft, goal: event.target.value }), placeholder: '想让他看完做什么' })),
-          h(Field, { label: '一句话角度' }, h('input', { value: draft.angle, onChange: (event) => setDraft({ ...draft, angle: event.target.value }), placeholder: '这条凭什么值得看' })),
-          h(Field, { label: '创建日期（只记录）' }, h('input', { type: 'date', value: draft.date, onChange: (event) => setDraft({ ...draft, date: event.target.value }) }))),
-        h('div', { className: 'dsh-gw-actions' },
-          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；拆解别人的内容去「爆款拆解（别人的）」卡，从那里点「用这条建选题」', onClick: create }, '建选题')))
-
       // 选题列表：不再按状态拆成多个折叠，一条选题一行，平台 / 状态 / 标签分列。
       const topicRows = shown.map((record) => {
         const variants = variantsOf(record.id)
@@ -3714,13 +4093,14 @@ const STAGE_OF_STATUS = {
       const visibleTopicRows = statusFilters.length === 0
         ? topicRows
         : topicRows.filter(({ statusText }) => String(statusText).split(' / ').some((status) => statusFilters.includes(status)))
+      const sortedTopicRows = sortCollectionRows(visibleTopicRows, studioSort)
       const statusToneOf = (text) => String(text).includes('已归档') ? '' : String(text).includes('已发') || String(text).includes('待回填') ? 'ok' : String(text).includes('在写') ? 'brand' : 'warn'
       return h('div', null,
-        h(ListFilter, { filter, setFilter, placeholder: '目录 / 笔记名 / 平台 / 标题 / 标签', shown: shown.length, total: allRecords.length }),
+        h(ListFilter, { filter, setFilter, placeholder: '搜索当前卡片：标题 / 标签 / 正文', shown: shown.length, total: allRecords.length }),
         h('div', { className: 'dsh-gw-card-top' },
           h(MultiSelect, { label: '状态', options: TOPIC_STATUSES, value: statusFilters, onChange: setStatusFilters })),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
-        h(ListPager, { list }), h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ListPager, { list: accountList, label: '默认账号候选' }),
+        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : null,
         !list.loading && allRecords.length === 0
           ? h(Empty, null, '还没有自己的选题。下面新建一条，或从爆款拆解详情点「用这条建选题」。')
@@ -3730,18 +4110,13 @@ const STAGE_OF_STATUS = {
           h(Fold, { title: '选题列表', count: visibleTopicRows.length, open: true },
             visibleTopicRows.length === 0
               ? h(Empty, null, statusFilters.length === 0 ? '没有符合筛选的选题。' : '没有符合状态筛选的选题。')
-              : h('div', { className: 'dsh-gw-tablebox' },
-                h('table', { className: 'dsh-gw-table dsh-gw-topiclist' },
-                  h('colgroup', null,
-                    h('col', { style: { width: '30%' } }),
-                    h('col', { style: { width: '13%' } }),
-                    h('col', { style: { width: '20%' } }),
-                    h('col', { style: { width: '17%' } }),
-                    h('col', { style: { width: '7%' } }),
-                    h('col', { style: { width: '13%' } })),
+              : h('div', { className: 'dsh-gw-tablebox dsh-gw-topiclist-box dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '选题列表：可横向滚动并拖动表头调整列宽' },
+                h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table' },
+                  h('colgroup', null, studioWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
                   h('thead', null, h('tr', null,
-                    h('th', null, '选题'), h('th', null, '平台'), h('th', null, '状态'), h('th', null, '标签'), h('th', null, '版本'), h('th', null, '操作'))),
-                  h('tbody', null, visibleTopicRows.map(({ record, variants, statusText }) => h('tr', { key: record.path },
+                    ['选题', '平台', '状态', '标签', '版本', '操作'].map((label, index) => h(CollectionSortHead, { key: label, label, field: ['title', 'platform', 'status', 'tags', 'versions', null][index], sort: studioSort, onSort: (field) => setStudioSort((current) => toggledCollectionSort(current, field)) },
+                      index < 5 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startStudioResize(index) }) : null)))),
+                  h('tbody', null, sortedTopicRows.map(({ record, variants, statusText }) => h('tr', { key: record.path },
                     h('td', null, h('button', { className: 'dsh-gw-topiclist-title', title: record.title, onClick: () => setOpenPath(record.path) }, record.title)),
                     h('td', null, (() => {
                       const names = []
@@ -3914,7 +4289,7 @@ const STAGE_OF_STATUS = {
      * 每个平台版本各自维护脚本、风险、发布自检和状态；不再让一篇笔记
      * 同时当“抖音版”和“小红书版”用。
      */
-    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged, getVariantBaseline, onVariantWriting, onVariantSaved, onScriptDeleted }) {
+    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged, getVariantBaseline, onVariantWriting, onVariantSaved, onScriptDeleted, newTopicForm = null }) {
       const list = useAsync(
         () => (masterId === undefined || masterId === null || masterId === ''
           ? Promise.resolve({ variants: [] })
@@ -3925,7 +4300,6 @@ const STAGE_OF_STATUS = {
       const accountList = usePagedList('/accounts/list?limit=300')
       const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: draft.accountId }, ...(list.data?.variants ?? []).map((variant) => ({ id: variant.front?.accountId }))])
       const accountRecords = accountLinks.records
-      const accountsForPlatform = (platform) => accountRecords.filter((record) => normalizePlatform(record.front?.platform) === normalizePlatform(platform))
       // 账号档案改名后，版本上存的名字是旧的：按 accountId 反查当前名字，查不到再退回副本。
       const accountNameOf = (variant) => {
         const id = String(variant?.front?.accountId ?? '')
@@ -4208,18 +4582,17 @@ const STAGE_OF_STATUS = {
         // 共用主选题正文等于逼你写一份谁都不合适的稿子。
         // 脚本不再在这个行里用小 textarea 改：点「版本脚本」把它开到下方正文区，
         // 那里有预览、批注、分块编辑和冲突提示，和主选题共用同一套编辑器。
-        return h('div', { key: variant.id },
-          h('div', { className: 'dsh-gw-row' },
+        return h('div', { key: variant.id, className: 'dsh-gw-version-unit' },
+          h('div', { className: 'dsh-gw-row dsh-gw-variant-row', 'data-static': true, 'data-current': String(activeScriptId ?? '') === String(variant.id) },
             h('div', { className: 'dsh-gw-row-main' },
-              h('div', { className: 'dsh-gw-row-title' }, h('span', { className: 'dsh-gw-row-name' }, String(variant.title ?? variant.id))),
+              h('div', { className: 'dsh-gw-row-title' }, h('span', { className: 'dsh-gw-row-name', title: String(variant.title ?? variant.id) }, String(variant.title ?? variant.id))),
               h('div', { className: 'dsh-gw-row-meta' }, [
                 String(variant.front?.platform ?? ''),
                 accountNameOf(variant) === '' ? '默认账号' : accountNameOf(variant),
-                // 排期只认内容日历（右边那颗「已排 MM-DD」就是它）。日历里排过的这里就不提，
-                // 没排过的才说「未排发布」——日期只有一处记，不会左边说没排右边说已排。
+                // 发布日期来自内容日历，直接放在版本主行；更多菜单只留「排期 / 改期」动作。
                 variant?.schedule === null || variant?.schedule === undefined || String(variant.schedule.date ?? '') === ''
                   ? '未排发布'
-                  : '',
+                  : '发布 ' + String(variant.schedule.date).slice(0, 10),
                 // 低风险是默认值，说了等于没说；「风险 高/禁发」单独渲染成红色小旗（S5），不混进灰色 meta。
                 '自检 ' + (String(variant.front?.publishCheck ?? '') === '' ? '0/7' : String(variant.front?.publishCheck)),
               ].filter((part) => part !== '').join(' · ')),
@@ -4263,79 +4636,24 @@ const STAGE_OF_STATUS = {
                   void openInObsidian(variant.path, notify)
                 },
               }, activeScriptId !== undefined && activeScriptId === variant.id ? '正在编辑' : '版本脚本'),
-              archived ? null : h('button', {
-                className: 'dsh-gw-row-act',
-                'data-tone': infoEdit === variant.id ? 'primary' : 'ghost',
-                disabled: busy,
-                title: '这一版的标题备选、封面文案、素材清单、目标人群、发布目的',
-                onClick: () => setInfoEdit(infoEdit === variant.id ? '' : variant.id),
-              }, '资料'),
-              archived ? null : h('button', {
-                className: 'dsh-gw-row-act',
-                'data-tone': checkEdit === variant.id ? 'primary' : 'ghost',
-                disabled: busy,
-                title: '风险等级 / 7 项发布自检：这两项卡着能不能发，点开就在这一行改',
-                onClick: () => setCheckEdit(checkEdit === variant.id ? '' : variant.id),
-              }, '自检'),
-              // 排期就在这一行改：点一下变日期框，选完直接写进内容日历（不跳页）。
-              // 没排过的显示「未排期」，点开选一天就排上；排过的显示「已排 11-10」，点开改日期。
-              schedEdit === variant.id
-                ? h('input', {
-                  type: 'date',
-                  className: 'dsh-gw-sched-input',
-                  autoFocus: true,
-                  // 未排期时不要预填今天：预填后用户再选今天等于没变化，change 不触发，
-                  // 日历那行就永远建不出来。留空，选了哪天才算哪天。
-                  value: String(variant?.schedule?.date ?? '').slice(0, 10),
-                  title: '选个日期：选完立刻写进内容日历，跨月会自动搬过去',
-                  onChange: (event) => {
-                    const next = String(event.target.value ?? '')
-                    setSchedEdit('')
-                    void saveSchedule(variant, next)
-                  },
-                  // 先让 onChange 落地再收起：原生日期选择器在某些浏览器里 blur 比 change 早，
-                  // 直接清空会把刚选好的日期吞掉，日历那边就什么都没写。
-                  onBlur: () => { window.setTimeout(() => setSchedEdit(''), 250) },
-                  // 点开就直接弹日历选择器，少点一次。有的浏览器不允许（要用户手势）就安静失败。
-                  onFocus: (event) => {
-                    try { event.currentTarget.showPicker?.() } catch { /* 忽略 */ }
-                  },
-                  onKeyDown: (event) => { if (event.key === 'Escape') setSchedEdit('') },
-                })
-                : h('button', {
-                  className: 'dsh-gw-row-sched',
-                  'data-scheduled': variant?.schedule !== null && variant?.schedule !== undefined,
-                  disabled: busy,
-                  title: variant?.schedule === null || variant?.schedule === undefined
-                    ? '还没排期：点一下选个日期，直接写进内容日历'
-                    : '已排在 ' + String(variant.schedule.date ?? '') + (String(variant.schedule.status ?? '') === '' ? '' : '（' + String(variant.schedule.status) + '）') + '，点一下改日期，会同步到内容日历',
-                  onClick: () => setSchedEdit(variant.id),
-                }, variant?.schedule === null || variant?.schedule === undefined || String(variant.schedule.date ?? '') === ''
-                  ? '未排期'
-                  : '已排 ' + String(variant.schedule.date ?? '').slice(5)),
-              // 已排期后给一个明确的日历入口：行内选日期只负责写日历，不负责把用户带走。
-              variant?.schedule !== null && variant?.schedule !== undefined && String(variant.schedule.date ?? '') !== '' && typeof openCard === 'function'
-                ? h('button', {
-                  className: 'dsh-gw-row-act',
-                  'data-tone': 'ghost',
-                  title: '在内容日历里打开 ' + String(variant.schedule.date ?? ''),
-                  onClick: () => openCard('calendar', { date: String(variant.schedule.date ?? '') }),
-                }, '去日历')
-                : null,
-              archived ? null : h('button', {
-                className: 'dsh-gw-row-act',
-                'data-tone': 'ghost',
-                disabled: busy,
-                title: '归档这一版：从「在写 / 待发 / 已发」里收起来，随时能恢复',
-                onClick: () => { void archiveVariant(variant) },
-              }, '归档'),
-              h('button', {
-                className: 'dsh-gw-row-act',
-                'data-tone': 'danger',
-                disabled: busy,
-                title: '删掉这个平台版本（先备份，主选题不动）',
-                onClick: () => { void removeVariant(variant) },
-              }, '删除'))),
+              h(ActionMenu, { disabled: busy, label: '版本更多操作 · ' + String(variant.front?.platform ?? '') + ' · ' + (accountNameOf(variant) || '默认账号'), items: [
+                archived ? null : { label: infoEdit === variant.id ? '收起资料' : '资料', title: '这一版的标题备选、封面文案、素材清单、目标人群、发布目的', onSelect: () => setInfoEdit(infoEdit === variant.id ? '' : variant.id) },
+                archived ? null : { label: checkEdit === variant.id ? '收起自检' : '自检', title: '风险等级 / 7 项发布自检', onSelect: () => setCheckEdit(checkEdit === variant.id ? '' : variant.id) },
+                { label: variant?.schedule?.date ? '改期' : '排期', title: '选日期后同步内容日历，跨月安全搬移', onSelect: () => setSchedEdit(variant.id) },
+                variant?.schedule?.date && typeof openCard === 'function' ? { label: '去日历', onSelect: () => openCard('calendar', { date: String(variant.schedule.date) }) } : null,
+                archived ? null : { label: '归档版本', danger: true, title: '只收起这一版，随时可恢复', onSelect: () => { void archiveVariant(variant) } },
+                { label: '删除版本', danger: true, title: '先备份；保留主选题；旧指纹冲突时不自动重试', onSelect: () => { void removeVariant(variant) } },
+              ] }))),
+          schedEdit === variant.id ? h('div', { className: 'dsh-gw-variant-schedule' },
+            h(Field, { label: '排期日期' }, h('input', {
+              type: 'date', className: 'dsh-gw-sched-input', autoFocus: true, disabled: busy,
+              // 未排期留空：选今天也必须触发一次真实 change；blur 不提前卸载原生选择器。
+              value: String(variant?.schedule?.date ?? '').slice(0, 10),
+              title: '选完写入内容日历，跨月会安全搬过去',
+              onChange: (event) => { const next = String(event.target.value ?? ''); setSchedEdit(''); void saveSchedule(variant, next) },
+              onFocus: (event) => { try { event.currentTarget.showPicker?.() } catch { /* 浏览器可能要求用户手势 */ } },
+              onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setSchedEdit('') } },
+            })), h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setSchedEdit('') }, '取消')) : null,
           infoEdit === variant.id
             ? h('div', { className: 'dsh-gw-row', style: { paddingTop: 0, borderTop: 'none' } },
               h('div', { className: 'dsh-gw-row-main', style: { gap: 6 } },
@@ -4383,7 +4701,14 @@ const STAGE_OF_STATUS = {
         title: variants.length === 0 ? '还没有平台版本' : '平台版本',
         count: variants.length,
         open: panelOpen,
-        onToggle: (next) => setPanelOpen(next),
+        onToggle: (next) => {
+          if (next === false && String(activeScriptId ?? '') !== '' && typeof onCloseScript === 'function') {
+            // 版本脚本还摊在外面时，折叠整块平台版本必须把正在写的编辑器一起收掉；
+            // 用户取消放弃草稿（onCloseScript 返回 false）时，面板保持展开。
+            if (onCloseScript() === false) { setPanelOpen(true); return }
+          }
+          setPanelOpen(next)
+        },
         // 「新建」挂在标题行最右边：空态时它就是那一行唯一能点的东西，
         // 有版本时也不用在列表底下再占一行。面板收着时点它先展开面板，
         // 不然表单开了也被折着看不见。
@@ -4395,36 +4720,41 @@ const STAGE_OF_STATUS = {
       },
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         writeError ? h('div', null, h(ErrorBar, { error: writeError.error, onRetry: writeError.error?.code === 'conflict' ? list.reload : writeError.retry }), h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setWriteError(null) }, '放弃失败的字段保存')) : null,
-        h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
-        h(ListPager, { list: accountList, label: '账号候选' }),
-        null,
+        h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
+        newTopicForm === null || newTopicForm === undefined ? null : h(Fold, {
+          title: '新建选题',
+          className: 'dsh-gw-create-card',
+          open: false,
+        }, newTopicForm),
+        showCreate === true ? h('div', { className: 'dsh-gw-create-card dsh-gw-platform-create' },
+          h('div', { className: 'dsh-gw-create-card-head' }, '新建平台版本'),
+          h('div', { className: 'dsh-gw-create-card-body' },
+            h('div', { className: 'dsh-gw-grid2' },
+              h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (nextValue) => setDraft({ ...draft, platform: nextValue }), options: PLATFORMS })),
+              h(Field, { label: '账号' }, h(AccountPicker, {
+                platform: draft.platform,
+                options: accountRecords,
+                value: draft.accountId,
+                onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
+                notify,
+                hideCreate: true,
+              }))),
+            // 「计划发布日期」撤了：日期只有一个真源 —— 内容日历。
+            // 建版本时先不填日期，回到行上点「未排期」选一天，那一步会同时写日历和版本。
+            // 「版本脚本」输入框撤掉了：脚本只有一个文本框，就是下面那个编辑器——
+            // 建完版本自动打开它接着写；有版本在编时点行上的「版本脚本」也是开它。
+            h('div', { className: 'dsh-gw-actions' },
+              h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || String(draft.platform).trim() === '', onClick: create }, '新建平台版本')))) : null,
         list.loading && variants.length === 0 ? h(Empty, null, t('loading')) : variants.length === 0
           ? h(Empty, null, '还没有平台版本。选好平台点右上角「＋ 新建」，建好直接在下方写脚本。')
-          : h('div', null, variants.map(row)),
-        showCreate === true ? h('div', null,
-          h('div', { className: 'dsh-gw-grid2' },
-            h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (nextValue) => setDraft({ ...draft, platform: nextValue }), options: PLATFORMS })),
-            h(Field, { label: '账号' }, h(AccountPicker, {
-              platform: draft.platform,
-              options: accountsForPlatform(draft.platform),
-              value: draft.accountId,
-              onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
-              notify,
-              onCreated: () => accountList.reload(),
-            }))),
-          // 「计划发布日期」撤了：日期只有一个真源 —— 内容日历。
-          // 建版本时先不填日期，回到行上点「未排期」选一天，那一步会同时写日历和版本。
-          // 「版本脚本」输入框撤掉了：脚本只有一个文本框，就是下面那个编辑器——
-          // 建完版本自动打开它接着写；有版本在编时点行上的「版本脚本」也是开它。
-          h('div', { className: 'dsh-gw-actions' },
-            h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || String(draft.platform).trim() === '', onClick: create }, '新建平台版本'))) : null)
+          : h('div', null, variants.map(row)))
     }
 
     // 这次会话里读过的笔记：换笔记时先用它画首屏，再等接口回来换成权威版本。
     // 列表接口本身也带了正文（index.js 的 topics 列表），两处合起来，第一次打开也不空一帧。
     const recordCache = new Map()
 
-    function TopicDetail({ onReturnCalendar = null, path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly }) {
+    function TopicDetail({ onReturnCalendar = null, path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly, newTopicForm = null }) {
       const detail = useAsync(() => get('/topics/record?path=' + encodeURIComponent(path)), [path])
       // 选题上也能挂一个默认账号：这条选题主要交给哪个号做。建平台版本时按平台再选具体账号。
       const accountList = usePagedList('/accounts/list?limit=300')
@@ -4654,6 +4984,12 @@ const STAGE_OF_STATUS = {
       const recordUrl = '/topics/record?path=' + encodeURIComponent(path)
       // 折叠只对拆解脚本生效；版本脚本一旦打开就一直摊着，免得点了「版本脚本」什么都没出现。
       const showBody = bodyOpen === true || doc !== null
+      // 旧模板的「选题卡」正文节只复述上面三个属性字段；视图里隐掉重复节，
+      // 不动原文件；用户真正改正文时写回的是当前看到的这一份。
+      const bodyForView = React.useMemo(
+        () => stripDuplicateTopicCard(body, front),
+        [body, front],
+      )
       // 四个写入口只认这两个值：地址和基线 sha1。切到版本脚本，它们自动指向版本文件。
       const docUrl = doc === null ? recordUrl : '/v2/variants/' + encodeURIComponent(doc.id)
       const docSha = doc === null ? String(record?.sha1 ?? '') : docSha1
@@ -4860,8 +5196,8 @@ const STAGE_OF_STATUS = {
       // 我的选题里连拆解脚本也一起收 —— 否则收起版本后正文块会从平台版本下面跳回上面，
       // 看上去就像上方的拆解笔记被点开了。拆解页没有平台版本，正文就是整页内容，留着。
       function closeVariantScript(options = null) {
-        if (doc === null && !scriptLoading) return
-        if (options?.discardConfirmed !== true && !allowLeave('收起版本会放弃当前未保存改动，继续？')) return
+        if (doc === null && !scriptLoading) return true
+        if (options?.discardConfirmed !== true && !allowLeave('收起版本会放弃当前未保存改动，继续？')) return false
         wantedDoc.current = 'master'
         documentReads.current.invalidate()
         sync.invalidate()
@@ -4872,6 +5208,7 @@ const STAGE_OF_STATUS = {
         setBody(record === null ? null : String(record.body ?? ''))
         setFront(record?.front ?? {})
         if (studio === true) setBodyOpen(false)
+        return true
       }
       async function save() {
         try {
@@ -4911,7 +5248,6 @@ const STAGE_OF_STATUS = {
           })),
         h(ErrorBar, { error: detail.error, onRetry: detail.reload }),
         h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }), h(ErrorBar, { error: sourceLinks.error, onRetry: sourceLinks.reload }),
-        h(ListPager, { list: accountList, label: '默认账号候选' }),
         h(Empty, null, '这篇选题可能已经被删掉或移动了，去 Obsidian 里确认一下路径。'),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', onClick: () => { if (allowLeave()) onBack() } }, '返回')))
 
@@ -4920,6 +5256,7 @@ const STAGE_OF_STATUS = {
       const variantsBlock = studio === true ? h('div', { style: { order: 4 } }, h(PlatformVariantsPanel, {
         createRequest: variantCreateRequest,
         createPlatform: createPlatform,
+        newTopicForm,
         masterId: record?.id ?? '',
         // 推日历要用到「这一版属于哪条拆解」：标题、路径、原链接都从当前这条笔记带过去。
         topicPath: path,
@@ -5090,21 +5427,12 @@ const STAGE_OF_STATUS = {
               : null,
             studio === true
               ? h('span', { style: { display: 'inline-flex', gap: 6, alignItems: 'center', marginLeft: 8 } },
-                h('span', { className: 'dsh-gw-row-meta' }, '默认账号：'),
                 (() => {
                   const platform = normalizePlatform(front.platform)
-                  const options = accountRecords.filter((item) => platform === '' || normalizePlatform(item.front?.platform) === platform)
-                  if (options.length === 0) {
-                    return h('span', { className: 'dsh-gw-row-meta' }, '这个平台的账号档案还没建')
-                  }
-                  return h('select', {
-                    value: String(front.accountId ?? ''),
-                    onChange: (event) => { void saveAccount(event.target.value) },
-                    title: '这条选题默认交给哪个账号做；平台版本里可以再换',
-                    style: { fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
-                  },
-                    h('option', { value: '' }, '（不指定）'),
-                    options.map((item) => h('option', { key: item.path, value: String(item.front?.id ?? '') }, String(item.front?.name ?? item.title))))
+                  const options = accountRecords
+                  return h(Field, { label: '默认账号' }, h(AccountPicker, { platform, options, value: String(front.accountId ?? ''),
+                    onChange: (accountId) => { void saveAccount(accountId) }, notify, hideCreate: true,
+                    style: { minWidth: 'min(200px,100%)', maxWidth: '100%' } }))
                 })())
               : null)
           : null,
@@ -5148,6 +5476,7 @@ const STAGE_OF_STATUS = {
           // 再写一遍「拆解脚本」既重复、又和上面的「拆解笔记」抢层级；
           // 收起只走一条路 —— 点拆解笔记里那一条，点一次就收。
           h('div', { className: 'dsh-gw-note-headleft' },
+            doc === null ? null : h('strong', { className: 'dsh-gw-note-title' }, '版本脚本'),
             // 「预览」从上面那行字段搬过来：链接本身在 Obsidian 的基本信息里已经有了，
             // 但「把来源丢进右边对话看卡片」只有这一个入口。
             // 版本脚本状态下左边留空：收起这一版有两条更顺手的路（点上面那行的「版本脚本」、
@@ -5223,12 +5552,13 @@ const STAGE_OF_STATUS = {
             h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }))),
         showBody === false ? null : h('div', { className: 'dsh-gw-annot-wrap dsh-gw-note-boxbody', style: { order: doc === null ? 3 : 5 } },
           mode === 'source'
-            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: body, spellCheck: false, onChange: (event) => editBody(event.target.value) })
+            ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: bodyForView, spellCheck: false, onChange: (event) => editBody(event.target.value) })
             : h('div', { className: 'dsh-gw-note-preview', ref: previewRef },
                 h(LiveMarkdown, {
-                  source: body,
+                  source: bodyForView,
                   editable: true,
-                  onChange: (block, blockMd) => { editBody(spliceBlock(liveRef.current.body, block, blockMd)) },
+                  hideFirstHeading: doc === null ? undefined : '版本脚本',
+                  onChange: (block, blockMd) => { editBody(spliceBlock(bodyForView, block, blockMd)) },
                 })),
           annotOpen ? h(AnnotSplitter, { width: annotWidth, onResize: (next) => { setAnnotWidth(next); saveAnnotWidth(next) } }) : null,
           annotOpen ? h(AnnotationPanel, {
@@ -5335,6 +5665,10 @@ const STAGE_OF_STATUS = {
       }
       const [start, setStart] = React.useState(today)
       const [end, setEnd] = React.useState(() => addDays(today, 14))
+      const [page, setPage] = React.useState(1)
+      const UPCOMING_PAGE_SIZE = 10
+      const [upcomingWidths, setUpcomingWidths] = React.useState([18, 34, 16, 17, 15])
+      const startUpcomingResize = colResizeStart(upcomingWidths, setUpcomingWidths)
       const upcoming = useAsync(async () => {
         const from = String(start).slice(0, 10)
         const to = String(end).slice(0, 10)
@@ -5350,13 +5684,23 @@ const STAGE_OF_STATUS = {
           cursor = next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0')
         }
         const states = await Promise.all(months.map((month) => get('/calendar?month=' + month)))
+        // 任一月份读失败都不能被 flatMap 吞成“这段时间没有排期”。
+        // 把软 warning 提升为 useAsync 能保留旧数据的读取错误；折叠区也会自动展开提示。
+        const warning = states.map(responseWarning).find((error) => error !== null)
+        if (warning !== undefined) throw warning
         return states.flatMap((state) => state?.entries ?? [])
           .filter((entry) => String(entry.date ?? '') >= from && String(entry.date ?? '') <= to)
           .sort((left, right) => String(left.date).localeCompare(String(right.date)))
       }, [start, end])
       const items = upcoming.data ?? []
+      const pageCount = Math.max(1, Math.ceil(items.length / UPCOMING_PAGE_SIZE))
+      const currentPage = Math.min(page, pageCount)
+      const pageItems = items.slice((currentPage - 1) * UPCOMING_PAGE_SIZE, currentPage * UPCOMING_PAGE_SIZE)
+      React.useEffect(() => { setPage(1) }, [start, end])
+      // 数据重读后条目变少时，把过期页码收回有效范围，避免停在空白页。
+      React.useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
       const resetRange = () => { setStart(today); setEnd(addDays(today, 14)) }
-      return h(Fold, { title: '排期列表', count: items.length, open: false,
+      return h(Fold, { title: '排期列表', count: items.length, open: upcoming.error !== null,
         action: h('span', { className: 'dsh-gw-upcoming-filter', onClick: (event) => event.stopPropagation() },
           h('label', null, '从 ', h('input', { type: 'date', className: 'dsh-gw-date-input', value: start, onChange: (event) => setStart(event.target.value) })),
           h('label', null, '到 ', h('input', { type: 'date', className: 'dsh-gw-date-input', value: end, onChange: (event) => setEnd(event.target.value) })),
@@ -5364,25 +5708,24 @@ const STAGE_OF_STATUS = {
         h(ErrorBar, { error: upcoming.error, onRetry: upcoming.reload }),
         upcoming.loading ? h(Empty, null, t('loading')) : items.length === 0
           ? h(Empty, null, '这个日期区间还没有排期。')
-          : h('div', { className: 'dsh-gw-tablebox' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming' },
-            h('colgroup', null,
-              h('col', { className: 'c-date' }),
-              h('col', { className: 'c-topic' }),
-              h('col', { className: 'c-platform' }),
-              h('col', { className: 'c-account' }),
-              h('col', { className: 'c-status' })),
-            h('thead', null, h('tr', null,
-              h('th', null, '日期'),
-              h('th', null, '选题'),
-              h('th', null, '平台'),
-              h('th', null, '账号'),
-              h('th', null, '状态'))),
-            h('tbody', null, items.map((entry) => h('tr', { key: entry.id },
-              h('td', null, String(entry.date ?? '').slice(5)),
-              h('td', { title: String(entry.topic ?? '') }, String(entry.topic ?? '')),
-              h('td', null, String(entry.platform ?? '')),
-              h('td', null, String(entry.account ?? '') === '' ? '—' : String(entry.account ?? '')),
-              h('td', null, String(entry.status ?? ''))))))))
+          : h(React.Fragment, null,
+            h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '排期列表：可横向滚动并拖动表头调整列宽' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table' },
+              h('colgroup', null, upcomingWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
+              h('thead', null, h('tr', null,
+                ['日期', '选题', '平台', '账号', '状态'].map((label, index) => h('th', { key: label }, label,
+                  index < 4 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startUpcomingResize(index) }) : null)))),
+              h('tbody', null, pageItems.map((entry) => h('tr', { key: entry.id },
+                h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.date ?? '').slice(5)),
+                h('td', { className: 'dsh-gw-cell-wrap', title: String(entry.topic ?? '') }, String(entry.topic ?? '')),
+                h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.platform ?? '')),
+                h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.account ?? '') === '' ? '—' : String(entry.account ?? '')),
+                h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.status ?? ''))))))
+            , h('div', { className: 'dsh-gw-upcoming-pager', role: 'navigation', 'aria-label': '排期列表翻页' },
+              h('span', { className: 'dsh-gw-upcoming-pager-info' }, '共 ' + items.length + ' 条 · 每页 ' + UPCOMING_PAGE_SIZE + ' 条'),
+              h('button', { className: 'dsh-gw-btn', type: 'button', disabled: currentPage <= 1, onClick: () => setPage(currentPage - 1) }, '上一页'),
+              h('span', { className: 'dsh-gw-upcoming-pager-now', role: 'status' }, '第 ' + currentPage + ' / ' + pageCount + ' 页'),
+              h('button', { className: 'dsh-gw-btn', type: 'button', disabled: currentPage >= pageCount, onClick: () => setPage(currentPage + 1) }, '下一页')))
+        ))
     }
 
     // 「发布队列」「平台矩阵」已删（2026-11-08 用户反馈「看不出意义」）：
@@ -5415,9 +5758,45 @@ const STAGE_OF_STATUS = {
       return created
     }
 
+    function resolveCalendarAccount(entry, records) {
+      const rows = records ?? []
+      const id = String(entry?.accountId ?? '').trim()
+      if (id !== '') {
+        const byId = rows.find((record) => String(record.front?.id ?? '') === id)
+        if (byId !== undefined) return byId
+      }
+      // 旧排期只把账号名写进了表格，账号 id 是空的：按“同名 + 同平台”唯一匹配回档案。
+      const name = String(entry?.account ?? '').trim()
+      if (name === '') return null
+      const platform = normalizePlatform(splitPlatforms(String(entry?.platform ?? ''))[0] ?? '')
+      const byName = rows.filter((record) => String(record.front?.name ?? record.title ?? '').trim() === name)
+      const narrowed = platform === '' ? byName : byName.filter((record) => normalizePlatform(record.front?.platform) === platform)
+      return (narrowed.length === 1 ? narrowed[0] : byName.length === 1 ? byName[0] : null)
+    }
+    function calendarAccountName(entry, variant, records) {
+      const rows = records ?? []
+      const id = String(variant?.front?.accountId ?? entry?.accountId ?? '')
+      const fromVariant = (rows).find((item) => String(item.front?.id ?? '') === String(variant?.front?.accountId ?? '') && variant?.front?.accountId !== undefined)
+      let record = null
+      if (id !== '') record = rows.find((item) => String(item.front?.id ?? '') === id) ?? null
+      if (record === null) {
+        // Keep the fallback local: tests evaluate this function on its own.
+        const name = String(entry?.account ?? '').trim()
+        if (name !== '') {
+          const platform = normalizePlatform(splitPlatforms(String(entry?.platform ?? ''))[0] ?? '')
+          const byName = rows.filter((item) => String(item.front?.name ?? item.title ?? '').trim() === name)
+          const narrowed = platform === '' ? byName : byName.filter((item) => normalizePlatform(item.front?.platform) === platform)
+          record = narrowed.length === 1 ? narrowed[0] : byName.length === 1 ? byName[0] : null
+        }
+      }
+      return String(fromVariant?.front?.name ?? fromVariant?.title ?? '').trim() || String(record?.front?.name ?? record?.title ?? '').trim() || String(variant?.front?.account ?? '').trim() || String(entry?.account ?? '').trim() || (id ? '账号未载入 #' + id : '未指定账号')
+    }
+
     function CalendarCard({ notify, preset, onCrumb, openCard }) {
       const [month, setMonth] = React.useState(() => todayISO().slice(0, 7))
       const [draft, setDraft] = React.useState({ platform: '', topic: '', status: '待发', note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
+      const [pickedTopic, setPickedTopic] = React.useState(null)
+      const [pickedProduct, setPickedProduct] = React.useState(null)
       const draftBaseline = React.useRef(JSON.stringify(draft))
       const [partialMove, setPartialMove] = React.useState(null)
       const cal = useAsync(async () => ({ ...(await get('/calendar?month=' + month)), _month: month }), [month])
@@ -5430,18 +5809,32 @@ const STAGE_OF_STATUS = {
       const topicLinks = useLinkedRecords('topics', topicList.data?.records ?? [], [{ path: draft.topicPath }, { id: draft.topicId }, ...entries.map((entry) => entry.topicPath ? { path: entry.topicPath } : { id: entry.topicId })])
       const productLinks = useLinkedRecords('products', productList.data?.records ?? [], [{ path: draft.productPath }, ...entries.map((entry) => ({ path: entry.productPath }))])
       const productOptions = productLinks.records
+      const productChoices = React.useMemo(() => {
+        const choices = [...productOptions]
+        if (pickedProduct !== null && !choices.some((record) => String(record.path ?? '') === String(pickedProduct.path ?? ''))) choices.push(pickedProduct)
+        return choices
+      }, [productOptions, pickedProduct])
       // 同选题同平台可能有多个版本（主号 / 测试号 / 矩阵号）：排期这一行要能说清是哪一版。
       const variantList = useAsync(() => get('/v2/variants'), [])
       const allVariants = variantList.data?.variants ?? []
       const variantsById = React.useMemo(() => new Map(allVariants.map((variant) => [String(variant.id), variant])), [allVariants])
       const topicOptions = topicLinks.records.filter((record) => topicTypeOf(record) !== '拆解' || allVariants.some((variant) => String(variant.front?.masterId) === String(record.id ?? record.front?.id)))
+      const topicChoices = React.useMemo(() => {
+        const choices = [...topicOptions]
+        if (pickedTopic !== null && !choices.some((record) => String(record.path ?? '') === String(pickedTopic.path ?? ''))) choices.push(pickedTopic)
+        return choices
+      }, [topicOptions, pickedTopic])
+      const topicSearchActive = draft.topic.trim() !== '' && topicList.query.trim() === draft.topic.trim()
+      const topicSearchRecords = topicSearchActive ? (topicList.data?.records ?? []) : []
+      const productSearchActive = productList.query.trim() !== ''
+      const productSearchRecords = productSearchActive ? (productList.data?.records ?? []) : []
+      const topicMatches = React.useMemo(() => {
+        const title = draft.topic.trim()
+        return title === '' ? [] : topicChoices.filter((record) => String(record.title ?? '') === title)
+      }, [draft.topic, topicChoices])
       const accountList = usePagedList('/accounts/list?limit=300')
       const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: draft.accountId }, { id: variantsById.get(String(draft.variantId))?.front?.accountId }, ...entries.flatMap((entry) => [{ id: entry.accountId }, { id: variantsById.get(String(entry.variantId))?.front?.accountId }])])
       const allAccounts = accountLinks.records
-      const accountsFor = (platform) => {
-        const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
-        return allAccounts.filter((record) => first === '' || normalizePlatform(record.front?.platform) === first)
-      }
       const variantsFor = (masterId, platform) => {
         const id = String(masterId ?? '')
         if (id === '') return []
@@ -5451,10 +5844,26 @@ const STAGE_OF_STATUS = {
           return first === '' || normalizePlatform(String(variant.front?.platform ?? '')) === first
         })
       }
-      const variantLabelOf = (variant) => {
-        const account = String(variant?.front?.account ?? '')
-        return normalizePlatform(variant?.front?.platform) + ' · ' + (account === '' ? '默认账号' : account) + ' #' + String(variant?.id ?? '').slice(0, 4)
+      const variantLabelOf = (variant) => normalizePlatform(variant?.front?.platform) + ' · ' + calendarAccountName(null, variant, allAccounts) + ' #' + String(variant?.id ?? '').slice(0, 4)
+      function pickTopicRecord(record) {
+        const platform = normalizePlatform(record.front?.platform) || draft.platform
+        const candidates = variantsFor(record.id ?? record.front?.id, platform)
+        const variant = candidates.length === 1 ? candidates[0] : null
+        setPickedTopic(record)
+        setDraft({ ...draft, topic: String(record.title ?? record.front?.title ?? record.path ?? ''), topicPath: record.path, platform, variantId: variant ? String(variant.id) : '', accountId: String(variant?.front?.accountId ?? draft.accountId), account: String(variant?.front?.account ?? draft.account) })
+        if (topicList.query !== '') topicList.setQuery('')
       }
+      function pickProductRecord(record) {
+        setPickedProduct(record)
+        setDraft({ ...draft, productPath: record.path })
+        if (productList.query !== '') productList.setQuery('')
+      }
+      // 只同名一篇时直接绑上，避免用户还得在下面重复选一次「具体笔记」。
+      const onlyTopicMatch = topicMatches.length === 1 ? topicMatches[0] : null
+      React.useEffect(() => {
+        if (onlyTopicMatch === null || String(draft.topicPath ?? '') === String(onlyTopicMatch.path ?? '')) return
+        pickTopicRecord(onlyTopicMatch)
+      }, [onlyTopicMatch === null ? '' : String(onlyTopicMatch.path ?? ''), String(draft.topicPath ?? '')])
       const [selected, setSelected] = React.useState(null)
       // 「新建排期」表单默认收着：当天详情里的每一行是在编辑已有排期，不该和新建表单混在一起。
       const [showAdd, setShowAdd] = React.useState(false)
@@ -5471,16 +5880,14 @@ const STAGE_OF_STATUS = {
       // 预设想停在的那一天：换月 effect 会把选中日清空，这里先记下来，
       // 等换月 effect 跑完再恢复——否则「看排期」跳到别的月份会落回空白日历。
       const pendingDayRef = React.useRef(null)
+      // 预填表单是否展开要等目标月数据回来再判断：当天已有同一选题的排期时不重复弹「新建」。
+      const pendingAddRef = React.useRef(false)
       // 「看排期」带过来的选题路径：日历里和它相关的条目高亮，一眼找到那条排期。
       const [hlTopic, setHlTopic] = React.useState('')
       const [hlId, setHlId] = React.useState('')
       // 标题条（月份导航）实际高度：星期表头吸顶时要接在它下面。
-      const calHeadRef = React.useRef(null)
-      const [calHeadH, setCalHeadH] = React.useState(40)
-      React.useLayoutEffect(() => {
-        const el = calHeadRef.current
-        if (el !== null) setCalHeadH(Math.round(el.getBoundingClientRect().height))
-      })
+      // Observe the actual header lifetime; no per-commit layout setState feedback.
+      const [calHeadRef, calHeadH] = useMeasuredBlockHeight(40)
       React.useEffect(() => {
         if (preset === null || preset === undefined) return
         if (seenPreset.current === preset) return
@@ -5499,7 +5906,10 @@ const STAGE_OF_STATUS = {
         })
         // 只有「带着排期意图」跳进来（选题/账号/商品预填）才展开新建表单；
         // 单纯从版本行点「去日历」只看当天，不该弹出新建表单。
-        setShowAdd(['topic', 'topicPath', 'account', 'accountId', 'platform', 'productPath'].some((key) => String(preset[key] ?? '').trim() !== ''))
+        // 真正是否展开延后到目标月数据到达：当天已有同一选题的排期时不再弹新建。
+        const wantsAdd = ['topic', 'topicPath', 'account', 'accountId', 'platform', 'productPath'].some((key) => String(preset[key] ?? '').trim() !== '')
+        pendingAddRef.current = preset.entryId === undefined || preset.entryId === null || String(preset.entryId) === '' ? wantsAdd : false
+        setShowAdd(false)
       }, [preset])
       const [busy, setBusy] = React.useState(false)
       useDraftGuard(JSON.stringify(draft) !== draftBaseline.current || platformEdit !== null, busy)
@@ -5713,6 +6123,19 @@ const STAGE_OF_STATUS = {
       })
       const weeks = allWeeks.slice(0, lastUsed + 1)
       const selectedEntries = selected === null ? [] : byDate.get(selected) ?? []
+      React.useEffect(() => {
+        if (!pendingAddRef.current || calendarData === null) return
+        const presetTopic = String(preset?.topic ?? preset?.calendarDraft?.topic ?? '').trim()
+        const presetPath = String(preset?.topicPath ?? preset?.calendarDraft?.topicPath ?? '').trim()
+        const presetPlatform = normalizePlatform(preset?.platform ?? preset?.calendarDraft?.platform ?? '')
+        const duplicate = selectedEntries.some((entry) => {
+          if (presetPath !== '' && String(entry.topicPath ?? '') === presetPath) return true
+          if (presetTopic === '' || String(entry.topic ?? '').trim() !== presetTopic) return false
+          return presetPlatform === '' || normalizePlatform(entry.platform) === presetPlatform
+        })
+        pendingAddRef.current = false
+        setShowAdd(!duplicate)
+      }, [calendarData, selectedEntries.length, preset])
 
       if (cal.error?.code === 'read_warning' && entries.length === 0) return h('div', null, h(ErrorBar, { error: cal.error, onRetry: cal.reload }), h('p', { className: 'dsh-gw-hint', role: 'status' }, '读取异常，不能当作空表；请重试。不会据此新建或覆盖主表。'))
 
@@ -5742,6 +6165,8 @@ const STAGE_OF_STATUS = {
                   'data-on': date === selected,
                   'data-today': date === today,
                   'data-weekend': dayIndex >= 5,
+                  'aria-pressed': date === selected,
+                  'aria-label': date + ' · ' + dayEntries.length + ' 条排期' + dayEntries.map((entry) => '；' + entry.topic + ' · ' + String(entry.platform ?? '') + ' · ' + calendarAccountName(entry, variantsById.get(String(entry.variantId ?? '')), allAccounts)).join(''),
                   // 落点高亮：拖着一格悬停在别的日子上时给个反馈，不然不知道松手会落到哪。
                   'data-drop': dragOver === date,
                   onClick: () => { setSelected(date); setShowAdd(false) },
@@ -5774,7 +6199,7 @@ const STAGE_OF_STATUS = {
                     // 同选题同平台开了多个版本时，格子里只写主题会看成两条一模一样的；
                     // 把账号补上（主号 / 测试号），一眼分得清哪一格是哪一版。
                     const bound = allVariants.find((variant) => String(variant.id) === String(entry.variantId ?? '')) ?? null
-                    const account = String(bound?.front?.account ?? '')
+                    const account = calendarAccountName(entry, bound, allAccounts)
                     const suffix = account === '' ? '' : ' · ' + account
                     const isHl = (hlId !== '' && entry.id === hlId) || (hlTopic !== '' && String(entry.topicPath ?? '') === hlTopic)
                     return h('span', {
@@ -5812,47 +6237,40 @@ const STAGE_OF_STATUS = {
                 h('button', { className: 'dsh-gw-btn', onClick: (event) => { event.preventDefault(); event.stopPropagation(); shiftDay(1) } }, '后一天'))),
             h('div', { className: 'dsh-gw-grid2 dsh-gw-cal-addform', style: { display: showAdd ? undefined : 'none' } },
               h('div', { className: 'dsh-gw-cal-party' },
-                h('div', { className: 'dsh-gw-cal-party-left' },
-                  h(Field, { label: '平台（可多选）' },
-                    h(PlatformMultiInput, {
-                      value: draft.platform,
-                      onChange: (next) => setDraft({ ...draft, platform: next, variantId: '' }),
-                      options: calPlatforms,
-                    })),
-                  h(Field, { label: '账号（可选）' }, h(AccountPicker, {
-                    platform: draft.platform,
-                    options: accountsFor(draft.platform),
-                    value: draft.accountId,
-                    onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
-                    notify,
-                    onCreated: () => accountList.reload(),
-                    hideCreate: true,
-                  }))),
-                h('div', { className: 'dsh-gw-cal-party-right' },
-                  h('div', { className: 'dsh-gw-cal-party-title' }, '没有账号？在这里新建'),
-                  h(NewAccountFields, { platform: draft.platform, notify, onCreated: (accountId, account) => { setDraft((prev) => ({ ...prev, accountId, account })); accountList.reload() } }))),
+                h(Field, { label: '平台（可多选）' },
+                  h(PlatformMultiInput, {
+                    value: draft.platform,
+                    onChange: (next) => setDraft({ ...draft, platform: next, variantId: '' }),
+                    options: calPlatforms,
+                  })),
+                h(Field, { label: '账号（可选）' }, h(AccountPicker, {
+                  platform: draft.platform,
+                  options: allAccounts,
+                  value: draft.accountId,
+                  onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
+                  notify,
+                  hideCreate: true,
+                }))),
               h(Field, { label: '状态' }, h('select', { className: 'dsh-gw-cal-fieldselect', value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, calStatusOptions(draft.status).map((status) => h('option', { key: status, value: status }, status)))),
-              h(Field, { label: '备注' }, h('input', { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), onKeyDown: (event) => { if (event.key === 'Enter' && draft.topic.trim() !== '') add() }, placeholder: '发布时段 / 需要谁配合 / 临时想法' })),
-              h(Field, { label: '对应选题（先建选题，再建版本）' }, h('span', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-                h('input', { value: draft.topic, placeholder: '搜索已有选题；待建标题也会带过去', 'aria-label': '选题标题 / 全库搜索', onChange: (event) => { const topic = event.target.value; setDraft({ ...draft, topic, topicPath: '', variantId: '' }); topicList.setQuery(topic) } }),
-                h('select', { className: 'dsh-gw-cal-fieldselect', value: draft.topicPath, onChange: (event) => {
-                  const hit = topicOptions.find((record) => record.path === event.target.value)
-                  if (!hit) { setDraft({ ...draft, topicPath: '', variantId: '' }); return }
-                  const platform = normalizePlatform(hit.front?.platform) || draft.platform
-                  const candidates = variantsFor(hit.id ?? hit.front?.id, platform), variant = candidates.length === 1 ? candidates[0] : null
-                  setDraft({ ...draft, topic: hit.title, topicPath: hit.path, platform, variantId: variant ? String(variant.id) : '', accountId: String(variant?.front?.accountId ?? draft.accountId), account: String(variant?.front?.account ?? draft.account) })
-                } }, h('option', { value: '' }, '请选择具体笔记（同名按路径区分）'), topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title + ' · ' + record.path))),
-                h('span', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } }, h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => prepareTopic(false) }, '先建选题（保留预填）'), h('button', { type: 'button', className: 'dsh-gw-btn', disabled: draft.topicPath === '', onClick: () => prepareTopic(true) }, '先建平台版本（保留预填）')))),
-              h(ListPager, { list: topicList, label: '全库选题' }),
+              h(Field, { label: '备注', wide: true }, h('input', { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), onKeyDown: (event) => { if (event.key === 'Enter' && draft.topic.trim() !== '') add() }, placeholder: '发布时段 / 需要谁配合 / 临时想法' })),
+              h(Field, { label: '选题名称（新标题或搜索）', wide: true }, h('span', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                h('input', { value: draft.topic, placeholder: '输入新选题名称，或搜索已有选题', 'aria-label': '选题名称 / 全库搜索', onChange: (event) => { const topic = event.target.value; setPickedTopic(null); setDraft({ ...draft, topic, topicPath: '', variantId: '' }); topicList.setQuery(topic) } }),
+                topicSearchActive ? h('div', { className: 'dsh-gw-cal-candidates', role: 'listbox', 'aria-label': '匹配选题' },
+                  topicList.loading
+                    ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '搜索中…')
+                    : topicList.error !== null
+                      ? h(ErrorBar, { error: topicList.error, onRetry: topicList.reload })
+                      : topicSearchRecords.length === 0
+                        ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '没有匹配选题，保存时会新建。')
+                        : topicSearchRecords.slice(0, 10).map((record) => h('button', {
+                          type: 'button', key: record.path, role: 'option', className: 'dsh-gw-cal-candidate', onClick: () => pickTopicRecord(record),
+                        }, h('span', { className: 'dsh-gw-cal-candidate-name' }, String(record.title ?? record.path ?? '')), h('span', { className: 'dsh-gw-cal-candidate-path' }, String(record.path ?? ''))))) : null,
+                h('span', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } }, h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => prepareTopic(false) }, '先建选题'), h('button', { type: 'button', className: 'dsh-gw-btn', disabled: draft.topicPath === '', onClick: () => prepareTopic(true) }, '先建平台版本')))),
               h(Field, { label: '版本（多版必选）' }, (() => {
-                if (draft.topic.trim() === '') {
-                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '先选择具体选题，再选平台版本')
-                }
-                const hit = topicOptions.find((item) => item.path === draft.topicPath)
+                if (draft.topic.trim() === '') return null
+                const hit = topicChoices.find((item) => item.path === draft.topicPath)
                 const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
-                if (candidates.length === 0) {
-                  return h('span', { className: 'dsh-gw-row-meta', style: { display: 'inline-block', paddingTop: 6 } }, '还没有该平台版本：点「先建平台版本」，建好后回到预填的日历排期')
-                }
+                if (candidates.length === 0) return null
                 return h('select', {
                   className: 'dsh-gw-cal-fieldselect',
                   value: draft.variantId,
@@ -5862,14 +6280,26 @@ const STAGE_OF_STATUS = {
                   h('option', { value: '' }, candidates.length > 1 ? '请选择具体版本（必选）' : '唯一版本（保存时自动选择）'),
                   candidates.map((variant) => h('option', { key: variant.id, value: variant.id }, variantLabelOf(variant) + ' · ' + String(variant.status ?? ''))))
               })()),
-              h(ListPager, { list: productList, label: '商品候选' }),
-              h(Field, { label: '对应商品' }, h('select', {
-                className: 'dsh-gw-cal-fieldselect',
-                value: draft.productPath,
-                onChange: (event) => setDraft({ ...draft, productPath: event.target.value }),
-              },
-                h('option', { value: '' }, '（不挂货）'),
-                productOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title + (record.front?.kind ? ' · ' + record.front.kind : ''))))),
+              h(Field, { label: '对应商品', wide: true }, h('span', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+                h('select', {
+                  className: 'dsh-gw-cal-fieldselect',
+                  value: draft.productPath,
+                  onChange: (event) => { setPickedProduct(null); setDraft({ ...draft, productPath: event.target.value }) },
+                },
+                  h('option', { value: '' }, '（不挂货）'),
+                  productChoices.map((record) => h('option', { key: record.path, value: record.path }, record.title + (record.front?.kind ? ' · ' + record.front.kind : '')))),
+                h('input', { className: 'dsh-gw-input', value: productList.query, placeholder: '搜索商品（含正文）', 'aria-label': '搜索商品（含正文）', onChange: (event) => productList.setQuery(event.target.value) }),
+                productSearchActive ? h('div', { className: 'dsh-gw-cal-candidates', role: 'listbox', 'aria-label': '匹配商品' },
+                  productList.loading
+                    ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '搜索中…')
+                    : productList.error !== null
+                      ? h(ErrorBar, { error: productList.error, onRetry: productList.reload })
+                      : productSearchRecords.length === 0
+                        ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '没有匹配商品。')
+                        : productSearchRecords.slice(0, 10).map((record) => h('button', {
+                          type: 'button', key: record.path, role: 'option', className: 'dsh-gw-cal-candidate', onClick: () => pickProductRecord(record),
+                        }, h('span', { className: 'dsh-gw-cal-candidate-name' }, String(record.title ?? record.path ?? '')), h('span', { className: 'dsh-gw-cal-candidate-path' }, String(record.path ?? ''))))) : null
+              )),
             h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', title: '先关联已有选题及明确的平台版本；去建资料时会保留预填', disabled: busy || draft.topicPath === '' || variantList.loading || variantList.error !== null, onClick: add }, '排进 ' + selected.slice(5)))),
             h('div', { className: 'dsh-gw-cal-listhead' }, '当天排期' + (selectedEntries.length === 0 ? '' : ' · ' + selectedEntries.length + ' 条')),
             selectedEntries.length === 0
@@ -5878,10 +6308,14 @@ const STAGE_OF_STATUS = {
                 const isHl = (hlId !== '' && entry.id === hlId) || (hlTopic !== '' && String(entry.topicPath ?? '') === hlTopic)
                 const candidates = variantsFor(entry.topicId, entry.platform)
                 const bound = candidates.find((variant) => String(variant.id) === String(entry.variantId ?? '')) ?? null
+                const entryAccount = resolveCalendarAccount(entry, allAccounts)
+                const entryAccountOptions = allAccounts
+                if (entryAccount !== null && !entryAccountOptions.some((record) => String(record.front?.id ?? '') === String(entryAccount.front?.id ?? ''))) entryAccountOptions.push(entryAccount)
                 return h('div', { key: entry.id, className: 'dsh-gw-row dsh-gw-cal-row' + (isHl ? ' dsh-gw-row-hl' : ''), style: { cursor: 'default' } },
                   h('span', { className: 'dsh-gw-cal-tag', 'data-status': calToneOf(entry.status) }, entry.status),
                 h('span', { className: 'dsh-gw-row-main' },
-                  (entry.platform === '' ? '' : entry.platform + ' · ') + entry.topic + (bound === null && String(entry.account ?? '') !== '' ? ' · ' + String(entry.account) : ''),
+                  h('div', { className: 'dsh-gw-cal-row-title', title: String(entry.topic ?? '') }, entry.topic),
+                  h('div', { className: 'dsh-gw-row-meta dsh-gw-cal-row-identity' }, String(entry.platform || '未选平台') + ' · ' + calendarAccountName(entry, bound, allAccounts)),
                   entry.note === '' || entry.note === undefined ? null : h('div', { className: 'dsh-gw-row-meta' }, entry.note),
                   entry.topicPath === '' || entry.topicPath === undefined ? null : h('div', { className: 'dsh-gw-row-meta' },
                     '选题 ', h('a', { href: '#', onClick: (event) => { event.preventDefault(); openCard('studio', { path: String(entry.topicPath) }) }, title: '在我的选题打开这篇选题' }, tailOf(entry.topicPath))),
@@ -5906,6 +6340,8 @@ const STAGE_OF_STATUS = {
                     title: '标成「已发」后，这条会出现在「待回填数据」里等你填数据',
                     style: { fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   }, calStatusOptions(entry.status).map((status) => h('option', { key: status, value: status }, status))),
+                  h('details', { className: 'dsh-gw-cal-row-links', onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } } },
+                    h('summary', null, '平台与关联'),
                   // 平台也能补/改：一条内容可能分发多个平台，点开是多选胶囊。
                   h('button', {
                     className: 'dsh-gw-row-act',
@@ -5921,7 +6357,7 @@ const STAGE_OF_STATUS = {
                       void setTopicPath(entry, event.target.value, hit?.title)
                     },
                     title: '这条内容对应的选题笔记（待回填数据的播放/赞会写进它）',
-                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: '100%', minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   },
                     h('option', { value: '' }, '未选题'),
                     topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title))),
@@ -5940,20 +6376,13 @@ const STAGE_OF_STATUS = {
                       value: String(entry.variantId ?? ''),
                       onChange: (event) => { void setVariant(entry, event.target.value) },
                       title: '这条排期对应哪个平台版本：同选题同平台有多个版本时必须选清楚',
-                      style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 150, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                      style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: '100%', minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     },
                       h('option', { value: '' }, '未指定版本'),
                       candidates.map((variant) => h('option', { key: variant.id, value: variant.id }, variantLabelOf(variant)))),
                   // 账号跟着版本走：选了版本就不再单独放一个「未指定账号」下拉，避免同一个账号出现两遍。
-                  bound === null ? h('select', {
-                    value: String(entry.accountId ?? ''),
-                    onChange: (event) => { void setAccount(entry, event.target.value) },
-                    title: '这条排期由哪个账号发（账号档案里选）',
-                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: 130, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
-                  },
-                    h('option', { value: '' }, entry.account ? String(entry.account) : '未指定账号'),
-                    accountsFor(entry.platform).map((record) => h('option', { key: record.path, value: String(record.front?.id ?? '') }, String(record.front?.name ?? record.title)))) : null,
-                  h('button', { className: 'dsh-gw-ibtn', 'data-tone': 'danger', title: '删掉这条排期', 'aria-label': '删掉这条排期', onClick: () => remove(entry) }, h(Icon, { name: 'trash' }))),
+                  bound === null ? h(Field, { label: '账号' }, h(AccountPicker, { platform: entry.platform, options: entryAccountOptions, value: String(entryAccount?.front?.id ?? entry.accountId ?? ''), onChange: (accountId) => { void setAccount(entry, accountId) }, hideCreate: true, notify })) : null),
+                  h('button', { type: 'button', className: 'dsh-gw-row-act', 'data-tone': 'danger', disabled: busy, title: '只删除这一条排期；冲突时不自动重试', onClick: () => { void remove(entry) } }, '删除排期')),
                 platformEdit !== null && platformEdit.id === entry.id ? h('span', { style: { flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 4, margin: '4px 0 0' } },
                   h(PlatformMultiInput, {
                     value: platformEdit.value,
@@ -6264,17 +6693,18 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || content.trim() === '', onClick: add }, '记下')),
         
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
-        h(ErrorBar, { error: topicList.error, onRetry: topicList.reload }),
-        h(ListPager, { list: topicList, label: '可关联的全库选题' }),
         h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : entries.length === 0
           ? h(Empty, null, '灵感箱还空着')
-          : h(Fold, { title: '灵感', count: shownEntries.length, open: true, action: h('div', { className: 'dsh-gw-idea-filters', onClick: (event) => event.stopPropagation(), onMouseDown: (event) => event.stopPropagation() },
-            h('select', { className: 'dsh-gw-catselect', value: statusFilter, title: '只看某个状态的灵感', onChange: (event) => setStatusFilter(event.target.value) },
-              [['', '状态：全部'], ['新', '状态：新'], ['已用', '状态：已用'], ['已废弃', '状态：已废弃']].map(([value, label]) => h('option', { key: label, value }, label))),
-            h('select', { className: 'dsh-gw-catselect', value: sourceFilter, title: '只看某个来源的灵感', onChange: (event) => setSourceFilter(event.target.value) },
-              [['', '来源：全部']].concat(sources.map((value) => [value, '来源：' + value])).map(([value, label]) => h('option', { key: label, value }, label))),
-            h('input', { className: 'dsh-gw-idea-search', value: needle, placeholder: '搜内容 / 关键词', title: '按内容、来源、链接或去向过滤', onChange: (event) => setNeedle(event.target.value) })) },
+          : h('div', null,
+            h('div', { className: 'dsh-gw-ideas-head' },
+              h('div', { className: 'dsh-gw-ideas-title', role: 'heading', 'aria-level': 2 }, '灵感集'),
+              h('div', { className: 'dsh-gw-idea-filters', onClick: (event) => event.stopPropagation(), onMouseDown: (event) => event.stopPropagation() },
+                h('select', { className: 'dsh-gw-catselect', value: statusFilter, title: '只看某个状态的灵感', onChange: (event) => setStatusFilter(event.target.value) },
+                  [['', '状态：全部'], ['新', '状态：新'], ['已用', '状态：已用'], ['已废弃', '状态：已废弃']].map(([value, label]) => h('option', { key: label, value }, label))),
+                h('select', { className: 'dsh-gw-catselect', value: sourceFilter, title: '只看某个来源的灵感', onChange: (event) => setSourceFilter(event.target.value) },
+                  [['', '来源：全部']].concat(sources.map((value) => [value, '来源：' + value])).map(([value, label]) => h('option', { key: label, value }, label))),
+                h('input', { className: 'dsh-gw-idea-search', value: needle, placeholder: '搜内容 / 关键词', title: '按内容、来源、链接或去向过滤', onChange: (event) => setNeedle(event.target.value) }))),
             shownEntries.length === 0
               ? h(Empty, null, '没有符合筛选的灵感')
               : h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
@@ -6410,19 +6840,23 @@ const STAGE_OF_STATUS = {
                         : h('div', { className: 'dsh-gw-idea-btns' },
                           h('button', {
                             className: 'dsh-gw-btn dsh-gw-btn-quiet dsh-gw-idea-add',
-                            'data-linked': entry.outcome ? 'true' : undefined,
+                            'data-linked': entry.outcome || statusOf(entry) === '已用' ? 'true' : undefined,
                             style: { flex: '0 1 auto', minWidth: 0, maxWidth: '100%' },
-                            disabled: topicBusy === entry.id,
-                            title: entry.outcome ? '打开已关联的笔记：' + entry.outcome : '用这条灵感建一篇拆解笔记并打开',
+                            disabled: topicBusy === entry.id || (!entry.outcome && statusOf(entry) === '已用'),
+                            title: entry.outcome
+                              ? '打开已关联的' + outcomeKind + '：' + entry.outcome
+                              : statusOf(entry) === '已用'
+                                ? '这条灵感已标记为已用，但没有可打开的关联笔记'
+                                : '用这条灵感建一篇拆解笔记并打开',
                             onClick: (event) => {
                               event.stopPropagation()
                               if (entry.outcome) {
                                 void openOutcome(entry)
-                              } else {
+                              } else if (statusOf(entry) !== '已用') {
                                 void makeDeconstruction(entry)
                               }
                             },
-                          }, topicBusy === entry.id ? '建中…' : '拆解'),
+                          }, topicBusy === entry.id ? '建中…' : entry.outcome ? '打开' + outcomeKind : statusOf(entry) === '已用' ? '已用' : '拆解'),
                           !entry.outcome && statusOf(entry) !== '已用'
                             ? h('button', {
                               className: 'dsh-gw-btn dsh-gw-btn-quiet dsh-gw-idea-add',
@@ -6593,7 +7027,7 @@ const STAGE_OF_STATUS = {
       const [openPath, setOpenPath] = React.useState(null)
       const [rankBy, setRankBy] = React.useState('views')
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
         if (seenTicket.current === closeTicket) return
@@ -6660,7 +7094,7 @@ const STAGE_OF_STATUS = {
       const [csvText, setCsvText] = React.useState('')
       const [busy, setBusy] = React.useState(false)
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -6841,7 +7275,7 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', platform: '', positioning: '', audience: '', status: '启用', note: '' })
       const [busy, setBusy] = React.useState(false)
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
         if (seenTicket.current === closeTicket) return
@@ -6851,7 +7285,7 @@ const STAGE_OF_STATUS = {
       }, [closeTicket])
 
       const records = list.data?.records ?? []
-      const rf = useRecordFilter(records)
+      const rf = useRecordFilter(records, list)
       const shown = rf.shown
 
       async function create() {
@@ -6890,23 +7324,23 @@ const STAGE_OF_STATUS = {
           : shown.length === 0
             ? h(Empty, null, '没有匹配「' + rf.filter.trim() + '」的账号。')
             : h('div', null, shown.map((record) => {
-              const descParts = [
-                String(record.front?.positioning ?? ''),
-                String(record.front?.audience ?? '') === '' ? '' : '人群 ' + String(record.front.audience),
-                String(record.front?.note ?? ''),
-              ].filter((part) => part !== '')
+              const positioningText = String(record.front?.positioning ?? '')
+              const audienceText = String(record.front?.audience ?? '')
+              const noteText = String(record.front?.note ?? '')
+              const metaLead = [positioningText, audienceText === '' ? '' : '人群'].filter((part) => part !== '').join(' · ')
+              const metaTail = [audienceText, noteText].filter((part) => part !== '').join(' · ')
               const platformText = String(record.front?.platform ?? '')
               const statusText = String(record.front?.status ?? '启用')
               // 账号档案是「固定设置」页：第一行 账号名 + 状态/平台标签 + 排期动作，
-              // 第二行用灰字写定位/人群/备注。标签紧跟名字，别再单独掉一行。
+              // 第二行用灰字写定位/人群/备注。名名列与定位标签共用同一宽度，标签从人群值的位置开始。
               return h('div', { key: record.path, className: 'dsh-gw-row dsh-gw-account-row' },
                 h('div', { className: 'dsh-gw-row-main', onClick: () => setOpenPath(record.path) },
-                  h('div', { className: 'dsh-gw-row-title' },
-                    h('span', { className: 'dsh-gw-row-name' }, String(record.front?.name ?? record.title)),
-                    h('span', { className: 'dsh-gw-account-flags' },
-                      h(Pill, { tone: ACCOUNT_STATUS_TONE[statusText] ?? '' }, statusText),
-                      platformText === '' ? null : h(Pill, { tone: '', title: '平台' }, platformText))),
-                  descParts.length === 0 ? null : h('div', { className: 'dsh-gw-row-meta' }, descParts.join(' · '))),
+                  h('span', { className: 'dsh-gw-row-name' }, h('span', { className: 'dsh-gw-row-name-text' }, String(record.front?.name ?? record.title))),
+                  h('span', { className: 'dsh-gw-account-flags' },
+                    h(Pill, { tone: ACCOUNT_STATUS_TONE[statusText] ?? '' }, statusText),
+                    platformText === '' ? null : h(Pill, { tone: '', title: '平台' }, platformText)),
+                  metaLead === '' ? null : h('span', { className: 'dsh-gw-account-meta-lead' }, metaLead),
+                  metaTail === '' ? null : h('span', { className: 'dsh-gw-row-meta dsh-gw-account-meta-tail' }, metaTail)),
                 h('div', { className: 'dsh-gw-account-acts' },
                   h('button', {
                     className: 'dsh-gw-row-act',
@@ -6922,7 +7356,7 @@ const STAGE_OF_STATUS = {
         h('div', { style: { marginTop: 10 } },
           h(Fold, { title: '新建账号档案', open: records.length === 0 },
             h('div', { className: 'dsh-gw-grid2' },
-              h(Field, { label: '账号名（= 文件名）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '例如：抖音主号 / 小红书种草号' })),
+              h(Field, { label: '账号名（= 文件名）' }, h('input', { maxLength: 20, value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '例如：抖音主号 / 小红书种草号' })),
               h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (next) => setDraft({ ...draft, platform: next }) })),
               h(Field, { label: '定位' }, h('input', { value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '这个号讲什么、什么调性' })),
               h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '给谁看：年龄 / 场景 / 痛点' })),
@@ -6946,7 +7380,7 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', kind: '自家', platform: '', price: '', sales: '', tags: '', link: '' })
       const [busy, setBusy] = React.useState(false)
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -6957,7 +7391,7 @@ const STAGE_OF_STATUS = {
       }, [closeTicket])
       const records = list.data?.records ?? []
       const schema = list.data?.schema ?? []
-      const rf = useRecordFilter(records)
+      const rf = useRecordFilter(records, list)
       // 自家 / 竞品胶囊：跟搜索框叠加使用（先按 kind 筛，再按关键词搜）。
       const kindOf = (path) => {
         const tail = tailKey(path)
@@ -6968,6 +7402,8 @@ const STAGE_OF_STATUS = {
       const [statusFilter, setStatusFilter] = React.useState('')
       const [onlyWithContent, setOnlyWithContent] = React.useState(false)
       const [splitPct, setSplitPct] = React.useState(50)
+      const [rollupWidths, setRollupWidths] = React.useState([28, 16, 33, 11, 12])
+      const startRollupResize = colResizeStart(rollupWidths, setRollupWidths)
       const splitRef = React.useRef(null)
       const platforms = platformOptions(records.map((record) => record.front?.platform))
       const statusOptions = React.useMemo(() => [...new Set(records.map((record) => String(record.front?.status ?? '').trim()).filter((value) => value !== ''))].sort(), [records])
@@ -7085,22 +7521,14 @@ const STAGE_OF_STATUS = {
               '只看带过内容'))),
         rolled.length === 0 ? null : h(Fold, { title: '带过内容', count: h(Pill, null, String(totalItemsCount) + ' 条内容') },
           h('div', { className: 'dsh-gw-hint' }, '按日历里挂了商品档案、且已发布的内容明细。点击行可跳转到对应内容日历并定位。'),
-          h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6, marginBottom: 8 } },
-            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table' },
-              h('colgroup', null,
-                h('col', { style: { width: '28%' } }),
-                h('col', { style: { width: '16%' } }),
-                h('col', { style: { width: '33%' } }),
-                h('col', { style: { width: '11%' } }),
-                h('col', { style: { width: '12%' } })
-              ),
+          h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '带过内容表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
+            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table dsh-gw-adjustable-table' },
+              h('colgroup', null, rollupWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
               h('thead', null,
                 h('tr', null,
-                  h('th', null, '商品档案'),
-                  h('th', null, '日期'),
-                  h('th', null, '带过内容'),
-                  h('th', { style: { textAlign: 'right' } }, '播放'),
-                  h('th', { style: { textAlign: 'right' } }, 'GMV')
+                  ['商品档案', '日期', '带过内容', '播放', 'GMV'].map((label, index) => h('th', { key: label, style: index >= 3 ? { textAlign: 'right' } : undefined },
+                    label,
+                    index < 4 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startRollupResize(index) }) : null))
                 )
               ),
               h('tbody', null,
@@ -7117,16 +7545,16 @@ const STAGE_OF_STATUS = {
                         }
                       }
                     },
-                      idx === 0 ? h('td', { rowSpan: items.length, style: { fontWeight: 500, verticalAlign: 'middle' } }, tailOf(product.productPath)) : null,
-                      h('td', { style: { fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } }, String(row.date || '—')),
+                      idx === 0 ? h('td', { className: 'dsh-gw-cell-wrap', rowSpan: items.length, style: { fontWeight: 500, verticalAlign: 'middle' } }, tailOf(product.productPath)) : null,
+                      h('td', { className: 'dsh-gw-cell-nowrap', style: { fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', fontVariantNumeric: 'tabular-nums' } }, String(row.date || '—')),
                       h('td', null,
                         h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 } },
-                          row.platform ? h('span', { className: 'dsh-gw-pill' }, String(row.platform)) : null,
-                          h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, String(row.topic || '(无主题)'))
+                          row.platform ? h('span', { className: 'dsh-gw-pill dsh-gw-platform-badge' }, String(row.platform)) : null,
+                          h('span', { className: 'dsh-gw-rollup-topic' }, String(row.topic || '(无主题)'))
                         )
                       ),
-                      h('td', { style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' } }, row.views > 0 ? formatCount(row.views) : '—'),
-                      h('td', { style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--dsw-alias-link)' } }, row.gmv > 0 ? '¥' + formatCount(row.gmv) : '—')
+                      h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' } }, row.views > 0 ? formatCount(row.views) : '—'),
+                      h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--dsw-alias-link)' } }, row.gmv > 0 ? '¥' + formatCount(row.gmv) : '—')
                     )
                   )
                 })
@@ -7223,6 +7651,24 @@ const STAGE_OF_STATUS = {
         stale ? h('optgroup', { label: '已记录（不在当前候选里）' }, h('option', { value: current }, current)) : null,
         groups.map((group) => h('optgroup', { key: group.label, label: group.label },
           group.options.map((option) => h('option', { key: option.value, value: option.value }, option.label)))))
+    }
+    function FeedbackSourceResults({ list, kind, selected, target, onPick }) {
+      if (String(list.query ?? '').trim() === '') return null
+      const records = (list.data?.records ?? []).filter((record) => kind !== 'topic' || topicTypeOf(record) !== '拆解')
+      if (records.length === 0) return null
+      return h('div', { className: 'dsh-gw-source-results', role: 'list', 'aria-label': (kind === 'topic' ? '全库笔记' : '全库商品') + '可关联结果' },
+        records.slice(0, 12).map((record) => {
+          const title = String(record.title ?? '').trim()
+          if (title === '') return null
+          const rival = kind === 'product' && String(record.front?.kind ?? '').includes('竞品')
+          const value = kind === 'topic' ? '内容 · ' + title : '商品 · ' + (rival ? '竞品' : '自家') + ' · ' + title
+          return h('button', {
+            key: kind + ':' + String(record.path ?? title), type: 'button', className: 'dsh-gw-source-result', role: 'listitem',
+            'data-selected': String(selected ?? '') === value ? 'true' : undefined,
+            title: '关联到' + target + ' · ' + String(record.path ?? title),
+            onClick: () => onPick(value),
+          }, h('span', null, (kind === 'topic' ? '内容 · ' : rival ? '竞品 · ' : '自家 · ') + title))
+        }))
     }
 
     /* ────────────── 卡片：客户反馈 ────────────── */
@@ -7345,6 +7791,16 @@ const STAGE_OF_STATUS = {
         }
       }
 
+      function pickSource(value) {
+        if (editing === null) {
+          setDraft((prev) => ({ ...prev, source: value }))
+          return
+        }
+        const next = { ...editing, source: value, focus: 'source' }
+        setEditing(next)
+        void saveEditSilent(next)
+      }
+
       async function saveEdit() {
         if (editing === null) return
         const content = editing.content.trim()
@@ -7427,7 +7883,13 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         h(ErrorBar, { error: sourceTopicList.error, onRetry: sourceTopicList.reload }), h(ErrorBar, { error: sourceProductList.error, onRetry: sourceProductList.reload }),
-        h(ListPager, { list: sourceTopicList, label: '可关联的全库笔记' }), h(ListPager, { list: sourceProductList, label: '可关联的全库商品' }),
+        h('div', { className: 'dsh-gw-source-pages' },
+          h('div', null,
+            h(ListPager, { list: sourceTopicList, label: '可关联的全库笔记' }),
+            h(FeedbackSourceResults, { list: sourceTopicList, kind: 'topic', selected: editing === null ? draft.source : editing.source, target: editing === null ? '新反馈' : '正在编辑的反馈', onPick: pickSource })),
+          h('div', null,
+            h(ListPager, { list: sourceProductList, label: '可关联的全库商品' }),
+            h(FeedbackSourceResults, { list: sourceProductList, kind: 'product', selected: editing === null ? draft.source : editing.source, target: editing === null ? '新反馈' : '正在编辑的反馈', onPick: pickSource }))),
         h(ListPager, { list }),
         entries.length > 0 ? h('div', { className: 'dsh-gw-cat-row', style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 } },
           h('select', { value: sentimentFilter, onChange: (event) => { setSentimentFilter(event.target.value); if (event.target.value !== '负') setStatusFilter('') }, className: 'dsh-gw-catselect', style: { height: 24 }, title: '按情感筛选' },
@@ -7460,13 +7922,13 @@ const STAGE_OF_STATUS = {
               ? h('span', { className: 'dsh-gw-rule-empty' }, '—')
               : String(entry.tags).split(/[/,、;；]/).filter((part) => part.trim() !== '').map((part) => h(Pill, { key: part, tone: '' }, part.trim()))
             const mood = h(Pill, { tone: String(entry.sentiment).includes('负') ? 'error' : String(entry.sentiment).includes('正') ? 'ok' : '' }, entry.sentiment)
-            const meta = h('div', { className: 'dsh-gw-fb-meta' },
+            const meta = h('div', { key: 'meta', className: 'dsh-gw-fb-meta' },
               h('span', null, entry.date), ' · ', h('span', null, entry.channel),
               entry.source === '' || entry.source === undefined ? null : h('span', { className: 'dsh-gw-fb-meta-source' }, ' · ' + entry.source),
               ' ', mood, tags === null ? null : h('span', { className: 'dsh-gw-fb-meta-tags' }, tags))
             return h('tr', { key: entry.id, className: 'dsh-gw-fb-row' },
               compact
-                ? [cell('content', [meta, h('div', { className: 'dsh-gw-fb-body' }, editingThis
+                ? [cell('content', [meta, h('div', { key: 'body', className: 'dsh-gw-fb-body' }, editingThis
                   ? h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', 'data-cell': 'content', rows: 2, value: editing.content, onChange: (event) => setEditing({ ...editing, content: event.target.value }), onBlur: () => { void saveEditSilent() }, onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); void saveEditSilent(); setEditing(null) } if (event.key === 'Escape') setEditing(null) } })
                   : entry.content)], { key: 'main' })]
                 : null,
@@ -7536,6 +7998,8 @@ const STAGE_OF_STATUS = {
       const detail = useAsync(() => get('/campaigns/record?path=' + encodeURIComponent(path)), [path])
       const [rows, setRows] = React.useState([])
       const [busy, setBusy] = React.useState(false)
+      const [metricWidths, setMetricWidths] = React.useState([34, 28, 28, 10])
+      const startMetricResize = colResizeStart(metricWidths, setMetricWidths)
       React.useEffect(() => {
         if (detail.data?.record === undefined) return
         const parsed = parseCampaignMetrics(detail.data.record.body)
@@ -7569,14 +8033,11 @@ const STAGE_OF_STATUS = {
       if (detail.loading && detail.data === null) return h(Empty, null, t('loading'))
       return h(Fold, { title: '效果对比（结构化编辑）', open: true, count: h(Pill, null, String(rows.filter((row) => String(row.metric ?? '').trim() !== '').length) + ' 项') },
         h('div', { className: 'dsh-gw-hint' }, '对应正文「### 效果对比」那张表；填指标 / 预期 / 实际，保存时只改这张表。'),
-        h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6, marginBottom: 8 } },
-          h('table', { className: 'dsh-gw-table' },
-            h('colgroup', null,
-              h('col', { style: { width: '34%' } }),
-              h('col', { style: { width: '28%' } }),
-              h('col', { style: { width: '28%' } }),
-              h('col', { style: { width: '10%' } })),
-            h('thead', null, h('tr', null, h('th', null, '指标'), h('th', null, '预期'), h('th', null, '实际'), h('th', null, ''))),
+        h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '效果对比表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
+          h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table' },
+            h('colgroup', null, metricWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
+            h('thead', null, h('tr', null, ['指标', '预期', '实际', ''].map((label, index) => h('th', { key: label || 'actions' }, label,
+              index < 3 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + (label || '操作') + '列宽', onPointerDown: startMetricResize(index) }) : null)))),
             h('tbody', null, rows.map((row, index) => h('tr', { key: String(index) },
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.metric, placeholder: '如：播放量', onChange: (event) => updateRow(index, { metric: event.target.value }), style: { width: '100%' } })),
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.expected, placeholder: '预期值', onChange: (event) => updateRow(index, { expected: event.target.value }), style: { width: '100%' } })),
@@ -7593,7 +8054,7 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', platform: '', status: '草稿', start: '', end: '', budget: '', goal: '' })
       const [busy, setBusy] = React.useState(false)
 
-      if (onCrumb) React.useEffect(() => { onCrumb(openPath) }, [openPath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -7603,7 +8064,7 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const records = list.data?.records ?? []
-      const rf = useRecordFilter(records)
+      const rf = useRecordFilter(records, list)
 
       async function create() {
         setBusy(true)
@@ -7622,9 +8083,9 @@ const STAGE_OF_STATUS = {
 
       useObjectDraftGuard(draft, busy)
 
-      if (openPath !== null) return h('div', null,
-        h(CampaignMetricsPanel, { key: openPath, path: openPath, notify }),
-        h(NoteDetail, { key: openPath, kind: 'campaigns', cardTitle: '营销活动', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify }))
+      if (openPath !== null) return h('div', { key: openPath },
+        h(NoteDetail, { key: openPath + ':detail', kind: 'campaigns', cardTitle: '营销活动', path: openPath, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify }),
+        h(CampaignMetricsPanel, { key: openPath + ':metrics', path: openPath, notify }))
       return h('div', null,
         records.length === 0 ? null : h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, shown: rf.shown.length, total: records.length }),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
@@ -7836,18 +8297,26 @@ const STAGE_OF_STATUS = {
             : null
           return h(Field, { key, label },
             h('div', { className: 'dsh-gw-front-field' },
-              selectOptions === null
-                ? h('input', {
-                  type: ['date', 'start', 'end'].includes(String(key)) ? 'date' : 'text',
+              kind === 'campaigns' && key === 'platform'
+                ? h(PlatformMultiInput, {
                   value: String(front[key] ?? ''),
-                  onChange: (event) => editFront({ ...front, [key]: event.target.value }),
+                  onChange: (next) => editFront({ ...front, [key]: next }),
+                  options: PLATFORMS,
+                  placeholder: '小红书 / 抖音（可多选）',
+                  'aria-label': '平台（可多选）',
                 })
-                : h('select', {
-                  value: String(front[key] ?? ''),
-                  onChange: (event) => editFront({ ...front, [key]: event.target.value }),
-                },
-                  h('option', { value: '' }, '（未设置）'),
-                  selectOptions.map((value) => h('option', { key: value, value }, value))),
+                : selectOptions === null
+                  ? h('input', {
+                    type: ['date', 'start', 'end'].includes(String(key)) ? 'date' : 'text',
+                    value: String(front[key] ?? ''),
+                    onChange: (event) => editFront({ ...front, [key]: event.target.value }),
+                  })
+                  : h('select', {
+                    value: String(front[key] ?? ''),
+                    onChange: (event) => editFront({ ...front, [key]: event.target.value }),
+                  },
+                    h('option', { value: '' }, '（未设置）'),
+                    selectOptions.map((value) => h('option', { key: value, value }, value))),
               isSourceUrlKey(key) && safeLinkTarget(String(front[key] ?? '')) !== ''
                 ? h('button', {
                   type: 'button',
@@ -7907,7 +8376,7 @@ const STAGE_OF_STATUS = {
             pushToAgent(path, body, notify, { promptKey: 'note' })
           } }, '交给对话'),
           h('button', { className: 'dsh-gw-btn', onClick: () => openInObsidian(path, notify) }, t('openInObsidian')),
-          h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', title: t('delete') + '：' + path, disabled: busy, onClick: () => { if (allowLeave()) void deleteNote(path, notify, onBack) } }, [h(Icon, { name: 'trash', size: 12 }), ' ', t('delete')]),
+          h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', title: t('delete') + '：' + path, disabled: busy, onClick: () => { if (allowLeave()) void deleteNote(path, notify, onBack) } }, h(Icon, { name: 'trash', size: 12 }), ' ', t('delete')),
         ),
         h(ConflictDialog, { conflict, onResolve: (choice) => { void resolveConflict(choice) } }),
       )
@@ -8001,6 +8470,31 @@ const STAGE_OF_STATUS = {
       if (end < 0) return text
       const after = text.indexOf('\n', end + 4)
       return after < 0 ? '' : text.slice(after + 1)
+    }
+
+    // 旧版选题模板把「目标人群 / 内容目标 / 一句话角度」同时写进正文；
+    // 这三项现在只在属性区编辑。只有当整节恰好就是这三个值的复述时才隐藏，
+    // 不碰用户自己加的内容；也只在预览/编辑视图过滤，不改磁盘上的原文。
+    function stripDuplicateTopicCard(source, front) {
+      const text = String(source ?? '').split('\r\n').join('\n')
+      const lines = text.split('\n')
+      const start = lines.findIndex((line) => /^\s*##\s+选题卡\s*#*\s*$/.test(line))
+      if (start < 0) return text
+      let end = start + 1
+      while (end < lines.length && !/^\s*#{1,6}\s+/.test(lines[end])) end += 1
+      const section = lines.slice(start + 1, end)
+      const bullets = []
+      for (const line of section) {
+        if (line.trim() === '') continue
+        const match = /^\s*[-*+]\s+(.*)$/.exec(line)
+        if (match === null) return text
+        bullets.push(match[1].replace(/\s+$/, ''))
+      }
+      if (bullets.length !== 3) return text
+      const wanted = ['目标人群：' + String(front?.audience ?? ''), '内容目标：' + String(front?.goal ?? ''), '一句话角度：' + String(front?.angle ?? '')]
+      const normalize = (value) => String(value).replace(/[：:]\s*/g, '：').replace(/\s+/g, '')
+      for (const expected of wanted) if (!bullets.some((bullet) => normalize(bullet) === normalize(expected))) return text
+      return lines.slice(0, start).concat(lines.slice(end)).join('\n').replace(/\n{3,}/g, '\n\n')
     }
 
     function mdBlocks(source) {
@@ -8270,7 +8764,10 @@ const STAGE_OF_STATUS = {
           if (block.type === 'list') {
             const tag = block.ordered ? 'ol' : 'ul'
             return h(tag, { key, className: 'dsh-gw-md-list' },
-              block.items.map((item, itemIndex) => h('li', { key: itemIndex, className: 'dsh-gw-md-li', 'data-depth': String(item.depth) }, renderInline(item.text, key + '-' + itemIndex))))
+              block.items.map((item, itemIndex) => {
+                const metricPlaceholder = /^数据[:：]\s*播放\/阅读\s*·\s*赞\/收藏\s*$/.test(String(item.text ?? '').trim()) ? '待回填' : undefined
+                return h('li', { key: itemIndex, className: 'dsh-gw-md-li', 'data-depth': String(item.depth), 'data-placeholder': metricPlaceholder }, renderInline(item.text, key + '-' + itemIndex))
+              }))
           }
           if (block.type === 'table') {
             return h('div', { key, className: 'dsh-gw-md-tablewrap' },
@@ -8427,14 +8924,17 @@ const STAGE_OF_STATUS = {
       }
     }
 
-    function LiveMarkdown({ source, editable, onChange, onCommit, placeholder, highlight, className }) {
+    function LiveMarkdown({ source, editable, onChange, onCommit, placeholder, highlight, className, hideFirstHeading }) {
       const { blocks } = mdBlocks(source)
       if (blocks.length === 0) {
         return h('div', { className: 'dsh-gw-md dsh-gw-live-empty' }, placeholder === undefined ? '（这条是空的，点这里开始写）' : placeholder)
       }
+      const hideHeading = hideFirstHeading !== undefined && blocks[0]?.type === 'h' && blocks[0].text === hideFirstHeading
+      const startIndex = hideHeading ? 1 : 0
       return h('div', { className: 'dsh-gw-md dsh-gw-live-md' + (className ? ' ' + className : '') },
-        blocks.map((block, blockIndex) =>
-          h(LiveBlock, {
+        blocks.slice(startIndex).map((block, visibleIndex) => {
+          const blockIndex = visibleIndex + startIndex
+          return h(LiveBlock, {
             key: 'lb' + blockIndex,
             block,
             blockKey: String(blockIndex),
@@ -8443,7 +8943,8 @@ const STAGE_OF_STATUS = {
             onChange,
             onCommit,
             highlight,
-          })))
+          })
+        }))
     }
 
     // 外链白名单：只放行这三种协议，其它（javascript:、data:、vbscript:）一律降级成纯文本。
@@ -8759,6 +9260,7 @@ const STAGE_OF_STATUS = {
       // 列宽可拖：一份宽度所有分组共用；把手放在表头右缘，拖动时相邻两列此消彼长。
       // （state 必须放在下面的 loading 早退之前，否则 React #310。）
       const [ruleWidths, setRuleWidths] = React.useState([8, 27, 35, 30])
+      const startRuleResize = colResizeStart(ruleWidths, setRuleWidths)
       // 语调库一屏三段：上面标签筛选，中间只显示选中的那一组，下面加规则。
       const [activeSection, setActiveSection] = React.useState('hard')
       React.useEffect(() => {
@@ -8775,32 +9277,6 @@ const STAGE_OF_STATUS = {
       // 不再单独留一列放按钮：表一窄，那一列最先被挤没，按钮就跟着消失。
       // 改成「点整行进编辑、悬停右下角出删除」。
       const RULE_COLS = ['#', '规则', '内容', '证据']
-      const startRuleResize = (index) => (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const startX = event.clientX
-        const startWidths = ruleWidths
-        const table = event.currentTarget.closest('table')
-        const onMove = (moveEvent) => {
-          const width = table?.getBoundingClientRect().width ?? 0
-          if (width <= 0) return
-          const delta = ((moveEvent.clientX - startX) / width) * 100
-          const next = [...startWidths]
-          const min = 4
-          const shift = Math.max(-(next[index] - min), Math.min(next[index + 1] - min, delta))
-          next[index] = Math.round((next[index] + shift) * 10) / 10
-          next[index + 1] = Math.round((next[index + 1] - shift) * 10) / 10
-          setRuleWidths(next)
-        }
-        const onUp = () => {
-          document.removeEventListener('pointermove', onMove)
-          document.removeEventListener('pointerup', onUp)
-          document.body.classList.remove('dsh-gw-resizing-col')
-        }
-        document.addEventListener('pointermove', onMove)
-        document.addEventListener('pointerup', onUp)
-        document.body.classList.add('dsh-gw-resizing-col')
-      }
       const startEdit = (rowKey, item, cell) => {
         setEditing({ rowKey, origId: item.id, id: item.id, section: item.section, title: item.title, focus: String(cell ?? 'title'), fields: { ...(item.fields ?? {}) } })
       }
@@ -8832,19 +9308,19 @@ const STAGE_OF_STATUS = {
               title: '只看「' + section.label + '」',
               onClick: () => switchSection(section.key),
             }, section.label + ' · ' + String(counts[section.key] ?? 0))))),
-        h('div', { className: 'dsh-gw-rules-scroll' },
+        h('div', { className: 'dsh-gw-rules-scroll dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '文案规则表：表头固定，可横向滚动并拖动调整列宽' },
           totalRules === 0
             ? h(Empty, null, '还没有规则。先沉淀 3 条禁忌，写稿时会少踩坑。')
             : activeItems.length === 0
               ? h(Empty, null, '「' + activeMeta.label + '」还没有规则。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-rules-frame' },
-                h('table', { className: 'dsh-gw-rules' },
+                h('table', { className: 'dsh-gw-rules dsh-gw-adjustable-table' },
                   h('colgroup', null,
                     h('col', { className: 'c-id', style: { width: ruleWidths[0] + '%' } }),
                     h('col', { className: 'c-title', style: { width: ruleWidths[1] + '%' } }),
                     h('col', { className: 'c-body', style: { width: ruleWidths[2] + '%' } }),
                     h('col', { className: 'c-ev', style: { width: ruleWidths[3] + '%' } })),
-                  h('thead', null, h('tr', null, RULE_COLS.map((label, i) => h('th', { key: String(i), style: { position: 'relative' } },
+                  h('thead', null, h('tr', null, RULE_COLS.map((label, i) => h('th', { key: String(i) },
                     label,
                     i < RULE_COLS.length - 1 ? h('span', {
                       className: 'dsh-gw-col-grip',
@@ -9023,7 +9499,7 @@ const STAGE_OF_STATUS = {
       const tree = useAsync(() => get('/sop'), [])
       const [activePath, setActivePath] = React.useState(null)
       // 把当前打开的笔记报给 Panel，面包屑才能显示成三层。
-      if (onCrumb) React.useEffect(() => { onCrumb(activePath) }, [activePath])
+      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(activePath) }, [activePath, onCrumb])
       // 面包屑点了上层：关掉当前笔记（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -9533,8 +10009,8 @@ const STAGE_OF_STATUS = {
       const [sortKey, setSortKey] = React.useState('')
       const [sortDir, setSortDir] = React.useState(1)
       const [busy, setBusy] = React.useState(false)
-      // 列宽可拖（语调库同款）：领域→标签→中文→英文→备注→操作。
-      const [glossWidths, setGlossWidths] = React.useState([12, 14, 16, 16, 32, 10])
+      // 列宽可拖（语调库同款）：领域→标签→中文→英文→备注；删除按钮在备注格内悬停出现。
+      const [glossWidths, setGlossWidths] = React.useState([12, 14, 16, 16, 42])
       const startGlossResize = colResizeStart(glossWidths, setGlossWidths)
       const entries = list.data?.entries ?? []
       // 标签字段可能一次写好几个（「物流 / 尺码」），按 / 、 , ; 拆开各自算候选。
@@ -9736,39 +10212,40 @@ const STAGE_OF_STATUS = {
         h(ListPager, { list }),
           list.loading ? h(Empty, null, t('loading')) : shown.length === 0
             ? h(Empty, null, '还没有术语。先把团队天天吵的那几个指标口径记下来。')
-            : h(Fold, { title: '术语', count: shown.length, open: true },
-              h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 4 } },
+            : h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 4 } },
               h('table', { className: 'dsh-gw-table dsh-gw-gloss-table' },
               h('colgroup', null,
-                ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note', 'c-act'].map((name, index) => h('col', { key: name, className: name, style: { width: glossWidths[index] + '%' } })),
+                ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note'].map((name, index) => h('col', { key: name, className: name, style: { width: glossWidths[index] + '%' } })),
               ),
-              h('thead', null, h('tr', null, [
-                { key: 'domain', label: '领域' }, { key: 'tags', label: '标签' }, { key: 'zh', label: '中文' },
-                { key: 'en', label: '英文' }, { key: 'note', label: '备注' },
-              ].map((col, index) => h('th', {
-                key: col.key,
-                className: sortKey === col.key ? 'is-sorted' : '',
-                style: { cursor: 'pointer', userSelect: 'none' },
-                title: '点击排序',
-                onClick: () => toggleSort(col.key),
-              }, col.label + (sortKey === col.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''),
-                index < 5 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startGlossResize(index) }) : null)), h('th', null, ''))),
+              h('thead', null, h('tr', null,
+                ...[
+                  { key: 'domain', label: '领域' }, { key: 'tags', label: '标签' }, { key: 'zh', label: '中文' },
+                  { key: 'en', label: '英文' }, { key: 'note', label: '备注' },
+                ].map((col, index) => h('th', {
+                  key: col.key,
+                  className: sortKey === col.key ? 'is-sorted' : '',
+                  style: { cursor: 'pointer', userSelect: 'none' },
+                  title: '点击排序',
+                  onClick: () => toggleSort(col.key),
+                }, col.label + (sortKey === col.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''),
+                  index < 5 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startGlossResize(index) }) : null)))),
               h('tbody', null, shown.map((entry) => {
                 const editingThis = editing !== null && editing.id === entry.id
-                const cell = (key, text) => h('td', { onClick: pickRow(entry, key), title: String(text ?? '') + '（点一下就能改）' }, String(text ?? '') === '' ? '—' : String(text ?? ''))
+                const cell = (key, text) => h('td', { key: 'cell-' + key, onClick: pickRow(entry, key), title: String(text ?? '') + '（点一下就能改）' }, String(text ?? '') === '' ? '—' : String(text ?? ''))
                 if (editingThis === false) {
-                  return h('tr', { key: entry.id, className: 'dsh-gw-gloss-row' },
-                    cell('domain', entry.domain), cell('tags', entry.tags), cell('zh', entry.zh), cell('en', entry.en), cell('note', entry.note),
-                    h('td', null, h('div', { className: 'dsh-gw-acts' }, h('button', { className: 'dsh-gw-ibtn dsh-gw-row-del', 'data-tone': 'danger', title: '删掉这个词条', 'aria-label': '删掉这个词条', onClick: () => remove(entry) }, h(Icon, { name: 'trash' })))))
+                  return h('tr', { key: entry.id ?? entry.zh, className: 'dsh-gw-gloss-row' },
+                    cell('domain', entry.domain), cell('tags', entry.tags), cell('zh', entry.zh), cell('en', entry.en),
+                    h('td', { key: 'cell-note', className: 'dsh-gw-gloss-note', onClick: pickRow(entry, 'note'), title: String(entry.note ?? '') + '（点一下就能改）' },
+                      h('span', { className: 'dsh-gw-gloss-note-text' }, String(entry.note ?? '') === '' ? '—' : String(entry.note ?? '')),
+                      h('button', { className: 'dsh-gw-ibtn dsh-gw-gloss-del', 'data-tone': 'danger', type: 'button', title: '删掉这个词条', 'aria-label': '删掉这个词条', onClick: () => remove(entry) }, h(Icon, { name: 'trash' }))))
                 }
-                return h('tr', { key: entry.id, className: 'dsh-gw-gloss-row-edit', 'data-editing': 'true' },
-                  h('td', null, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '领域', ...onArea('domain') })),
-                  h('td', null, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '标签', ...onArea('tags') })),
-                  h('td', null, h('input', { className: 'dsh-gw-cell-in', placeholder: '中文', ...onCell('zh') })),
-                  h('td', null, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '英文', ...onArea('en') })),
-                  h('td', null, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '备注', ...onArea('note') })),
-                  h('td', null, h('span', { className: 'dsh-gw-autosave-dot', title: '离开输入框就自动保存' }, '●')))
-              })))))
+                return h('tr', { key: entry.id ?? entry.zh, className: 'dsh-gw-gloss-row-edit', 'data-editing': 'true' },
+                  h('td', { key: 'domain' }, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '领域', ...onArea('domain') })),
+                  h('td', { key: 'tags' }, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '标签', ...onArea('tags') })),
+                  h('td', { key: 'zh' }, h('input', { className: 'dsh-gw-cell-in', placeholder: '中文', ...onCell('zh') })),
+                  h('td', { key: 'en' }, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '英文', ...onArea('en') })),
+                  h('td', { key: 'note' }, h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', rows: 3, placeholder: '备注', ...onArea('note') })))
+              }))))
         ),
         h('div', { className: 'dsh-gw-rules-add' },
           h(Sect, null, '加一条'),
@@ -10081,6 +10558,8 @@ const STAGE_OF_STATUS = {
       // 行内编辑：entryKey 为 null 表示这是一条待新增的空行（最上面那行），否则就是表格里那一行。
       const [editing, setEditing] = React.useState(null)
       const [visibleCount, setVisibleCount] = React.useState(50)
+      const [pendingWidths, setPendingWidths] = React.useState([64, 88, 176, 88, 70, 70, 70, 70, 68, 88])
+      const startPendingResize = pixelColResizeStart(pendingWidths, setPendingWidths, [56, 72, 120, 84, 64, 64, 64, 64, 60, 80])
       const allowEditingLeave = useDraftGuard(metricDraftChanged(editing), busy !== null)
       // 从我的选题那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
       const [hlId, setHlId] = React.useState('')
@@ -10305,6 +10784,12 @@ const STAGE_OF_STATUS = {
 
       if (v2list.loading && v2items.length === 0) return h(Empty, null, t('loading'))
       if (v2list.error !== null && v2list.data === null) return h(ErrorBar, { error: v2list.error, onRetry: v2list.reload })
+      const pendingTotalWidth = pendingWidths.reduce((sum, width) => sum + width, 0)
+      const pendingTableStyle = {
+        '--gw-pending-width': pendingTotalWidth + 'px',
+        '--gw-pending-left-2': pendingWidths[0] + 'px',
+        '--gw-pending-left-3': pendingWidths[0] + pendingWidths[1] + 'px',
+      }
 
       return h('div', null,
         h(ErrorBar, { error: v2list.error, onRetry: v2list.reload }),
@@ -10335,23 +10820,12 @@ const STAGE_OF_STATUS = {
         visibleCount < flatRows.length ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setVisibleCount((n) => n + 50) }, '再显示 50 行') : null,
         shownItems.length === 0
           ? h(Empty, null, platformFilters.length === 0 && accountFilters.length === 0 ? '还没有已发布的平台版本。' : '没有符合筛选的平台版本。')
-          : h('div', { className: 'dsh-gw-tablebox dsh-gw-pending-box' },
+          : h('div', { className: 'dsh-gw-tablebox dsh-gw-pending-box', role: 'region', tabIndex: 0, 'aria-label': '待回填数据表：可横向滚动、拖动表头调整列宽，前三列与表头固定', style: pendingTableStyle },
             h('table', { className: 'dsh-gw-table dsh-gw-pending-table' },
-              h('colgroup', null,
-                h('col', { style: { width: '9%' } }),
-                h('col', { style: { width: '9%' } }),
-                h('col', { style: { width: '22%' } }),
-                h('col', { style: { width: '11%' } }),
-                h('col', { style: { width: '9%' } }),
-                h('col', { style: { width: '9%' } }),
-                h('col', { style: { width: '7%' } }),
-                h('col', { style: { width: '7%' } }),
-                h('col', { style: { width: '8%' } }),
-                h('col', { style: { width: '9%' } })),
+              h('colgroup', null, pendingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
-                h('th', null, '平台'), h('th', null, '账号'), h('th', null, '选题'), h('th', null, '日期'),
-                h('th', null, '播放/阅读'), h('th', null, '赞/收藏'), h('th', null, '评论'), h('th', null, '转发'),
-                h('th', null, '链接'), h('th', null, '操作'))),
+                ['平台', '账号', '选题', '日期', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '操作'].map((label, index) => h('th', { key: label }, label,
+                  index < 9 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startPendingResize(index) }) : null)))),
               h('tbody', null,
                 flatRows.slice(0, visibleCount).map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
                 editingNew ? editRow(null) : null))))
@@ -10482,17 +10956,32 @@ const STAGE_OF_STATUS = {
         } catch (error) { notify(String(error.message), true) } finally { setBusy(false) }
       }
       return h('div', { className: 'dsh-gw-cal-newaccount' },
-        h(Field, { label: '账号名' }, h('input', { value: draft.name, onChange: (event) => setDraft({ ...draft, name: event.target.value }), placeholder: '例如 抖音主号' })),
+        h(Field, { label: '账号名' }, h('input', { maxLength: 20, value: draft.name, onChange: (event) => setDraft({ ...draft, name: event.target.value }), placeholder: '例如 抖音主号' })),
         h(Field, { label: '定位' }, h('input', { value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '这个号讲什么（可空）' })),
         h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '讲给谁听（可空）' })),
         h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.name.trim() === '', onClick: create }, busy ? '建中…' : '建并选上')))
     }
     // 账号选择器：选已有账号档案；没有就现场建一个（只问名字/定位/人群，平台用表单上已选的），
     // 建完直接选中，不用为了建一个号先切到「账号档案」卡再回来。
-    function AccountPicker({ platform, options, value, onChange, notify, onCreated, style, hideCreate, id, 'aria-labelledby': labelledBy }) {
+    function AccountPicker({ platform, options = [], value, onChange, notify, onCreated, style, hideCreate, list, id, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
       const [draft, setDraft] = React.useState({ title: '', positioning: '', audience: '' })
       const [busy, setBusy] = React.useState(false)
+      const candidateRef = React.useRef(null)
+      const selected = React.useRef(null)
+      const hit = options.find((record) => String(record.front?.id ?? '') === String(value ?? ''))
+      if (hit) selected.current = hit
+      else if (String(selected.current?.front?.id ?? '') !== String(value ?? '')) selected.current = null
+      // A candidate q must not make the user's already-selected account disappear.
+      // A full-vault hit is not in `options`, so carry the selected record itself
+      // into the option list; otherwise the select falls back to 「（不指定）」.
+      const pickerOptions = selected.current && !options.some((record) => String(record.front?.id ?? '') === String(selected.current?.front?.id ?? ''))
+        ? [...options, selected.current]
+        : options
+      const selectedLabel = pickerOptions
+        .filter((record) => String(record.front?.id ?? '') === String(value ?? ''))
+        .map((record) => String(record.front?.name ?? record.title ?? '') + ' · ' + String(record.front?.platform ?? ''))
+        .join('')
       useDraftGuard(Object.values(draft).some((value) => String(value).trim() !== ''), busy)
       const firstPlatform = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
       async function create() {
@@ -10515,6 +11004,7 @@ const STAGE_OF_STATUS = {
           const createdPath = String(written?.created?.path ?? written?.path ?? '')
           const detail = createdPath === '' ? null : await get('/accounts/record?path=' + encodeURIComponent(createdPath))
           const record = detail?.record ?? written?.record ?? null
+          if (record !== null) selected.current = record
           onChange(String(record?.front?.id ?? ''), String(record?.front?.name ?? record?.title ?? title))
           setDraft({ title: '', positioning: '', audience: '' })
           setOpen(false)
@@ -10526,19 +11016,19 @@ const STAGE_OF_STATUS = {
           setBusy(false)
         }
       }
-      return h('span', { style: { display: 'inline-flex', flexDirection: 'column', gap: 4, minWidth: 0, ...(style ?? {}) } },
-        h('span', { style: { display: 'inline-flex', gap: 6, alignItems: 'center', minWidth: 0 } },
+      return h('span', { className: 'dsh-gw-account-picker', style: { display: 'inline-flex', flexDirection: 'column', gap: 4, minWidth: 0, ...(style ?? {}) } },
+        h('span', { style: { display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', minWidth: 0 } },
           h('select', { id, 'aria-labelledby': labelledBy,
             value: String(value ?? ''),
             onChange: (event) => {
-              const hit = options.find((record) => String(record.front?.id ?? '') === event.target.value)
-              onChange(event.target.value, hit === undefined ? '' : String(hit.front?.name ?? hit.title ?? ''))
+              const chosen = pickerOptions.find((record) => String(record.front?.id ?? '') === event.target.value)
+              onChange(event.target.value, chosen === undefined ? '' : String(chosen.front?.name ?? chosen.title ?? ''))
             },
-            title: '从账号档案里选一个；没有就点「＋ 新建」现场建',
-            style: { flex: '1 1 auto', minWidth: 0 },
+            title: selectedLabel === '' ? (list ? '从账号档案里选一个；下方「查找账号」可搜全库或载入更多' : '从账号档案里选一个') : selectedLabel,
+            style: { flex: '1 1 160px', minWidth: 140, maxWidth: '100%', width: 'auto' },
           },
-            h('option', { value: '' }, '（不指定）'),
-            options.map((record) => h('option', { key: record.path, value: String(record.front?.id ?? '') }, String(record.front?.name ?? record.title) + ' · ' + String(record.front?.platform ?? '')))),
+            h('option', { value: '' }, '暂空'),
+            pickerOptions.map((record) => h('option', { key: record.path, value: String(record.front?.id ?? '') }, String(record.front?.name ?? record.title) + ' · ' + String(record.front?.platform ?? '')))),
           hideCreate === true ? null : h('button', {
             type: 'button',
             className: 'dsh-gw-btn',
@@ -10546,8 +11036,27 @@ const STAGE_OF_STATUS = {
             title: '新建一个账号档案并直接选上',
             onClick: () => setOpen(!open),
           }, open ? '收起' : '＋ 新建')),
+        list ? h('details', { ref: candidateRef, className: 'dsh-gw-account-candidates', onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } } },
+          h('summary', null, '查找账号', list.data?.truncated ? ' · 还有未载入' : ''),
+          h(ErrorBar, { error: list.error, onRetry: list.reload }),
+          h(ListPager, { list, label: '账号候选' }),
+          (list.data?.records ?? []).length === 0 ? null : h('div', { style: { display: 'flex', flexDirection: 'column', minWidth: 0, marginTop: 2 } },
+            (list.data?.records ?? []).slice(0, 8).map((record) => {
+              const accountName = String(record.front?.name ?? record.title ?? '')
+              const detail = [String(record.front?.platform ?? ''), String(record.front?.positioning ?? '')].filter((part) => part !== '').join(' · ')
+              return h('button', {
+                key: record.path,
+                type: 'button',
+                className: 'dsh-gw-account-candidate',
+                onClick: () => {
+                  selected.current = record
+                  onChange(String(record.front?.id ?? ''), accountName)
+                  if (candidateRef.current !== null) candidateRef.current.open = false
+                },
+              }, h('strong', null, accountName), detail === '' ? null : h('span', null, detail))
+            }))) : null,
         open && hideCreate !== true ? h('span', { style: { display: 'flex', flexDirection: 'column', gap: 4, padding: 6, border: '1px dashed var(--dsw-alias-border-l2)', borderRadius: 8 } },
-          h('input', { 'aria-label': '新账号名', value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '账号名，例如 抖音主号' }),
+          h('input', { 'aria-label': '新账号名', maxLength: 20, value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '账号名，例如 抖音主号' }),
           h('input', { 'aria-label': '新账号定位', value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '定位（可空）：这个号讲什么' }),
           h('input', { 'aria-label': '新账号目标人群', value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '目标人群（可空）' }),
           h('span', { style: { display: 'flex', gap: 6 } },
@@ -10556,11 +11065,30 @@ const STAGE_OF_STATUS = {
     }
     // 平台多选的另一种形态：不摊开一堆胶囊，就是一个输入框——里面直接写着
     // 「小红书 / 抖音」，点开下拉在同一个框里勾选，想手打自定义平台也照常打字。
-    function PlatformMultiInput({ value, onChange, options, placeholder, style, id, 'aria-labelledby': labelledBy }) {
+    function PlatformMultiInput({ value, onChange, options, placeholder, style, id, 'aria-label': ariaLabel, 'aria-labelledby': labelledBy }) {
       const [open, setOpen] = React.useState(false)
+      const [dropUp, setDropUp] = React.useState(false)
       const wrapRef = React.useRef(null)
       const list = platformOptions([...(options ?? []), value])
       const chosen = (name) => splitPlatforms(value).some((part) => normalizePlatform(part) === normalizePlatform(name))
+      // 在日历当天排期这种贴近滚动区底部的场景，向下展开会被面板裁掉。
+      // 打开前看最近的滚动容器还剩多少高度，不够就翻到输入框上方。
+      const chooseDropDirection = () => {
+        const node = wrapRef.current
+        if (node === null || typeof node.getBoundingClientRect !== 'function') return
+        const rect = node.getBoundingClientRect()
+        let boundary = typeof window === 'undefined' ? rect.bottom + 240 : window.innerHeight
+        let parent = node.parentElement
+        while (parent !== null && parent !== undefined) {
+          const style = typeof window !== 'undefined' && window.getComputedStyle ? window.getComputedStyle(parent) : null
+          if (style !== null && /(auto|scroll)/.test(String(style.overflowY))) {
+            boundary = parent.getBoundingClientRect().bottom
+            break
+          }
+          parent = parent.parentElement
+        }
+        setDropUp(boundary - rect.bottom < 230)
+      }
       React.useEffect(() => {
         if (!open) return undefined
         const onDown = (event) => {
@@ -10577,12 +11105,12 @@ const STAGE_OF_STATUS = {
         }
       }, [open])
       return h('span', { ref: wrapRef, className: 'dsh-gw-platmulti', style: (style ?? {}) },
-        h('input', { id, 'aria-labelledby': labelledBy,
+        h('input', { id, 'aria-label': ariaLabel, 'aria-labelledby': labelledBy,
           value: value ?? '',
           placeholder: placeholder === undefined ? '小红书 / 抖音（可多选）' : placeholder,
           title: '可以直接打字，或点右侧箭头在框里勾选多个平台',
           onChange: (event) => onChange(event.target.value),
-          onFocus: () => setOpen(true),
+          onFocus: () => { chooseDropDirection(); setOpen(true) },
           onBlur: () => {
             // 失焦时把每个平台规范一遍并去重，但保持「 / 」连接不被改写。
             const seen = new Set()
@@ -10602,9 +11130,9 @@ const STAGE_OF_STATUS = {
           className: 'dsh-gw-btn dsh-gw-platmulti-caret',
           title: '选择平台（可多选）',
           'aria-label': '选择平台',
-          onClick: () => setOpen((prev) => !prev),
+          onClick: () => { chooseDropDirection(); setOpen((prev) => !prev) },
         }),
-        open ? h('span', { className: 'dsh-gw-platmulti-drop' },
+        open ? h('span', { className: 'dsh-gw-platmulti-drop' + (dropUp ? ' is-up' : '') },
           list.map((name) => h('button', {
             key: name,
             type: 'button',
@@ -10702,6 +11230,8 @@ const STAGE_OF_STATUS = {
       const [preset, setPreset] = React.useState(null)
       const searchRef = React.useRef(null)
       const bodyRef = React.useRef(null)
+      const paletteRef = React.useRef(null)
+      React.useLayoutEffect(() => installHostAccent(paletteRef.current), [])
       const [crumbSlot, setCrumbSlot] = React.useState(null)
       // 面板宽度跟窗口宽度没关系：侧栏可以很窄而窗口很宽。所以按元素宽度打标记，
       // 不按视口写 @media（那种情况下一条都不会命中）。520 / 440 是内容区的两个拐点。
@@ -11028,7 +11558,7 @@ const STAGE_OF_STATUS = {
         if (!draftRegistry.allow()) return
         onClose()
       } },
-        h('div', { className: 'dsh-gw-panel' },
+        h('div', { className: 'dsh-gw-panel', ref: paletteRef },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
@@ -11059,6 +11589,14 @@ const STAGE_OF_STATUS = {
           ? h(ConfirmDialog, { request: confirmState, onDone: finishConfirm })
           : createPortal(h(ConfirmDialog, { request: confirmState, onDone: finishConfirm }), document.body)),
       )
+    }
+
+    // 侧栏里的一格：不再是盖住对话的遮罩，面板撑满所在栏位。
+    // 这里的「关闭」在侧栏语境下是「收起右栏」——面板本身就是那一格，
+    // 把它自己设成关闭并不会让格子消失，看起来就像按钮没反应。
+    function TabBody({ sessionId }) {
+      // 侧栏语境里不画关闭按钮：栏头自带 ✕，两个叉号只会让人犯嘀咕。
+      return h('div', { className: 'dsh-gw-pane' }, h(Panel, { onClose: null }))
     }
 
     /* ────────────── 插件入口 ────────────── */
@@ -11224,14 +11762,6 @@ const STAGE_OF_STATUS = {
           onClick: () => openRight(sessionId),
           title: t('title'),
         }, t('open'))
-      }
-
-      // 侧栏里的一格：不再是盖住对话的遮罩，面板撑满所在栏位。
-      // 这里的「关闭」在侧栏语境下是「收起右栏」——面板本身就是那一格，
-      // 把它自己设成关闭并不会让格子消失，看起来就像按钮没反应。
-      function TabBody({ sessionId }) {
-        // 侧栏语境里不画关闭按钮：栏头自带 ✕，两个叉号只会让人犯嘀咕。
-        return h('div', { className: 'dsh-gw-pane' }, h(Panel, { onClose: null }))
       }
 
       function Overlay() {

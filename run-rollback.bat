@@ -13,7 +13,7 @@ rem 同一个 Node 进程展示并确认原计划；不在第二次调用中重�
 node "%~dp0rollback.mjs" --confirm %*
 if errorlevel 1 goto failed
 echo.
-echo  回滚完成。备份路径见上方；需要时请自行重新启动 DSH。
+echo  流程已结束，是否已回滚以上方结果为准。备份路径见上方。
 goto end
 :failed
 echo.

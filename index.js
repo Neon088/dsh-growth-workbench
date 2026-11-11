@@ -715,6 +715,7 @@ export function apply(ctx, config) {
           '## 原文信息',
           '- 来源：' + String(front?.origin ?? '') + (String(front?.sourceTitle ?? '') === '' || String(front?.sourceTitle ?? '') === String(front?.origin ?? '') ? '' : '（' + String(front.sourceTitle) + '）'),
           '- 链接：' + String(front?.sourceUrl ?? ''),
+          '- 数据：播放/阅读 · 赞/收藏（待回填）',
           '',
           '## 前 3 秒凭什么抓人',
           '- ',
@@ -731,7 +732,9 @@ export function apply(ctx, config) {
           '- ' + String(front?.core ?? ''),
           '',
         ].join('\n')
-        : '## 选题卡\n\n- 目标人群：' + String(front?.audience ?? '') + '\n- 内容目标：' + String(front?.goal ?? '') + '\n- 一句话角度：' + String(front?.angle ?? '') + '\n',
+        // 选题卡三件套只挂 frontmatter，正文不再重复同一组值；
+        // 老笔记里由旧模板生成的重复小节，在详情页由 stripDuplicateTopicCard 只隐藏重复内容。
+        : '',
     })
 
     domain = createDomainStore({
@@ -806,7 +809,7 @@ export function apply(ctx, config) {
     collections.accounts = makeCollection('accounts', {
       autoId: true,
       schema: [
-        { key: 'name', label: '账号名', required: true, max: 100 },
+        { key: 'name', label: '账号名', required: true, max: 20 },
         { key: 'platform', label: '平台', required: true, max: 100 },
         { key: 'positioning', label: '定位', max: 200 },
         { key: 'audience', label: '目标人群', max: 200 },
@@ -1502,12 +1505,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       tables.feedback.read(join(dirOf('feedbackDir'), '客户反馈.md')),
     ])
     const cal = calendarTableFor(thisMonth())
-    const [calendar, topics, campaigns, products, dataRecords] = await Promise.all([
+    const [calendar, topics, campaigns, products, dataRecords, accounts] = await Promise.all([
       cal.table.read(cal.file),
       collections.topics.all({ includeVariants: false }),
       collections.campaigns.all({ includeVariants: false }),
       collections.products.all({ includeVariants: false }),
       collections.data.all({ includeVariants: false }),
+      collections.accounts.all({ includeVariants: false }),
     ])
     // 回流台账也躺在 Data/ 下，但它记的是「按平台版本按天」的明细，不是周期复盘。
     // 不过滤的话首页「电商数据复盘」的条数会被台账文件撑大（3 个周期会显示成 5 条）。
@@ -1542,6 +1546,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       campaignsTotal: campaigns.length,
       productsMine: products.filter((record) => String(record.front?.kind ?? '').includes('自家')).length,
       productsRival: products.filter((record) => String(record.front?.kind ?? '').includes('竞品')).length,
+      accountsTotal: accounts.length,
       dataLatest: dataPeriods[0]?.front?.period ?? '',
       dataCount: dataPeriods.length,
       ideasNew: ideas.entries.filter((entry) => entry.status !== '已用' && entry.status !== '丢弃' && entry.status !== '已废弃').length,

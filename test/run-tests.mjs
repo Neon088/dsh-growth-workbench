@@ -1,8 +1,8 @@
 // 顺序执行离线回归。每个子进程的 home / temp 都在本次测试目录里；
 // 即使旧 Host 测试启动时写日志，也不会碰用户的 ~/.dsh-growth。
-// stdio: inherit 不依赖受限 Windows 环境中不能使用的进程输出管道。
+// 子进程直接写本次日志文件，不创建受限 Windows 环境中不可用的输出管道。
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join, parse, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -35,7 +35,7 @@ function collectLibraryFiles(directory) {
   })
 }
 function sourceSnapshot() {
-  const files = ['package.json', 'client.js', 'index.js', 'install.mjs', 'rollback.mjs', 'test/run-tests.mjs', ...collectLibraryFiles(join(repository, 'lib')), ...suites].sort()
+  const files = ['package.json', 'client.js', 'index.js', 'install.mjs', 'rollback.mjs', 'run-rollback.bat', 'README.md', '.gitignore', 'test/run-tests.mjs', 'test/browser-safety.test.mjs', ...collectLibraryFiles(join(repository, 'lib')), ...suites].sort()
   return Object.fromEntries(files.map((file) => [file, createHash('sha256').update(readFileSync(join(repository, file))).digest('hex')]))
 }
 const outputBase = join(repository, 'test', '.artifacts', 'unit')
@@ -66,9 +66,23 @@ try {
     if (process.platform === 'win32') { env.HOMEDRIVE = root.replace(/[\\/]+$/, ''); env.HOMEPATH = home.slice(env.HOMEDRIVE.length) }
     console.log('\n[' + (report.suites.length + 1) + '/' + suites.length + '] ' + suite)
     const started = performance.now()
-    const result = spawnSync(process.execPath, [join(repository, suite)], { cwd: repository, env, stdio: 'inherit', timeout: 300000 })
+    const stdoutPath = join(runDir, slug + '.stdout.log'), stderrPath = join(runDir, slug + '.stderr.log')
+    let result, stdoutFd, stderrFd
+    try {
+      stdoutFd = openSync(stdoutPath, 'wx')
+      stderrFd = openSync(stderrPath, 'wx')
+      result = spawnSync(process.execPath, [join(repository, suite)], { cwd: repository, env, stdio: ['ignore', stdoutFd, stderrFd], timeout: 300000 })
+    } finally {
+      if (stdoutFd !== undefined) closeSync(stdoutFd)
+      if (stderrFd !== undefined) closeSync(stderrFd)
+    }
+    const stdout = readFileSync(stdoutPath), stderr = readFileSync(stderrPath)
+    if (stdout.length) process.stdout.write(stdout)
+    if (stderr.length) process.stderr.write(stderr)
     const passed = !result.error && result.status === 0 && !result.signal
-    report.suites.push({ file: suite, status: passed ? 'passed' : 'failed', exitCode: result.status, signal: result.signal, durationMs: Math.round(performance.now() - started), error: result.error?.message })
+    report.suites.push({ file: suite, status: passed ? 'passed' : 'failed', exitCode: result.status, signal: result.signal, durationMs: Math.round(performance.now() - started), error: result.error?.message,
+      stdoutLog: relative(runDir, stdoutPath), stderrLog: relative(runDir, stderrPath),
+      stdoutSha256: createHash('sha256').update(stdout).digest('hex'), stderrSha256: createHash('sha256').update(stderr).digest('hex') })
     writeFileSync(reportFile, JSON.stringify(report, null, 2) + '\n', 'utf8')
     if (!passed) { success = false; console.error('Stopped after failed suite: ' + suite); if (result.error) console.error(result.error); break }
   }
