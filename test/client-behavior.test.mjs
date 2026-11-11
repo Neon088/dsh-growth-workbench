@@ -18,9 +18,14 @@ const names = [
   'pageQuery', 'mergeRecordPage', 'usePagedList', 'useLinkedRecords', 'useAsync', 'responseWarning',
   'metricDraftChanged', 'resolveCalendarTopic', 'chooseCalendarVariant', 'moveCalendarEntry',
   'deleteVariantWithBaseline', 'variantPathTo', 'advanceVariant', 'indexBy',
-  'keyboardActivate', 'shiftedColumnWidths', 'installColumnDrag', 'installModalFocus',
+  'keyboardActivate', 'shiftedColumnWidths', 'installColumnDrag', 'shiftedPixelColumnWidths', 'installPixelColumnDrag', 'installModalFocus',
   'useStableFieldId', 'associateField', 'Field', 'ErrorBar', 'PlatformInput', 'AccountPicker',
   'PlatformMultiInput', 'splitPlatforms', 'MultiSelect', 'SourceSelect', 'ComboField', 'splitCombo', 'joinCombo',
+  'useRecordFilter', 'matchRecord', 'splitTags', 'TopicsCard', 'StudioCard', 'colResizeStart',
+  'collectionSortValue', 'sortCollectionRows', 'toggledCollectionSort', 'CollectionSortHead',
+  'createMeasuredHeightTracker', 'useMeasuredBlockHeight', 'ListPager',
+  'parseSurfaceColor', 'surfaceLuminance', 'surfaceContrast', 'hostAccent', 'installHostAccent',
+  'installActionMenu', 'ActionMenu', 'calendarAccountName', 'CalendarCard', 'shiftMonth', 'monthTitle', 'monthGrid',
 ]
 const transitionStart = source.indexOf('    const VARIANT_NEXT = ')
 const transitionEnd = source.indexOf('\n    }', transitionStart)
@@ -49,7 +54,7 @@ const React = {
     const mount = currentMount, index = mount.cursor++
     if (!mount.slots[index]) mount.slots[index] = { value: typeof initial === 'function' ? initial() : initial }
     const slot = mount.slots[index]
-    return [slot.value, (next) => { if (!mount.active) { mount.lateSets++; return } slot.value = typeof next === 'function' ? next(slot.value) : next; mount.dirty = true }]
+    return [slot.value, (next) => { if (!mount.active) { mount.lateSets++; return } const value = typeof next === 'function' ? next(slot.value) : next; if (Object.is(value, slot.value)) return; slot.value = value; mount.dirty = true }]
   },
   useEffect(effect, deps) {
     const mount = currentMount, index = mount.cursor++
@@ -101,6 +106,14 @@ const context = vm.createContext({
 })
 vm.runInContext("const DraftContext = 'draft', RefreshContext = 'refresh'; let fieldSerial = 0; const modalStack = [];\n" + comboLine + '\n' + source.slice(transitionStart, transitionEnd + 6) + '\n' + names.map(bodyOf).join('\n') + '\nglobalThis.api = { ' + names.join(', ') + ' };', context)
 const api = context.api
+// Render the actual cards; only unrelated visual leaves are inert VNodes.
+for (const name of [...(bodyOf('TopicsCard') + bodyOf('StudioCard') + bodyOf('CalendarCard')).matchAll(/\bh\(\s*([A-Z]\w*)/g)].map((match) => match[1])) if (context[name] === undefined) context[name] = function VisualLeaf() {}
+context.CAL_WEEKDAYS = [...source.match(/^    const CAL_WEEKDAYS = (.+)$/m)[1].matchAll(/'([^']+)'/g)].map((match) => match[1])
+context.TOPIC_STATUSES = ['在写', '待发', '已发', '待回填', '已归档']
+context.topicTypeOf = (record) => String(record.front?.type ?? '').trim()
+context.localDay = context.todayISO = () => '2026-11-11'
+context.t = (key) => key
+context.formatCount = (value) => String(value)
 const tests = []
 const test = (name, run) => tests.push({ name, run })
 
@@ -312,6 +325,11 @@ test('row/sort keyboard activation fires once and ignores nested controls', () =
 test('column widths clamp both neighbors while preserving their combined width', () => {
   const next = api.shiftedColumnWidths([50, 50], 0, 100); assert.deepEqual(plain(next), [96, 4]); assert.equal(next[0] + next[1], 100)
 })
+test('pixel column widths preserve their combined width and honor per-column minima', () => {
+  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64, 88], 0, 100, [56, 72])), [80, 72])
+  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64, 88], 0, -100, [56, 72])), [56, 96])
+  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64], 0, 10, [56])), [64])
+})
 test('pointercancel, blur and explicit unmount cleanup remove all column drag listeners', () => {
   for (const end of ['pointercancel', 'blur', 'cleanup']) {
     const doc = new EventBus(), host = new EventBus(), classes = new Set(); doc.body = { classList: { add: (value) => classes.add(value), remove: (value) => classes.delete(value) } }
@@ -377,6 +395,180 @@ test('multiple PlatformInput instances have independent control and datalist ids
   const first = mount(() => api.PlatformInput({ value: '', options: [], onChange() {} })), second = mount(() => api.PlatformInput({ value: '', options: [], onChange() {} })); await first.flush(); await second.flush()
   const a = find(first.value, (node) => node.type === 'input'), b = find(second.value, (node) => node.type === 'input')
   assert.notEqual(a.props.id, b.props.id); assert.notEqual(a.props.id, a.props.list); assert.notEqual(a.props.list, b.props.list); first.unmount(); second.unmount()
+})
+
+// End-to-end call sites: the existing card filter must dispatch real paged q.
+function findAll(tree, predicate, result = []) { if (tree === null || typeof tree !== 'object') return result; if (predicate(tree)) result.push(tree); for (const child of tree.props?.children ?? []) findAll(child, predicate, result); return result }
+function nodeText(tree) { if (tree === null || tree === undefined || typeof tree === 'boolean') return ''; if (typeof tree !== 'object') return String(tree); return (tree.props?.children ?? []).map(nodeText).join(' ') }
+for (const [card, ownType] of [[api.TopicsCard, '拆解'], [api.StudioCard, '选题']]) {
+  test(card.name + ' existing filter dispatches full-vault q and keeps a body-only hit beyond 200', async () => {
+    const records = Array.from({ length: 401 }, (_, index) => ({ id: 'id' + index, path: 'Topics/entry' + index + '.md', title: '记录' + index, preview: '', body: index === 400 ? 'ONLY_BODY_NEEDLE' : 'ordinary', front: { type: ownType, platform: '抖音', date: '2026-11-11', tags: '' }, metrics: { views: index } }))
+    const requests = []
+    context.get = async (uri) => {
+      const [path, query = ''] = uri.split('?'), params = new URLSearchParams(query); requests.push({ path, query })
+      if (path === '/v2/variants') return { variants: [] }
+      if (path === '/accounts/list') return { records: [], total: 0, offset: 0, limit: 300, truncated: false }
+      assert.equal(path, '/topics/list')
+      const q = params.get('q') ?? '', offset = Number(params.get('offset') ?? 0), limit = Number(params.get('limit') ?? 200)
+      const all = q === '' ? records : records.filter((record) => record.body.includes(q))
+      return { records: all.slice(offset, offset + limit), total: all.length, offset, limit, truncated: offset + limit < all.length }
+    }
+    const actor = mount(card, { notify() {}, openCard() {}, preset: null }); await actor.flush()
+    const filter = find(actor.value, (node) => node.type === context.ListFilter); assert.ok(filter, 'existing user-facing filter is mounted')
+    filter.props.setFilter('ONLY_BODY_NEEDLE'); await actor.flush()
+    assert.ok(requests.some(({ path, query }) => path === '/topics/list' && new URLSearchParams(query).get('q') === 'ONLY_BODY_NEEDLE'))
+    const pager = find(actor.value, (node) => node.type === context.ListPager && node.props.list.data?.records?.some((record) => record.id === 'id400'))
+    assert.ok(pager); assert.equal(pager.props.list.data.total, 1); assert.match(nodeText(actor.value), /记录400/)
+    assert.equal(api.matchRecord(records[400], 'only_body_needle'), false, 'a local metadata matcher would wrongly discard this result')
+    actor.unmount(); assert.equal(actor.lateSets, 0)
+  })
+}
+test('actual Studio custom header exposes native keyboard buttons and really sorts rows both ways', async () => {
+  const records = [10, 2, 1].map((number) => ({ id: 'sort' + number, path: 'Topics/sort' + number + '.md', title: '选题' + number, front: { type: '选题', platform: '抖音', tags: '' } }))
+  context.get = async (uri) => uri.startsWith('/v2/variants') ? { variants: [] } : uri.startsWith('/accounts/list') ? { records: [], total: 0, offset: 0, limit: 300, truncated: false } : { records, total: records.length, offset: 0, limit: 200, truncated: false }
+  const actor = mount(api.StudioCard, { notify() {}, openCard() {}, preset: null }); await actor.flush()
+  const titles = () => findAll(actor.value, (node) => node.type === 'button' && node.props.className === 'dsh-gw-topiclist-title').map(nodeText)
+  assert.deepEqual(titles(), ['选题10', '选题2', '选题1'], 'default keeps server order')
+  const header = () => find(actor.value, (node) => node.type === api.CollectionSortHead && node.props.field === 'title')
+  let th = api.CollectionSortHead(header().props), button = find(th, (node) => node.type === 'button')
+  assert.equal(th.props['aria-sort'], 'none'); assert.equal(button.props.type, 'button'); button.props.onClick(); await actor.flush()
+  assert.deepEqual(titles(), ['选题1', '选题2', '选题10']); th = api.CollectionSortHead(header().props); assert.equal(th.props['aria-sort'], 'ascending')
+  find(th, (node) => node.type === 'button').props.onClick(); await actor.flush(); assert.deepEqual(titles(), ['选题10', '选题2', '选题1']); assert.equal(api.CollectionSortHead(header().props).props['aria-sort'], 'descending')
+  assert.deepEqual(records.map((record) => record.title), ['选题10', '选题2', '选题1'], 'sorting never mutates source records'); actor.unmount()
+})
+test('sorting uses displayed version platform/status/count and ledger metrics instead of fake attributes', () => {
+  const a = { record: { title: 'a', front: { platform: '旧平台', views: 999 }, metrics: { views: 2 } }, variants: [{ front: { platform: '抖音' } }], statusText: '已发' }
+  const b = { record: { title: 'b', front: { platform: '旧平台', views: 1 }, metrics: { views: 10 } }, variants: Array.from({ length: 10 }, () => ({ front: { platform: '小红书' } })), statusText: '在写' }
+  assert.equal(api.collectionSortValue(a, 'platform'), '抖音'); assert.equal(api.collectionSortValue(a, 'status'), '已发'); assert.equal(api.collectionSortValue(a, 'views'), 2)
+  assert.deepEqual(api.sortCollectionRows([b, a], { field: 'versions', desc: false }).map((row) => row.record.title), ['a', 'b'])
+  assert.deepEqual(api.sortCollectionRows([b, a], { field: 'views', desc: false }).map((row) => row.record.title), ['a', 'b'])
+  assert.equal(api.CollectionSortHead({ label: '操作', field: null }).props['aria-sort'], undefined)
+})
+test('height tracker measures actual element lifetime, de-duplicates rounded heights, and cleans late callbacks', () => {
+  const active = new Map(), heights = []; let watches = 0, stops = 0
+  const observe = (node, apply) => { watches++; active.set(node, apply); apply(); return () => { stops++; active.delete(node) } }
+  const tracker = api.createMeasuredHeightTracker((height) => heights.push(height), observe)
+  let measured = 40.2; const first = { isConnected: true, getBoundingClientRect: () => ({ height: measured }) }; tracker.attach(first)
+  const oldCallback = active.get(first); for (let count = 0; count < 30; count++) oldCallback(); tracker.attach(first)
+  assert.equal(watches, 1); assert.deepEqual(heights, [40]); measured = 41.6; oldCallback(); assert.deepEqual(heights, [40, 42])
+  measured = NaN; oldCallback(); first.isConnected = false; measured = 70; oldCallback(); assert.deepEqual(heights, [40, 42])
+  tracker.attach(null); oldCallback(); assert.equal(active.size, 0)
+  const retry = { isConnected: true, getBoundingClientRect: () => ({ height: 55 }) }; tracker.attach(retry); assert.deepEqual(heights, [40, 42, 55]); tracker.stop(); tracker.stop(); assert.equal(stops, 2)
+})
+test('actual measured-height hook keeps a stable ref through commits and reconnects after warning retry', async () => {
+  const active = new Map(); let observations = 0
+  context.watchSize = (node, apply) => { observations++; active.set(node, apply); apply(); return () => active.delete(node) }
+  const actor = mount(() => api.useMeasuredBlockHeight(40)); await actor.flush(); const ref = actor.value[0]
+  let height = 44; const node = { isConnected: true, getBoundingClientRect: () => ({ height }) }; ref(node); await actor.flush()
+  assert.equal(actor.value[1], 44)
+  for (let count = 0; count < 10; count++) { actor.update({ count }); await actor.flush(); assert.equal(actor.value[0], ref); active.get(node)() }
+  assert.equal(observations, 1); height = 52; active.get(node)(); await actor.flush(); assert.equal(actor.value[1], 52)
+  const late = active.get(node); ref(null); assert.equal(active.size, 0); late(); await actor.flush()
+  ref({ isConnected: true, getBoundingClientRect: () => ({ height: 60 }) }); await actor.flush(); assert.equal(actor.value[1], 60)
+  actor.unmount(); assert.equal(active.size, 0); late(); assert.equal(actor.lateSets, 0)
+})
+
+test('real ListPager exposes total/offset/truncation and invokes full-vault q and next page', () => {
+  const calls = [], list = { query: '正文', loading: false, loadingMore: false, data: { records: [{ id: 'a' }], total: 401, offset: 0, nextOffset: 200, truncated: true }, setQuery(value) { calls.push(['q', value]) }, loadMore() { calls.push(['next']) } }
+  const tree = api.ListPager({ list, label: '选题' })
+  assert.equal(tree.props['data-total'], 401); assert.equal(tree.props['data-offset'], 0); assert.equal(tree.props['data-next-offset'], 200); assert.equal(tree.props['data-truncated'], true)
+  assert.match(nodeText(tree), /401/); assert.match(nodeText(tree), /201/)
+  find(tree, (node) => node.type === 'input').props.onChange({ target: { value: '全正文命中' } })
+  find(tree, (node) => node.type === 'button').props.onClick()
+  assert.deepEqual(calls, [['q', '全正文命中'], ['next']])
+  assert.equal(find(api.ListPager({ list: { ...list, externalSearch: true }, label: '选题' }), (node) => node.type === 'input'), undefined)
+})
+test('AccountPicker keeps exact selected identity across server search and puts search inside picker', async () => {
+  const chosen = { title: '主账号', front: { id: 'account-a', name: '主账号', platform: '抖音' } }
+  const list = { query: '', data: { records: [chosen], total: 401, offset: 0, nextOffset: 300, truncated: true }, setQuery() {}, loadMore() {} }
+  const props = { platform: '抖音', options: [chosen], value: 'account-a', list, hideCreate: true, onChange() {}, notify() {} }
+  const actor = mount(api.AccountPicker, props); await actor.flush()
+  assert.ok(find(actor.value, (node) => node.type === api.ListPager && node.props.list === list))
+  actor.update({ ...props, options: [], list: { ...list, query: '其他账号', data: { records: [], total: 0, truncated: false } } }); await actor.flush()
+  const select = find(actor.value, (node) => node.type === 'select')
+  assert.equal(select.props.value, 'account-a'); assert.ok(find(select, (node) => node.type === 'option' && node.props.value === 'account-a'))
+  const details = find(actor.value, (node) => node.type === 'details'); let focused = 0
+  const event = { key: 'Escape', currentTarget: { open: true, querySelector: () => ({ focus() { focused++ } }) }, preventDefault() { this.prevented = true }, stopPropagation() { this.stopped = true } }
+  details.props.onKeyDown(event); assert.equal(event.currentTarget.open, false); assert.equal(event.stopped, true); assert.equal(focused, 1)
+  actor.unmount(); assert.equal(actor.lateSets, 0)
+})
+test('palette picks actual host light/dark surfaces even when OS disagrees, and rendered hex passes AA', () => {
+  const cases = [['#ffffff', '#161616', 'dark'], ['rgb(247, 247, 248)', '#242424', 'dark'], ['#ece8e3', '#171717', 'dark'], ['#16181c', '#eeeeee', 'light'], ['rgb(38, 39, 44)', '#eeeeee', 'light'], ['color(srgb 0.16 0.16 0.16)', '#ffffff', 'light'], ['#ffffff', '#e8ebef', 'dark'], ['#1f2126', '#202328', 'light']]
+  for (const [background, label, os] of cases) {
+    const result = api.hostAccent(background, label, os), base = api.parseSurfaceColor(background), tone = api.parseSurfaceColor(result.color)
+    assert.equal(result.scheme, api.surfaceLuminance(base) < 0.3 ? 'dark' : 'light')
+    const tinted = base.map((part, index) => part * 0.84 + tone[index] * 0.16)
+    assert.ok(api.surfaceContrast(tone, base) >= 4.5, background + ' plain'); assert.ok(api.surfaceContrast(tone, tinted) >= 4.5, background + ' hover')
+  }
+  assert.equal(api.hostAccent('', '', 'dark').color, '#ddb781'); assert.equal(api.hostAccent('', '', 'light').color, '#98672d')
+})
+test('palette observes only actual host ancestors, deduplicates own writes, and cleans observers/probe', () => {
+  const media = new EventBus(), observations = []; let callback, disconnected = 0, removed = 0, writes = 0, background = 'rgb(255, 255, 255)', label = 'rgb(20, 20, 20)'
+  const probe = { style: {}, remove() { removed++ } }, parent = { parentElement: { parentElement: null } }
+  const values = new Map(), node = { isConnected: true, parentElement: parent, appendChild(value) { assert.equal(value, probe) }, style: { colorScheme: '', getPropertyValue: (key) => values.get(key), setProperty(key, value) { writes++; values.set(key, value) } } }
+  const host = { getComputedStyle(target) { return target === probe ? { color: probe.style.color.includes('bg-layer') ? background : label } : { colorScheme: 'dark' } }, matchMedia() { return media }, MutationObserver: class { constructor(apply) { callback = apply } observe(target, options) { observations.push({ target, options }) } disconnect() { disconnected++ } } }
+  const cleanup = api.installHostAccent(node, host, { createElement: () => probe })
+  assert.equal(node.style.colorScheme, 'light'); assert.equal(observations.length, 2); assert.ok(observations.every(({ target, options }) => target !== node && options.attributes === true && !options.childList && !options.subtree))
+  callback(); media.emit('change', {}); assert.equal(writes, 1)
+  background = '#1b1d20'; label = '#f4f4f4'; callback(); assert.equal(node.style.colorScheme, 'dark'); assert.equal(writes, 2)
+  cleanup(); callback(); media.emit('change', {}); assert.equal(writes, 2); assert.equal(disconnected, 1); assert.equal(removed, 1); assert.equal(media.count(), 0)
+})
+test('real action menu supports arrow/home/end, one Escape, nontrapped Tab, outside dismissal and cleanup', () => {
+  const { doc, root, opener } = focusDOM(), menu = new EventBus(), group = root('menu'); let dismissed = 0
+  menu.contains = (node) => node === menu || node === opener || group.buttons.includes(node); menu.querySelectorAll = () => group.buttons
+  const cleanup = api.installActionMenu(menu, opener, () => { dismissed++ }, doc)
+  assert.equal(doc.activeElement, group.buttons[0])
+  const fire = (key) => { const event = keyEvent(key); event.target = doc.activeElement; menu.emit('keydown', event); return event }
+  fire('ArrowDown'); assert.equal(doc.activeElement, group.buttons[1]); fire('ArrowDown'); assert.equal(doc.activeElement, group.buttons[0]); fire('End'); assert.equal(doc.activeElement, group.buttons[1]); fire('Home'); assert.equal(doc.activeElement, group.buttons[0])
+  assert.equal(fire('Tab').defaultPrevented, false); const escape = fire('Escape'); assert.equal(dismissed, 1); assert.equal(doc.activeElement, opener); assert.equal(escape.defaultPrevented, true)
+  doc.emit('pointerdown', { target: {} }); menu.emit('focusout', { relatedTarget: {} }); assert.equal(dismissed, 3)
+  cleanup(); assert.equal(menu.count(), 0); assert.equal(doc.count(), 0)
+})
+test('actual ActionMenu native trigger opens real menu, separates danger and invokes only selected action', async () => {
+  let selected = 0
+  const actor = mount(api.ActionMenu, { label: '版本更多操作', items: [{ label: '资料', onSelect() { selected++ } }, { label: '删除版本', danger: true, onSelect() { selected += 10 } }] }); await actor.flush()
+  const trigger = () => find(actor.value, (node) => node.type === 'button' && node.props['aria-haspopup'] === 'menu')
+  assert.equal(trigger().props['aria-expanded'], false); const event = keyEvent('ArrowDown'); trigger().props.onKeyDown(event); await actor.flush()
+  const menu = find(actor.value, (node) => node.props.role === 'menu'); assert.ok(menu); assert.equal(menu.props.id, trigger().props['aria-controls']); assert.equal(trigger().props['aria-expanded'], true)
+  const danger = find(menu, (node) => node.props['data-tone'] === 'danger'); assert.equal(danger.props['data-separated'], 'true'); assert.equal(danger.props.role, 'menuitem')
+  const click = { stopPropagation() {} }; danger.props.onClick(click); await actor.flush(); assert.equal(selected, 10); assert.equal(trigger().props['aria-expanded'], false)
+  actor.unmount(); assert.equal(actor.lateSets, 0)
+})
+test('modal capture leaves first Escape to an open menu, then closes only the modal', () => {
+  const { doc, host, root } = focusDOM(), dialog = root('dialog'), menu = { querySelector: () => ({ role: 'menu' }) }; let closed = 0
+  const contains = dialog.contains; dialog.contains = (node) => node === menu || contains(node)
+  const cleanup = api.installModalFocus(dialog, () => { closed++ }, doc, host)
+  const first = keyEvent('Escape'); first.target = { closest: () => menu }; host.emit('keydown', first); assert.equal(closed, 0)
+  const second = keyEvent('Escape'); second.target = { closest: () => null }; host.emit('keydown', second); assert.equal(closed, 1)
+  cleanup(); assert.equal(doc.count(), 0); assert.equal(host.count(), 0)
+})
+test('Calendar account identity falls back to exact linked record or stored account instead of disappearing', () => {
+  const entry = { accountId: 'a', account: '存量主号' }, records = [{ title: '旧标题', front: { id: 'a', name: '完整账号名' } }]
+  assert.equal(api.calendarAccountName(entry, null, records), '完整账号名'); assert.equal(api.calendarAccountName(entry, null, []), '存量主号')
+  assert.equal(api.calendarAccountName({ accountId: 'missing' }, null, []), '账号未载入 #missing')
+  assert.equal(api.calendarAccountName(entry, { front: { accountId: 'b', account: '版本账号' } }, records), '版本账号')
+})
+test('actual CalendarCard is stable for 57 equal-height commits, real resize, warning unmount/retry and cleanup', async () => {
+  const observations = new Map(), requests = []; let watched = 0, height = 38, warning = false
+  context.watchSize = (node, apply) => { watched++; observations.set(node, apply); apply(); return () => observations.delete(node) }
+  context.get = async (uri) => {
+    requests.push(uri)
+    if (uri.startsWith('/calendar?')) { if (warning) throw Object.assign(new Error('temporary read warning'), { code: 'read_warning' }); return { entries: [] } }
+    if (uri.startsWith('/v2/variants')) return { variants: [] }
+    return { records: [], total: 0, offset: 0, limit: 300, truncated: false }
+  }
+  const props = { notify() {}, openCard() {}, preset: null }, actor = mount(api.CalendarCard, props); await actor.flush()
+  const header = () => find(actor.value, (node) => node.props.className === 'dsh-gw-card-top' && typeof node.props.ref === 'function')
+  assert.ok(header(), 'actual Calendar header mounted'); const ref = header().props.ref, node = { isConnected: true, getBoundingClientRect: () => ({ height }) }; ref(node); await actor.flush()
+  const fetchCount = requests.length
+  for (let count = 0; count < 57; count++) { actor.update({ ...props, count }); await actor.flush(); assert.equal(header().props.ref, ref); observations.get(node)(); assert.equal(actor.dirty, false, 'equal height produces no pending render') }
+  assert.equal(watched, 1); assert.equal(requests.length, fetchCount, 'fresh empty arrays never refetch on every commit')
+  height = 42; observations.get(node)(); await actor.flush(); assert.equal(actor.dirty, false)
+  const oldCallback = observations.get(node); warning = true; refresh++; actor.update(props); await actor.flush(); assert.equal(header(), undefined); ref(null); assert.equal(observations.size, 0)
+  const error = find(actor.value, (item) => item.type === api.ErrorBar); assert.equal(error.props.error.code, 'read_warning')
+  warning = false; error.props.onRetry(); await actor.flush(); assert.ok(header()); assert.equal(header().props.ref, ref)
+  const retried = { isConnected: true, getBoundingClientRect: () => ({ height: 52 }) }; ref(retried); await actor.flush(); assert.equal(watched, 2); oldCallback(); await actor.flush(); assert.equal(actor.dirty, false)
+  assert.equal(find(actor.value, (node) => node.props.className === 'dsh-gw-cal').props.style['--dsh-gw-cal-head-h'], '52px'); actor.unmount(); assert.equal(observations.size, 0); oldCallback(); assert.equal(actor.lateSets, 0)
 })
 
 let failed = 0

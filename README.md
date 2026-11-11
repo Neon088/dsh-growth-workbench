@@ -59,15 +59,15 @@ node install.mjs --profile "D:\DSH\profiles\my-profile" --json
 node install.mjs --profile "D:\DSH\profiles\my-profile" --apply --expected-plan <预览中的64位指纹>
 ```
 
-脚本默认只预览，不会隐式安装依赖或重启应用。执行时先暂存新版、备份改动的配置和旧目录；预览后文件又被改过会拒绝覆盖。开发环境已经连到当前源码的目录链接会保留，但仍会检查 profile 里的注册。
+脚本默认纯预览，不会隐式安装依赖或重启应用。`--confirm` 在同一进程中展示计划并等待确认，直接回车取消；跨两次调用必须带预览输出的 `--expected-plan` 指纹，单独 `--apply` 会拒绝。指纹绑定操作、profile、配置输入（含未改动或原不存在的 YAML）、插件入口及安装源码文件集合；任一输入变化都要重新预览。执行时先暂存新版、备份改动的配置和旧目录。开发环境已经连到当前源码的目录链接会保留，但仍会检查 profile 里的注册。
 
 装完重启 DSH、刷新页面，会话头部出现「工作台」按钮。第一次点开会引导填 vault 根目录，填完各板块目录骨架自动建好。改源码不等于已经更新了运行中的宿主：客户端热重载还取决于对应构建 watcher，Host 侧代码要重新加载后才生效。
 
 ## 出问题了
 
-插件加载失败可能让 DSH 无法正常打开。先跑 `node rollback.mjs` 看预览，再确认执行 `node rollback.mjs --apply`；双击 `run-rollback.bat` 也会先预览、再问是否继续。其它 profile 用 `--profile` 指定。
+插件加载失败可能让 DSH 无法正常打开。用 `node rollback.mjs --confirm` 在同一次运行内预览并确认；双击 `run-rollback.bat` 也只启动这一份计划，取消不会回滚。需要跨两次调用时，先跑 `node rollback.mjs --json`，再用相同 `--profile` 参数执行 `node rollback.mjs --apply --expected-plan <预览中的64位指纹>`。其它 profile 用 `--profile` 指定。
 
-回滚只移除增长工作台的精确注册项，不重置其它插件。改动的配置和旧插件入口留在所选 profile 的 `.dsh-growth-backups/`，开发目录链接只隔离链接本身。vault 笔记和增长工作台的用户配置都保留。复杂 YAML 无法安全定位时会整次拒写，不会先改一半再报成功。这个脚本不是通用的 DSH 修复器，回滚后是否能启动仍要实际检查。
+回滚只移除增长工作台的精确注册项，不重置其它插件。改动的配置和旧插件入口留在所选 profile 的 `.dsh-growth-backups/`，开发目录链接只隔离链接本身。vault 笔记和增长工作台的用户配置都保留。复杂 YAML 无法安全定位时会整次拒写，不会先改一半再报成功。安装中途失败会尝试恢复；若插件入口已被第三方替换或改动，会保留该入口和旧备份，并明确报告自动恢复未完成，不强行覆盖。这个脚本不是通用的 DSH 修复器，回滚后是否能启动仍要实际检查。
 
 ## 数据这块
 
@@ -93,9 +93,9 @@ npm test
 npm run test:browser
 ```
 
-默认逐个跑 15 个测试文件。每个子进程的 home 和临时目录都独立放在 `test/.artifacts/unit/`，避免启动日志落到真实用户目录；运行前后还会核对源码指纹。lib、data-safety、rules、security、static 检查库和静态约束；e2e、p0a 用临时 vault 和模拟 Host 请求，不是浏览器端到端测试。v2、migration 检查平台版本和迁移，push、links 验证离线行为。backend-regressions、backend-pagination 补数据安全和列表边界，client-behavior 检查延迟响应、事件和保存队列，profile-maintenance 用临时 profile 检查安装回滚。跳过的个别用例会明说，不当成已验证。
+默认逐个跑 15 个测试文件。每个子进程的 home 和临时目录都独立放在 `test/.artifacts/unit/`，避免启动日志落到真实用户目录；运行前后还会核对源码指纹。每个文件的 stdout、stderr 都会单独留存，报告附日志指纹和退出码。用例摘要和跳过原因保留原样，不靠退出码猜数量。lib、data-safety、rules、security、static 检查库和静态约束；e2e、p0a 用临时 vault 和模拟 Host 请求，不是浏览器端到端测试。v2、migration 检查平台版本和迁移，push、links 验证离线行为。backend-regressions、backend-pagination 补数据安全和列表边界，client-behavior 检查延迟响应、事件和保存队列，profile-maintenance 用临时 profile 检查安装回滚。跳过的个别用例会明说，不当成已验证。
 
-浏览器测试另跑，因为需要机器上已有的 Playwright、React 和 Chrome。它只使用内存中的模拟 API 和独立浏览器目录，不访问运行中的 DSH、不读写真实 vault，也不自动下载依赖。已有工具不在 desktop profile 时，可用 `GROWTH_TEST_PROFILE` 和 `GROWTH_TEST_CHROME` 指定；证据保存在 `test/.artifacts/browser/`。缺少工具或某个场景失败不能算浏览器通过，最终还要在实际宿主里验收。
+浏览器测试另跑，因为需要机器上已有的 Playwright、React 和 Chrome。它只使用内存中的模拟 API 和独立浏览器目录，不访问运行中的 DSH、不读写真实 vault，也不自动下载依赖。已有工具不在 desktop profile 时，可用 `GROWTH_TEST_PROFILE` 和 `GROWTH_TEST_CHROME` 指定；证据保存在 `test/.artifacts/browser/`。默认检查入口、保存与异步行为，并以 440、520、600px × 模拟浅深主题检查有内容的首页、创作、日历和回填表。截图和排版、对比度检查只代表隔离组件，不代表实际宿主主题。`--smoke` 只跑入口；`--calendar-warning-only` 是单场景诊断，不能当作全套通过。缺少工具或某个场景失败不能算浏览器通过，最终还要在实际宿主里验收。
 
 Windows 受限环境可能不允许 `node --test` 的进程管道，测试脚本因此顺序执行各文件。客户端仍是单个入口：宿主加载器不能解析客户端相对模块，不要直接把卡片拆成相对 import。
 
