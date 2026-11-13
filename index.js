@@ -9,7 +9,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, relative, sep, isAbsolute, resolve, parse as parsePath, dirname } from 'node:path'
 import { readFile, writeFile, mkdir, rename, readdir, stat } from 'node:fs/promises'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, watch } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, renameSync, rmSync, watch } from 'node:fs'
 import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
@@ -19,8 +19,9 @@ import * as rules from './lib/rules.js'
 import * as fm from './lib/frontmatter.js'
 import * as csv from './lib/csv.js'
 import { registerVaultTool } from './lib/agent-tool.js'
-import { normalizePlatform, platformOptions } from './lib/platforms.js'
-import { createDomainStore, VARIANT_STATUSES, VARIANT_TRANSITIONS } from './lib/domain.js'
+import { PLATFORMS, normalizePlatform, platformOptions, splitPlatforms } from './lib/platforms.js'
+import { parseChecklist, CHECKLIST_TITLE_HINTS } from './lib/checklist.js'
+import { createDomainStore, VARIANT_STATUSES, VARIANT_TRANSITIONS, normalizeVariantStatus } from './lib/domain.js'
 import { createMigrator } from './lib/migrate.js'
 
 const API_PREFIX = '/api/dsh-growth'
@@ -94,6 +95,15 @@ function localDay(now) {
   const date = now instanceof Date ? now : new Date()
   const pad = (n) => String(n).padStart(2, '0')
   return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+}
+
+function dayInZone(zone = 'Asia/Shanghai', now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)
+  const take = (type) => parts.find((part) => part.type === type)?.value ?? ''
+  return take('year') + '-' + take('month') + '-' + take('day')
 }
 
 // 选题的稳定 ID。新建时随机生成并写进 frontmatter；老笔记没有 id 时按路径算一个
@@ -308,17 +318,31 @@ export function apply(ctx, config) {
   // 启动痕迹。DSH 没有主日志文件，插件加载失败又会被桌面外壳静默吞掉，
   // 所以这里自己留一行：只要这个文件出现时间戳，就说明宿主半边真的跑起来了。
   const traceDir = join(homedir(), '.dsh-growth')
-  const trace = (line) => {
+  // 日志文件都要有上限：超过就轮转一份旧的，绝不无限膨胀。
+  const rotateAppend = (file, line, maxBytes) => {
     try {
-      appendFileSync(join(traceDir, 'startup.log'), `${new Date().toISOString()} ${line}\n`)
+      let size = 0
+      try { size = statSync(file).size } catch { /* 首次写入 */ }
+      if (size > maxBytes) {
+        try { rmSync(file + '.1', { force: true }) } catch { /* 旧轮转不存在 */ }
+        try { renameSync(file, file + '.1') } catch { /* 换名失败就继续追加 */ }
+      }
+      appendFileSync(file, line)
     } catch {
-      // 记不住就算了，绝不能因为日志把插件搞挂。
+      // 记不上不影响任何功能。
     }
   }
+  const trace = (line) => {
+    rotateAppend(join(traceDir, 'startup.log'), `${new Date().toISOString()} ${line}\n`, 128 * 1024)
+  }
+  // 例行成功探测（apply / 挂接 / 会话桥等）只在进程内记第一次；失败与状态变化永远记。
+  const ROUTINE_LOG_LABELS = new Set(['apply', 'inject', 'sidebar tab:registered', 'sidebar tab:slots', 'sidebar tab:already', 'fallback overlay:skipped', 'input bridge:attached', 'openRight:ok', 'closeRight:ok'])
+  const clientLogSeen = new Set()
   try {
     mkdirSync(traceDir, { recursive: true })
   } catch {}
-  trace(`apply start; hasCtx=${ctx !== void 0}; configKeys=${Object.keys(config ?? {}).length}`)
+  const configKeys = Object.keys(config ?? {}).length
+  trace(`apply start; hasCtx=${ctx !== void 0}; configKeys=${configKeys}${configKeys === 12 ? '' : '; keys=' + Object.keys(config ?? {}).join(',')}`)
 
   let userConfig = {}
   let cards = DEFAULT_CARDS.map((card) => ({ ...card }))
@@ -382,7 +406,14 @@ export function apply(ctx, config) {
   }
 
   function createWorkbenchTable(spec) {
-    return createTable({ ...spec, validatePath: (file) => vault.assertInsidePath(file) })
+    // 备份路径和笔记写入/删除走同一个算法（vault.backupPathFor）：
+    // 备份目录 + 原相对路径 + .bak。以前表格备份固定写「原文件旁边.md.bak」，
+    // 备份散落在 Obsidian 库里会被当成正常笔记索引出来。
+    return createTable({
+      ...spec,
+      validatePath: (file) => vault.assertInsidePath(file),
+      backupPath: (file) => vault.backupPathFor(file),
+    })
   }
 
   /**
@@ -539,7 +570,8 @@ export function apply(ctx, config) {
         if (indexedVault !== vault) { parsedIndex.clear(); indexedVault = vault }
         const dir = dirNameOf(kind)
         const notes = await listNotesUnder(dir)
-        const paths = [...new Set(notes.map((note) => note.path).filter((path) => path.startsWith(dir + '/')))]
+        const paths = [...new Set(notes.map((note) => note.path).filter((path) => path.startsWith(dir + '/')
+          && (kind !== 'data' || !path.startsWith(dir + '/回流台账/'))))]
         const pathSet = new Set(paths)
         for (const path of parsedIndex.keys()) if (!pathSet.has(path)) parsedIndex.delete(path)
         const variantsByMaster = new Map()
@@ -653,7 +685,7 @@ export function apply(ctx, config) {
       // 所以老行的 id 不会变，不会出现「升级一次全变新行」。
       legacy: [
         { cells: 5, at: [{ index: 2 }] },
-        { cells: 4, at: [{ index: 2 }, { index: 4 }] },
+        { cells: 4, at: [{ index: 2 }, { index: 5 }] },
       ],
       idKeys: ['date', 'content'],
       heading: '# 灵感箱',
@@ -666,7 +698,7 @@ export function apply(ctx, config) {
       header: ['日期', '渠道', '来源', '情感', '内容', '标签', '处理意见', '处理结果', '状态'],
       keys: ['date', 'channel', 'source', 'sentiment', 'content', 'tags', 'advice', 'resolution', 'status'],
       idKeys: ['date', 'content'],
-      legacy: [{ cells: 8, at: [{ index: 2 }] }, { cells: 6, at: [{ index: 2 }, { index: 5 }, { index: 5 }] }],
+      legacy: [{ cells: 8, at: [{ index: 2 }] }, { cells: 6, at: [{ index: 2 }, { index: 6 }, { index: 7 }] }],
       heading: '# 客户反馈',
       intro: '> 情感：正 / 负 / 中性。状态：未处理 / 跟进中 / 已处理。处理意见 / 处理结果：怎么打算处理的、最后处理成什么样。来源：平台 / 内容（发布过的文章或视频，也就是笔记）/ 商品（自家或竞品里挑具体一个）。',
       label: '反馈',
@@ -742,6 +774,15 @@ export function apply(ctx, config) {
       workbenchDir: String(cfg('workbenchDir')).replace(/\\/g, '/'),
       topics: collections.topics,
       dataDir: dirOf('dataDir'),
+      // 自检清单交给领域层，但清单在哪儿由这里说了算（vault 里那份 SOP 文件）。
+      checklistProvider: () => readChecklistDoc(),
+      accountProvider: async (id) => {
+        const wanted = String(id ?? '').trim()
+        if (wanted === '') return null
+        const accounts = await collections.accounts.all({ includeVariants: false })
+        return accounts.find((record) => String(record.id ?? record.front?.id ?? '') === wanted) ?? null
+      },
+      timezone: 'Asia/Shanghai',
     })
     migrator = createMigrator({ vault, topics: collections.topics, domain })
 
@@ -830,6 +871,11 @@ export function apply(ctx, config) {
         { key: 'conv', label: '转化率', max: 20 },
         { key: 'roi', label: 'ROI', max: 20 },
         { key: 'mom', label: '环比', max: 20 },
+        // 出处和口径是硬规则 H3「数据必须说得出出处」要求的两个字段。
+        // 以前这张表只有指标没有来源，于是同一句「GMV 12 万」没人说得清是哪天、
+        // 哪个后台、含不含退款 —— 三个月后连自己都不敢引用。
+        { key: 'source', label: '数据来源', max: 120 },
+        { key: 'caliber', label: '统计口径', max: 120 },
       ],
       sort: 'period',
       template: (front) => [
@@ -840,6 +886,10 @@ export function apply(ctx, config) {
         '| 流量 | ' + (front.traffic ?? '') + ' |  |  |',
         '| 转化率 | ' + (front.conv ?? '') + ' |  |  |',
         '| ROI | ' + (front.roi ?? '') + ' |  |  |',
+        '',
+        '## 数据出处',
+        '- 来源：' + (front.source || '（待填：哪个后台、哪张表、哪一天导出的）'),
+        '- 口径：' + (front.caliber || '（待填：含不含退款、按哪个时间窗、按 GMV 还是成交额）'),
         '',
         '## 变化解读',
         '- 涨在哪：',
@@ -984,7 +1034,7 @@ export function apply(ctx, config) {
   // 「待回填数据」的缺口：日历里标了「已发」，但同选题同平台还没有平台版本的排期。
   // 服务端一次算完，前端不要再自己过滤一遍 —— 两个地方各算一次，迟早算出两个数。
   async function pendingGapsOf() {
-    if (domain === null) return { variants: [], gaps: [], total: 0 }
+    if (domain === null) return { variants: [], gaps: [] }
     const masters = (await collections.topics.all({ includeVariants: false }))
       .filter((record) => !String(record.path ?? '').startsWith('Topics/测试/'))
     const masterIdOf = (master) => String(master.id ?? master.front?.id ?? '')
@@ -992,29 +1042,28 @@ export function apply(ctx, config) {
     const allVariants = await domain.listVariants()
     const published = allVariants.filter((variant) => ['已发', '待回填'].includes(String(variant.status))
       && masterById.has(String(variant.front?.masterId ?? '')))
-    // 覆盖判断按「选题 + 平台」这一对，而且要看全部版本（含已归档）：
-    // 一个已经归档的版本说明这条内容早有归宿，不该再被当成「还没有平台版本」催一遍。
+    // 覆盖判断按「选题 + 平台」这一对，而且要看收纳中的版本：
+    // 收纳只影响日常显示，不能让已经发布的内容重新变成缺口。
     const covered = new Set()
     for (const variant of allVariants) {
-      // 只有「真的发出去过」的版本才算覆盖：已发 / 数据回流，或归档前发过的。
+      // 只有真的发出去过的版本才算覆盖。旧「已归档」笔记已由领域层恢复成
+      // 原生命周期状态，所以这里不再把收纳当成发布事实。
       // 以前草稿、待审也一并算上 —— 日历标了已发、版本还躺在草稿里，缺口被静默吞掉，
       // 待回填数据上半段只收已发/数据回流，于是两边都不显示，这条内容凭空消失。
       const status = String(variant.status ?? '')
-      const countsAsPublished = ['已发', '待回填'].includes(status)
-        || (status === '已归档' && String(variant.front?.publishedAt ?? '').trim() !== '')
+      const countsAsPublished = ['已发', '待回填', '已结案'].includes(status)
+        && String(variant.front?.publishedAt ?? '').trim() !== ''
       if (!countsAsPublished) continue
       const master = masterById.get(String(variant.front?.masterId ?? ''))
       if (master === undefined) continue
       covered.add(String(master.path ?? '') + '|' + normalizePlatform(String(variant.front?.platform ?? '')))
     }
     const gaps = []
-    let total = 0
     for (const month of await calendarMonths()) {
       const cal = calendarTableFor(month)
       const state = await cal.table.read(cal.file)
       for (const entry of state.entries) {
         if (String(entry.status) !== '已发') continue
-        total += 1
         const topicPath = String(entry.topicPath ?? '').trim()
         // 纯商品行（挂了商品档案、没挂选题）本来就不需要平台版本，不算缺口。
         if (String(entry.productPath ?? '').trim() !== '' && topicPath === '') continue
@@ -1023,7 +1072,7 @@ export function apply(ctx, config) {
       }
     }
     gaps.sort((left, right) => String(right.date).localeCompare(String(left.date)))
-    return { variants: published, gaps, total }
+    return { variants: published, gaps }
   }
 
   // 状态机上的最短路径：日历那边只会说「这条已发了」，中间经过哪几步是系统的事。
@@ -1048,14 +1097,26 @@ export function apply(ctx, config) {
 
   // 日历把某条标成「已发」，等于说「这条真的发出去了」。那同选题同平台的平台版本
   // 也得跟着走完状态机 —— 否则日历记一本账、版本记另一本，谁都不知道哪本是准的。
-  // 推不动（比如风险等级「禁发」）不阻断日历，只把原因带回去让前端说一句。
-  async function advanceVariantForCalendar(entry) {
-    if (domain === null) return { ok: false, reason: '还没连接 vault' }
+  //
+  // 分两步：先 resolve（只读，算清楚该推哪一版、推不推得动），再 apply（真写）。
+  // 分开是因为日历那一行和版本文件是两次写盘 —— 推不动的话，日历一个字节都不该写。
+  // 以前是先写日历再推版本，推不动时日历已经写成「已发」了，接口还返回 200 装作没事。
+  //
+  // blocking 标记两件事：
+  //   blocking = true  → 这一行推不动是因为「推它」本身有矛盾（挂的版本不存在、平台对不上、
+  //                       同平台多个版本没指定推哪一版、门禁没过）。这时候整条拒绝，
+  //                       日历一个字节都不写 —— 让日历说「已发」而版本还在「在写」，
+  //                       两本账就对不上了。
+  //   blocking = false → 这一行压根没有可推进的版本（纯商品排期、老行没挂版本、
+  //                       同平台还没建版本）。没有东西要推进，不构成矛盾，日历照写，
+  //                       只把原因带回去让前端说一句。
+  async function resolveCalendarAdvance(entry) {
+    if (domain === null) return { ok: false, reason: '还没连接 vault', blocking: false }
     const topicPath = String(entry.topicPath ?? '').trim()
-    if (topicPath === '') return { ok: false, reason: '这条没挂选题笔记' }
+    if (topicPath === '') return { ok: false, reason: '这条没挂选题笔记', blocking: false }
     const masters = await collections.topics.all({ includeVariants: false })
     const master = masters.find((record) => String(record.path ?? '') === topicPath)
-    if (master === undefined) return { ok: false, reason: '找不到选题笔记：' + topicPath }
+    if (master === undefined) return { ok: false, reason: '找不到选题笔记：' + topicPath, blocking: false }
     const platform = normalizePlatform(String(entry.platform ?? ''))
     const variants = await domain.listVariants(master.id)
     // 日历这一行如果挂了版本ID，就是它 —— 同平台多个版本时不再需要猜。
@@ -1063,19 +1124,20 @@ export function apply(ctx, config) {
     let variant = null
     if (wantedVariantId !== '') {
       variant = variants.find((item) => String(item.id) === wantedVariantId) ?? null
-      if (variant === null) return { ok: false, reason: '日历挂的平台版本不存在了：' + wantedVariantId }
+      if (variant === null) return { ok: false, blocking: true, reason: '日历挂的平台版本不存在了：' + wantedVariantId }
       if (normalizePlatform(String(variant.front?.platform ?? '')) !== platform) {
-        return { ok: false, reason: '日历的平台「' + platform + '」与这一版不一致，可能刚被改过' }
+        return { ok: false, blocking: true, reason: '日历的平台「' + platform + '」与这一版不一致，可能刚被改过' }
       }
     } else {
       const samePlatform = variants.filter((item) => normalizePlatform(String(item.front?.platform ?? '')) === platform)
-      if (samePlatform.length === 0) return { ok: false, reason: '这条选题在「' + platform + '」还没有平台版本' }
+      if (samePlatform.length === 0) return { ok: false, blocking: false, reason: '这条选题在「' + platform + '」还没有平台版本' }
       // 老行没有版本ID。同一个平台挂着好几个版本（主号 / 测试号 / 矩阵号）时分不清该推哪一个：
       // 以前这里取第一个，结果「把测试号推成已发、真正排期的那版没动」还报成功 ——
       // 宁可如实说推不了，让人自己在日历行上选一个版本。
       if (samePlatform.length > 1) {
         return {
           ok: false,
+          blocking: true,
           ambiguous: true,
           reason: '这条选题在「' + platform + '」有 ' + samePlatform.length + ' 个版本，日历这行还没指定版本，请选一个再标已发',
         }
@@ -1083,24 +1145,137 @@ export function apply(ctx, config) {
       variant = samePlatform[0]
     }
     const steps = transitionPathOf(variant.status, '已发')
-    if (steps === null) return { ok: false, reason: '「' + variant.status + '」走不到「已发」' }
-    if (steps.length === 0) return { ok: true, status: variant.status, steps: [] }
-    let current = variant
-    try {
-      for (const step of steps) current = await domain.transitionVariant(current.path, step, { actor: 'calendar' })
-    } catch (error) {
-      return { ok: false, reason: error?.message ?? String(error), steps }
-    }
-    return { ok: true, status: current.status, steps }
+    if (steps === null) return { ok: false, blocking: true, reason: '「' + variant.status + '」走不到「已发」' }
+    // 预检：只读，不写盘。门禁（禁发 / 高风险没勾完自检）在这里就会被拦下，
+    // 拦下了就整条拒绝 —— 日历不写，版本也不动。
+    const preflight = await domain.preflightSteps(variant.path, steps)
+    if (preflight.ok !== true) return { ok: false, blocking: true, reason: preflight.reason }
+    return { ok: true, variant, steps, status: variant.status }
   }
 
-  // 概览卡片上那个数字：跨月还在等回流的条数。
-  // 和「待回填数据」卡完全同一个口径：已发布（已发/数据回流）的平台版本 + 日历里的缺口。
-  // 以前这里只数日历「已发」，而卡片上还有 v2 那一段，首页数字永远偏小 ——
-  // 同一个概念两套算法，就是「重复」最典型的形态。
+  // 真正把版本推进去。只在 resolve 通过之后调用。
+  async function applyCalendarAdvance(resolved, options = {}) {
+    if (resolved.ok !== true) return resolved
+    let current = resolved.variant
+    try {
+      for (const step of resolved.steps) current = await domain.transitionVariant(current.path, step, {
+        actor: 'calendar',
+        ...(step === '已发' ? { at: options.at, reviewDays: options.reviewDays, link: options.link } : {}),
+      })
+    } catch (error) {
+      if (String(current.sha1 ?? '') !== String(resolved.variant.sha1 ?? '')) {
+        try {
+          await vault.writeNote(resolved.variant.path, resolved.variant.text, { expectedSha1: current.sha1 })
+        } catch (rollbackError) {
+          return {
+            ok: false,
+            partial: true,
+            reason: '平台版本推进失败，且版本回滚失败：' + (rollbackError?.message ?? String(rollbackError)),
+            cause: error?.message ?? String(error),
+            steps: resolved.steps,
+          }
+        }
+      }
+      return { ok: false, reason: error?.message ?? String(error), steps: resolved.steps }
+    }
+    return { ok: true, status: current.status, steps: resolved.steps }
+  }
+
+  // 版本的发布状态往前走了，日历上挂着它的那一行也要跟着走 ——
+  // 否则同一个平台版本在两个地方显示两个状态，版本卡说「已发」、日历说「待发」，
+  // 用户只能靠猜。平台版本是唯一真源，日历行状态是它的投影。
+  //
+  // 只往前投影，不往后拉：日历行如果已经比版本更靠前（老数据、手工改过），
+  // 保持原样 —— 把它拉回来等于用一次状态变更抹掉用户已经记下的事实。
+  const CALENDAR_STATUS_RANK = { 在写: 0, 待发: 1, 已发: 2, 待回填: 3 }
+  async function calendarProjectionPlans(variantId, status, { cancel = false } = {}) {
+    const id = String(variantId ?? '').trim()
+    const target = String(status ?? '').trim()
+    if (id === '') return []
+    const plans = []
+    for (const month of await calendarMonths()) {
+      const cal = calendarTableFor(month)
+      const state = await cal.table.read(cal.file)
+      if (state.warning !== undefined) throw new VaultError('日历 ' + month + ' 读取失败：' + state.warning, state.code ?? 'read_failed')
+      const before = state.entries ?? []
+      let next = before
+      if (cancel) {
+        next = before.filter((entry) => !(String(entry.variantId ?? '').trim() === id
+          && ['在写', '待发'].includes(String(entry.status ?? '').trim())
+          && String(entry.date ?? '') >= today()))
+      } else if (CALENDAR_STATUS_RANK[target] !== undefined) {
+        next = before.map((entry) => {
+          if (String(entry.variantId ?? '').trim() !== id) return entry
+          const current = String(entry.status ?? '').trim()
+          return (CALENDAR_STATUS_RANK[current] ?? -1) < CALENDAR_STATUS_RANK[target] ? { ...entry, status: target } : entry
+        })
+      }
+      const changed = next.length !== before.length || next.some((entry, index) => entry !== before[index])
+      if (changed) plans.push({ month, cal, before, next, sha1: state.sha1 ?? '' })
+    }
+    return plans
+  }
+
+  async function applyCalendarPlans(plans) {
+    const applied = []
+    try {
+      for (const plan of plans) {
+        const written = await plan.cal.table.replaceAll(plan.cal.file, plan.next, { expectedSha1: plan.sha1 })
+        if (written.ok !== true) throw new VaultError('日历 ' + plan.month + ' 同步失败：' + String(written.error ?? '未知错误'), written.code ?? 'write_failed')
+        applied.push({ ...plan, writtenSha1: written.sha1 })
+      }
+      return applied
+    } catch (error) {
+      const rollbackFailed = []
+      for (const plan of applied.slice().reverse()) {
+        const rolled = await plan.cal.table.replaceAll(plan.cal.file, plan.before, { expectedSha1: plan.writtenSha1 })
+        if (rolled.ok !== true) rollbackFailed.push({ month: plan.month, error: rolled.error ?? '回滚失败' })
+      }
+      if (rollbackFailed.length > 0) throw new VaultError('日历同步失败，且部分回滚失败，请检查相关月份', 'conflict', { partial: true, rollbackFailed })
+      throw error
+    }
+  }
+
+  async function rollbackCalendarPlans(applied) {
+    const failed = []
+    for (const plan of applied.slice().reverse()) {
+      const rolled = await plan.cal.table.replaceAll(plan.cal.file, plan.before, { expectedSha1: plan.writtenSha1 })
+      if (rolled.ok !== true) failed.push({ month: plan.month, error: rolled.error ?? '回滚失败' })
+    }
+    return failed
+  }
+
+  async function transitionVariantWithCalendar(variant, to, options = {}) {
+    const target = normalizeVariantStatus(to)
+    const plans = await calendarProjectionPlans(variant.id, target, { cancel: target === '已取消' })
+    const moved = await domain.transitionVariant(variant.path, target, options)
+    try {
+      const applied = await applyCalendarPlans(plans)
+      return { variant: moved, calendarSynced: applied.map((plan) => ({ month: plan.month, rows: plan.next.length })) }
+    } catch (error) {
+      try {
+        await vault.writeNote(variant.path, variant.text, { expectedSha1: moved.sha1 })
+      } catch (rollbackError) {
+        throw new VaultError('状态与日历同步失败，版本回滚也失败，请手动检查', 'conflict', {
+          partial: true, cause: error?.message ?? String(error), rollbackError: rollbackError?.message ?? String(rollbackError),
+        })
+      }
+      throw new VaultError('状态没有保存：日历同步失败，版本已恢复原状态。' + (error?.message ?? String(error)), error?.code ?? 'conflict')
+    }
+  }
+
+  async function syncCalendarStatusForVariant(variantId, status) {
+    const plans = await calendarProjectionPlans(variantId, status)
+    return applyCalendarPlans(plans)
+  }
+
+  // 概览卡片上那个数字：跨月还在等回流的平台版本数。
+  // 只和「待回填数据」卡实际列出的行同源（已发 / 待回填的平台版本）。
+  // 日历里「已发但还没建平台版本」的缺口不在这里凑数：那种行在卡片里没有可录入的
+  // 版本，点进去也找不到；把它算进来只会让首页数字和卡片行数对不上。
   async function pendingCountOf() {
-    const { variants, gaps } = await pendingGapsOf()
-    return variants.length + gaps.length
+    const { variants } = await pendingGapsOf()
+    return variants.length
   }
 
   // 商品档案的反向聚合：这个商品被哪些内容带过，累计带货多少。
@@ -1115,6 +1290,13 @@ export function apply(ctx, config) {
     if (raw === '' || raw === '-' || raw === '.') return 0
     const num = Number(raw)
     return Number.isFinite(num) ? num : 0
+  }
+
+  function percentOf(value) {
+    const raw = String(value ?? '').trim().replace(/%/g, '').replace(/[,\s]/g, '')
+    if (raw === '') return null
+    const num = Number(raw)
+    return Number.isFinite(num) ? num : null
   }
 
   async function productRollup() {
@@ -1132,37 +1314,57 @@ export function apply(ctx, config) {
     for (const row of live) {
       const key = tailKey(row.productPath)
       if (key === '') continue
-      const bucket = byProduct.get(key) ?? { key, productPath: String(row.productPath ?? ''), items: [], gmv: 0, views: 0 }
+      const bucket = byProduct.get(key) ?? { key, productPath: String(row.productPath ?? ''), items: [], gmv: 0, views: 0, convSum: 0, convSamples: 0 }
       const note = String(row.note ?? '')
+      // GMV / 转化率现在有结构化列，不再从备注里猜。旧备注里的播放数只做只读兼容，
+      // 新写入和商品汇总都不依赖它。
       const pick = (label) => {
         const hit = new RegExp('(?:' + label + ')' + '\\s*[:：=]?\\s*([0-9.]+)\\s*(万|w)?', 'i').exec(note)
         if (hit === null) return 0
         const scale = hit[2] === undefined ? 1 : 10000
         return toNumber(hit[1]) * scale
       }
-      const gmv = pick('GMV')
+      const gmv = toNumber(row.gmv)
+      const conv = percentOf(row.conv)
       const views = pick('播放|vues|views|观看')
-      bucket.items.push({ month: row.month, id: row.id, date: row.date, platform: row.platform, topic: row.topic, status: row.status, topicPath: row.topicPath, note: row.note, gmv, views })
+      bucket.items.push({ month: row.month, id: row.id, date: row.date, platform: row.platform, topic: row.topic, status: row.status, topicPath: row.topicPath, note: row.note, gmv, conv, views })
       bucket.gmv += gmv
       bucket.views += views
+      if (conv !== null) {
+        bucket.convSum += conv
+        bucket.convSamples += 1
+      }
       byProduct.set(key, bucket)
     }
-    const products = [...byProduct.values()].sort((a, b) => b.gmv - a.gmv)
+    const products = [...byProduct.values()]
+      .map(({ convSum, convSamples, ...bucket }) => ({ ...bucket, conv: convSamples === 0 ? null : convSum / convSamples, convSamples }))
+      .sort((a, b) => b.gmv - a.gmv)
     return { products, linkedCount: live.length, months: months.length }
   }
 
-  // 每个主选题的最新一条回流数据（masterId → metric）。
+  // 每个平台版本先取最新累计快照，再按主选题汇总。不能直接取主选题最后一行：
+  // 同一选题抖音 1 万、视频号 2 万，榜单应该是 3 万；也不能把各平台多日累计值重复相加。
   // 播放/赞/评/转只有台账这一个来源：旧接口把同样的数字再写进选题 frontmatter，
   // 两处一旦不一致就永远对不上（榜单读台账、选题卡读 frontmatter），接口已删。
   async function latestMetricByMaster() {
     if (domain === null) return new Map()
     const metrics = await domain.listMetrics()
-    const latest = new Map()
+    const latestByVariant = new Map()
     for (const metric of metrics) {
-      const masterId = String(metric.masterId ?? '')
-      if (masterId !== '' && !latest.has(masterId)) latest.set(masterId, metric)
+      const variantId = String(metric.variantId ?? '')
+      if (variantId !== '' && !latestByVariant.has(variantId)) latestByVariant.set(variantId, metric)
     }
-    return latest
+    const byMaster = new Map()
+    for (const metric of latestByVariant.values()) {
+      const masterId = String(metric.masterId ?? '')
+      if (masterId === '') continue
+      const aggregate = byMaster.get(masterId) ?? { views: 0, likes: 0, comments: 0, shares: 0, orders: 0, gmv: 0, date: '', variants: 0 }
+      for (const key of ['views', 'likes', 'comments', 'shares', 'orders', 'gmv']) aggregate[key] += toNumber(metric[key])
+      aggregate.date = String(metric.date ?? '') > aggregate.date ? String(metric.date ?? '') : aggregate.date
+      aggregate.variants += 1
+      byMaster.set(masterId, aggregate)
+    }
+    return byMaster
   }
 
   // 选题榜：内容线按播放排，带货线按 ROI。播放/赞/评/转全部来自回流台账。
@@ -1174,8 +1376,8 @@ export function apply(ctx, config) {
     const scored = topics.map((record) => {
       const front = record.front ?? {}
       const metric = latestMetric.get(String(record.id ?? front.id ?? '')) ?? {}
-      const views = toNumber(front.views) || toNumber(metric.views)
-      const likes = toNumber(front.likes) || toNumber(metric.likes)
+      const views = toNumber(metric.views)
+      const likes = toNumber(metric.likes)
       const comments = toNumber(metric.comments)
       const shares = toNumber(metric.shares)
       return {
@@ -1183,6 +1385,10 @@ export function apply(ctx, config) {
         title: String(record.title ?? ''),
         platform: normalizePlatform(front.platform),
         status: String(front.status ?? ''),
+        // 拆解 vs 选题：type==='拆解' 是拆解别人的案例，只进爆款拆解卡；
+        // type==='选题' 是自己的，进我的选题和日历管线。老笔记没写 type 时两边都显示
+        // （跟客户端的排除式判断保持一致，别一处含一处不含）。
+        type: String(front.type ?? '').trim(),
         views,
         likes,
         comments,
@@ -1191,8 +1397,12 @@ export function apply(ctx, config) {
         measured: views > 0 || likes > 0 || comments > 0 || shares > 0,
       }
     })
-    const content = scored.filter((item) => item.measured).sort((a, b) => b.views - a.views || b.likes - a.likes)
-    const unmeasured = scored.filter((item) => !item.measured)
+    // 「爆款拆解」这一榜排除 type==='选题'。以前这里不过滤，12 条选题全塞进内容榜，
+    // 卡片写着「爆款拆解排行」排的却是自己的选题；而客户端那张卡按 type 排除，
+    // 两边数出来的不是一个东西。
+    const isBreakdown = (item) => item.type !== '选题'
+    const content = scored.filter((item) => isBreakdown(item) && item.measured).sort((a, b) => b.views - a.views || b.likes - a.likes)
+    const unmeasured = scored.filter((item) => isBreakdown(item) && !item.measured)
     const data = await collections.data.all({ includeVariants: false })
     const roi = data.map((record) => ({
       path: record.path,
@@ -1217,8 +1427,8 @@ export function apply(ctx, config) {
       month: target,
       file: join(dirOf('calendarDir'), target + '.md'),
       table: createWorkbenchTable({
-        header: ['日期', '平台', '主题', '状态', '备注', '链接', '选题笔记', '商品档案', '选题ID', '版本ID', '账号'],
-        keys: ['date', 'platform', 'topic', 'status', 'note', 'link', 'topicPath', 'productPath', 'topicId', 'variantId', 'account'],
+        header: ['日期', '平台', '主题', '状态', '备注', '链接', '选题笔记', '商品档案', '选题ID', '版本ID', '账号', 'GMV', '转化率'],
+        keys: ['date', 'platform', 'topic', 'status', 'note', 'link', 'topicPath', 'productPath', 'topicId', 'variantId', 'account', 'gmv', 'conv'],
         // 老月份的表有好几种列数，按单元格数挑补列规则（缺的列插回它原来的位置）：
         //   5 列 = 没有「备注」，在第 4 列后补空串，不然「链接」会被当成备注、原链接整个丢掉；
         //   6 列 = 没有关联键；7 列 = 只有选题笔记、没有商品档案；8 列 = 没有选题ID；9 列 = 没有版本ID。
@@ -1229,6 +1439,8 @@ export function apply(ctx, config) {
           { cells: 8, at: [{ index: 8 }] },
           { cells: 9, at: [{ index: 9 }, { index: 10 }] },
           { cells: 10, at: [{ index: 10 }] },
+          // 11 列是加入 GMV / 转化率之前的现行表；最后两格补空，旧列顺序不动。
+          { cells: 11, at: [] },
         ],
         // 主键按这一行的内容动态算：
         //   有选题ID → 选题ID+平台（改主题不会换行）；
@@ -1242,7 +1454,7 @@ export function apply(ctx, config) {
         },
         idFallbackKeys: ['date', 'platform', 'topic'],
         heading: '# 内容日历 ' + target,
-        intro: '> 状态：在写 / 待发 / 已发 / 待回填 / 已归档。选题笔记 / 商品档案 填 vault 内的相对路径（如 Topics/xxx.md）。最后三列（选题ID / 版本ID / 账号）由系统按排期自动填，别手改。',
+        intro: '> 状态：在写 / 待发 / 已发 / 待回填。选题笔记 / 商品档案填 vault 内相对路径（如 Topics/xxx.md）。GMV 填金额，转化率填百分数（如 3.2）。选题ID / 版本ID / 账号由系统自动填写。',
         label: '日历',
       }),
     }
@@ -1254,10 +1466,30 @@ export function apply(ctx, config) {
     return (entries ?? []).map((entry) => ({ ...entry, platform: normalizePlatform(entry.platform) }))
   }
 
+  // 写侧守卫：日历一行只放一个平台。
+  //
+  // 以前「抖音 / 知乎」写在同一格里。格子里的东西拿去做主键就散了：同一格多平台时，
+  // 表格按「选题ID + 平台」算行号都算不出来（平台本身就是一串），改一次主题就换一行，
+  // 平台筛选也永远匹配不上那半串。
+  //
+  // 要同步发多个平台，走「分发到多个平台」—— 一次建 N 版、排 N 行，每行一个平台，
+  // 每行一个版本 id，账才对得上。
+  //
+  // allowSame 的用处：老行里已经有这种格子时，改它的别的字段还得能用（别把人的数据锁死），
+  // 但不能新写、也不能把别的行改成这样。
+  function assertSinglePlatformCell(value, { allowSame = '' } = {}) {
+    const list = splitPlatforms(String(value ?? ''))
+    if (list.length <= 1) return
+    const raw = String(value ?? '').trim()
+    if (allowSame !== '' && raw === allowSame) return
+    throw new VaultError('日历一行只能放一个平台；「' + list.join(' / ') + '」请用「分发到多个平台」一次排 N 行', 'bad_field')
+  }
+
   // 日历行第一次保存时把选题的稳定 id 写进去。缺这个值时表格按老主键
   // date+platform+topic 算 id，改一次「主题」就会换一行；补上之后 id 就稳定了。
   async function calendarRowWithTopicId(row) {
     const next = { ...(row ?? {}) }
+    next.status = normalizeVariantStatus(next.status) || '在写'
     const id = String(next.topicId ?? '').trim()
     const raw = String(next.topicPath ?? '').trim()
     let topic = null
@@ -1417,6 +1649,42 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     return { text, sha1: rules.sha1Of(text) }
   }
 
+  /**
+   * 发布前自检清单：唯一真源是 vault 里 SOP 那份《发布前检查清单.md》。
+   *
+   * 找文件而不是写死完整路径 —— 用户把 SOP 挪个目录、换个名字都不该让清单失联。
+   * 找不到（或者文件里一条自检项都没有）就返回 null：门禁会明确告诉人
+   * 「没找到这份清单」，而不是假装全过了。
+   */
+  async function readChecklistDoc() {
+    if (vault === null) return null
+    const prefix = String(sopDirValue() ?? '').trim().replace(/^\/+|\/+$/g, '')
+    // prefix 为空 = sopDir 没配，SOP 树就是整个 vault 根；这里必须保留空串，
+    // 否则根目录的清单永远扫不到（下面的 '' 分支会走 vault.discover()）。
+    const dirs = [...new Set([prefix, String(cfg('workbenchDir')).trim()])]
+    for (const dir of dirs) {
+      let listed = []
+      try {
+        listed = dir === ''
+          ? (await vault.discover()).notes.map((note) => note.path)
+          : await vault.listUnder(dir)
+      } catch {
+        continue
+      }
+      const hit = listed.find((rel) => {
+        const name = rel.split('/').pop().replace(/\.md$/i, '')
+        return CHECKLIST_TITLE_HINTS.some((hint) => name.includes(hint))
+      })
+      if (hit === undefined) continue
+      const note = await vault.readNote(hit)
+      const items = parseChecklist(note.text)
+      if (items.length === 0) continue
+      const uri = await vault.uriFor(hit)
+      return { items, path: hit, uri }
+    }
+    return null
+  }
+
   function seedRules(stamp) {
     return [
       '# 文案规则 / 语调库',
@@ -1520,8 +1788,8 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 「创作中」就算创作中；任一说已发/数据回流就算已发（回流写回是终态）。
     const studioSchedule = await topicsScheduleIndex()
     const stageOf = (record) => {
-      const key = String(record?.path ?? '').split('/').pop() ?? ''
-      return topicStageOf(record?.front?.status, studioSchedule.get(key)?.status)
+      const hit = scheduleForTopic(record, studioSchedule)
+      return topicStageOf(record?.front?.status, hit?.status)
     }
     let ruleCounts = { hard: 0, soft: 0, watch: 0 }
     try {
@@ -1552,7 +1820,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       ideasNew: ideas.entries.filter((entry) => entry.status !== '已用' && entry.status !== '丢弃' && entry.status !== '已废弃').length,
       ideasTotal: ideas.entries.length,
       glossary: glossary.entries.length,
-      feedbackNegativeOpen: feedback.entries.filter((entry) => String(entry.sentiment).includes('负') && !['已处理', '闭环'].includes(String(entry.status))).length,
+      // 负面「还没人管」= 情感是负、状态是「未处理」。
+      // 以前这里写的是「不是已处理/闭环」—— 把「跟进中」也算成没人管，
+      // 而客户端那张卡按「未处理」算，两边数出来的不是一个数（同一个库里 1 vs 0）。
+      // 现在两边同一个口径：有跟进中就是有人在管，不算「没人管」。
+      feedbackNegativeOpen: feedback.entries.filter((entry) => String(entry.sentiment).includes('负') && String(entry.status).trim() === '未处理').length,
       feedbackTotal: feedback.entries.length,
       pendingCount: await pendingCountOf(),
       calendarMonth: cal.month,
@@ -1573,7 +1845,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 所以让它把自己的探测结果写进本机文件：重启一次就能看清是哪一层没接上。
     if (route === 'client-log' && method === 'POST') {
       try {
-        appendFileSync(join(traceDir, 'client.log'), `${new Date().toISOString()} ${JSON.stringify(body)}\n`)
+        // 例行成功探测（每次加载/每次开会话都会报）只在进程内记第一次：
+        // 要的是「哪一层没接上」，不是把成功路径刷满整个文件。失败类永远记。
+        const label = String(body?.label ?? '')
+        if (!ROUTINE_LOG_LABELS.has(label) || !clientLogSeen.has(label)) {
+          clientLogSeen.add(label)
+          rotateAppend(join(traceDir, 'client.log'), `${new Date().toISOString()} ${JSON.stringify(body)}\n`, 1024 * 1024)
+        }
       } catch {
         // 记不上不影响任何功能。
       }
@@ -1622,6 +1900,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     if (route === 'config' && method === 'PUT') {
       const root = await assertVaultRoot(body?.vaultRoot)
       const nextDataDir = String(body?.pluginDataDir ?? '').trim()
+      if (nextDataDir !== '' && nextDataDir !== dataDir()) {
+        throw new VaultError('数据目录只能由 DSH 启动配置指定，不能在运行中修改', 'bad_request')
+      }
       const nextDirs = {}
       const removeSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
       // 全部校验完再改内存/落盘；子目录不能利用 ../ 或链接绕过 vault 边界。
@@ -1633,15 +1914,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         if (supplied !== '') nextDirs[key] = dir
         if ((root || vaultRoot()) !== '') await assertPathInsideRoot(root || vaultRoot(), join(root || vaultRoot(), dir))
       }
-      delete userConfig.pluginDataDir
       if (root !== '') userConfig.vaultRoot = root
       Object.assign(userConfig, nextDirs)
       if (removeSop) delete userConfig.sopDir
       await saveUserConfig()
-      if (nextDataDir !== '') {
-        userConfig.pluginDataDir = nextDataDir
-        await saveUserConfig()
-      }
       build()
       vault?.invalidate()
       await ensureSeeds()
@@ -1690,9 +1966,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       }
     }
     if (v2[0] === 'migration' && v2.length === 2 && v2[1] === 'preview' && method === 'GET') {
+      // 迁移是低频操作，但每次都必须看磁盘现状：用户在 Obsidian 里刚放进来
+      // 的旧选题不能被 3 秒的发现缓存漏掉，否则预览会少算、补 id 也会漏。
+      vault?.invalidate()
       return { migration: await migrator.preview() }
     }
     if (v2[0] === 'migration' && v2.length === 2 && v2[1] === 'apply' && method === 'POST') {
+      vault?.invalidate()
       return { migration: await migrator.apply({ dryRun: body?.dryRun === true }) }
     }
     function groupVariants(variants) {
@@ -1705,6 +1985,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return groups
     }
 
+    if (v2[0] === 'checklist' && v2.length === 1 && method === 'GET') {
+      // 自检清单直接给前端渲染：条目、来源文件、Obsidian 链接。
+      // 前端不再自己抄一份 —— 抄一份就会和 SOP 那份对不上。
+      const doc = await readChecklistDoc()
+      if (doc === null) return { items: [], total: 0, path: '', uri: '', missing: true }
+      return { items: doc.items, total: doc.items.length, path: doc.path, uri: doc.uri, missing: false }
+    }
     if (v2[0] === 'masters' && v2.length === 1 && method === 'GET') {
       const masters = realMasterRecords(await collections.topics.all({ includeVariants: false }))
       const grouped = groupVariants(await domain.listVariants('', { includeMetrics: false }))
@@ -1777,17 +2064,57 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'transition' && method === 'POST') {
       const variant = await domain.getVariant(v2[1])
-      return { variant: await domain.transitionVariant(variant.path, body?.to ?? body?.status, { actor: body?.actor, at: body?.at }) }
+      return transitionVariantWithCalendar(variant, body?.to ?? body?.status, {
+        actor: body?.actor, at: body?.at, reviewDays: body?.reviewDays, link: body?.link,
+      })
     }
-    // 从「已归档」拿回来。归档不是删除，所以必须有这条反向路 —— 没有它，
-    // 「归档」就是个单向门，用户不敢点。
+    if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'archive' && method === 'POST') {
+      const variant = await domain.getVariant(v2[1])
+      return { variant: await domain.archiveVariant(variant.path, { actor: body?.actor }) }
+    }
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'restore' && method === 'POST') {
       const variant = await domain.getVariant(v2[1])
-      return { variant: await domain.restoreVariant(variant.path) }
+      const restored = await domain.restoreVariant(variant.path)
+      return { variant: restored }
     }
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'metrics' && method === 'POST') {
       const variant = await domain.getVariant(v2[1])
+      if (!['已发', '待回填', '已结案'].includes(variant.status)) throw new VaultError('只有已经发布的版本才能回填数据', 'bad_request')
       return { metric: await domain.appendMetric({ ...body, variantId: variant.id, masterId: variant.front?.masterId, platform: variant.front?.platform, account: variant.front?.account, dataDir: dirOf('dataDir') }) }
+    }
+    if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'close-review' && method === 'POST') {
+      const variant = await domain.getVariant(v2[1])
+      return { variant: await domain.closeReview(variant.path, body?.metricId, { actor: body?.actor, insight: body?.insight }) }
+    }
+    if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'start-review' && method === 'POST') {
+      const variant = await domain.getVariant(v2[1])
+      return { variant: await domain.startReview(variant.path, body?.reviewDays, { actor: body?.actor }) }
+    }
+    if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'correct-identity' && method === 'POST') {
+      const variant = await domain.getVariant(v2[1])
+      const calendarPlans = []
+      const account = await collections.accounts.findById(body?.accountId)
+      const platform = normalizePlatform(String(account.front?.platform ?? ''))
+      const accountName = String(account.front?.name ?? '').trim()
+      for (const month of await calendarMonths()) {
+        const cal = calendarTableFor(month)
+        const state = await cal.table.read(cal.file)
+        if (state.warning !== undefined) throw new VaultError('日历 ' + month + ' 读取失败：' + state.warning, state.code ?? 'read_failed')
+        const before = state.entries ?? []
+        const next = before.map((entry) => String(entry.variantId ?? '') === variant.id
+          ? { ...entry, platform, account: accountName }
+          : entry)
+        if (next.some((entry, index) => entry !== before[index])) calendarPlans.push({ month, cal, before, next, sha1: state.sha1 ?? '' })
+      }
+      const applied = await applyCalendarPlans(calendarPlans)
+      try {
+        const corrected = await domain.correctVariantIdentity(variant.path, body?.accountId)
+        return { variant: corrected, calendarSynced: applied.map((plan) => plan.month) }
+      } catch (error) {
+        const rollbackFailed = await rollbackCalendarPlans(applied)
+        if (rollbackFailed.length > 0) throw new VaultError('归属纠正失败，且部分日历回滚失败，请手动检查', 'conflict', { partial: true, cause: error?.message ?? String(error), rollbackFailed })
+        throw error
+      }
     }
     if (v2[0] === 'matrix' && v2.length === 1 && method === 'GET') {
       const month = q('month') || thisMonth()
@@ -1818,10 +2145,8 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       for (const master of masters) {
         const variants = grouped.get(String(master.id)) ?? []
         for (const variant of variants) {
-          // 全量发布队列：只要这个月排了期，不管它现在是「选题 / 创作中 / 待审 /
-          // 已排期 / 已发 / 数据回流」，都要出现在日历的发布队列里。
-          // 只排除已归档——归档是收起来，不该再占发布档期。
-          if (variant.status === '已归档') continue
+          // 发布队列只列本月仍在写或待发、且没有被收纳的版本。
+          if (variant.archived || !['在写', '待发'].includes(variant.status)) continue
           // 没排期的不属于任何一个月：它属于「还没定日子」，不是「本月待发」。
           const date = scheduledDateOf(variant, schedule, samePlatformCount(variants, variant))
           if (date === '' || !date.startsWith(month)) continue
@@ -1849,7 +2174,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       }
 
       for (const variant of allVariants) {
-        if (!['已发', '待回填'].includes(variant.status)) continue
+        if (variant.archived || !['已发', '待回填'].includes(variant.status)) continue
         const master = masterById.get(String(variant.front?.masterId ?? ''))
         // 主选题被删或落在测试目录的版本不往这里列：没有标题的行点了也没处去。
         if (master === undefined) continue
@@ -1859,7 +2184,21 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
           variant,
         })
       }
-      items.sort((left, right) => String(left.variant.schedule?.date ?? '').localeCompare(String(right.variant.schedule?.date ?? ''))
+      const todayKey = dayInZone('Asia/Shanghai')
+      const taskOf = (item) => {
+        const front = item.variant.front ?? {}
+        const publishedAt = String(front.publishedAt ?? '').trim()
+        const dueDate = String(front.reviewDueAt ?? '').slice(0, 10)
+        const hasMetric = item.variant.latestMetric !== null && item.variant.latestMetric !== undefined
+        if (publishedAt === '' || dueDate === '') return { kind: 'missing_publish_time', label: '缺发布时间', dueDate: '', rank: 4 }
+        if (dueDate < todayKey) return { kind: 'overdue', label: '逾期', dueDate, rank: 0 }
+        if (dueDate === todayKey) return { kind: 'due_today', label: '今日截止', dueDate, rank: 1 }
+        if (!hasMetric) return { kind: 'unrecorded', label: '未录入', dueDate, rank: 2 }
+        return { kind: 'upcoming', label: '观察中', dueDate, rank: 3 }
+      }
+      for (const item of items) item.reviewTask = taskOf(item)
+      items.sort((left, right) => left.reviewTask.rank - right.reviewTask.rank
+        || String(left.reviewTask.dueDate || '9999-12-31').localeCompare(String(right.reviewTask.dueDate || '9999-12-31'))
         || String(left.master.title).localeCompare(String(right.master.title), 'zh'))
       return { items }
     }
@@ -2115,6 +2454,79 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return { created, updated: true }
     }
 
+    // 客户反馈 → 选题：反馈里的原话先进选题的来源，建好后把反馈标成跟进中。
+    // 顺序和灵感箱一致：先建笔记，再改反馈表；建笔记失败时反馈一个字都不动。
+    if (route === 'feedback/promote' && method === 'POST') {
+      const id = String(body?.id ?? '').trim()
+      if (id === '') throw new VaultError('缺少反馈 id', 'bad_request')
+      const file = join(dirOf('feedbackDir'), '客户反馈.md')
+      const before = await tables.feedback.read(file)
+      const row = (before.entries ?? []).find((entry) => entry.id === id)
+      if (row === undefined) throw new VaultError('这条反馈已经不在反馈库里了', 'not_found')
+      const content = String(row.content ?? '').trim()
+      if (content === '') throw new VaultError('这条反馈没有内容，没法转选题', 'bad_request')
+      const requestedPlatform = String(body?.platform ?? '').trim()
+      const sourceText = [row.source, row.channel].map((value) => String(value ?? '')).join(' ')
+      const platform = requestedPlatform !== ''
+        ? normalizePlatform(requestedPlatform)
+        : (PLATFORMS.find((name) => sourceText.includes(name)) ?? '待定')
+      const title = String(body?.title ?? content.split(/\r?\n/)[0]).trim().replace(/\s+/g, ' ').slice(0, 60)
+      if (title === '') throw new VaultError('反馈没有可用的标题', 'bad_request')
+
+      const appendNote = (value, note) => {
+        const current = String(value ?? '').trim()
+        if (current.includes(note)) return current
+        return current === '' ? note : current + '；' + note
+      }
+      const updateFeedback = async (createdPath) => {
+        const noteRef = '转选题：' + createdPath
+        const nextStatus = ['跟进中', '已处理'].includes(String(body?.status ?? '').trim())
+          ? String(body.status).trim()
+          : (String(row.status ?? '').trim() === '已处理' ? '已处理' : '跟进中')
+        const after = await tables.feedback.update(file, id, {
+          ...row,
+          status: nextStatus,
+          advice: appendNote(row.advice, noteRef),
+          resolution: appendNote(row.resolution, '已进入选题管线：' + createdPath),
+        }, { expectedSha1: before.sha1 })
+        return after
+      }
+
+      const reusable = await reusableTopic(title, '选题')
+      if (reusable.existing !== null) {
+        const after = await updateFeedback(reusable.rel)
+        return {
+          created: reusable.existing,
+          existing: true,
+          updated: after?.ok !== false,
+          feedback: after?.entry ?? null,
+          ...(after?.ok === false ? { warning: after.error ?? '反馈那行没改成' } : {}),
+        }
+      }
+      const provenance = [
+        content,
+        String(row.channel ?? '').trim() === '' ? '' : '渠道：' + String(row.channel).trim(),
+        String(row.source ?? '').trim() === '' ? '' : '来源：' + String(row.source).trim(),
+      ].filter((part) => part !== '').join('；')
+      const created = await collections.topics.create({
+        title: reusable.title,
+        platform: platform === '' ? '待定' : platform,
+        date: today(),
+        tags: String(row.tags ?? ''),
+        origin: provenance.slice(0, 200),
+        sourceUrl: /^https?:\/\//i.test(String(row.source ?? '').trim()) ? String(row.source).trim() : '',
+        sourceTitle: ('客户反馈' + (String(row.channel ?? '').trim() === '' ? '' : ' · ' + String(row.channel).trim())).slice(0, 200),
+        status: '在写',
+        type: '选题',
+      })
+      const createdRecord = await collections.topics.read(created.path)
+      const after = await updateFeedback(created.path)
+      if (after?.ok === false) {
+        return { created: createdRecord, updated: false, warning: after.error ?? '反馈那行没改成' }
+      }
+      return { created: createdRecord, updated: true, feedback: after?.entry ?? null }
+    }
+
     if (route === 'calendar' && method === 'GET') {
       const cal = calendarTableFor(q('month'))
       const calPath = relToVault(cal.file)
@@ -2142,7 +2554,107 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     if (route === 'calendar' && method === 'POST') {
       const cal = calendarTableFor(body?.month)
-      return { month: cal.month, ...(await requireTable(await cal.table.add(cal.file, await calendarRowWithTopicId(body), { expectedSha1: body?.expectedSha1 }))) }
+      assertSinglePlatformCell(body?.platform)
+      const row = await calendarRowWithTopicId(body)
+      if (!['在写', '待发'].includes(String(row.status))) throw new VaultError('新建排期只能从「在写」或「待发」开始', 'bad_request')
+      return { month: cal.month, ...(await requireTable(await cal.table.add(cal.file, row, { expectedSha1: body?.expectedSha1 }))) }
+    }
+    // 「分发到多个平台」：一次动作，N 个平台各建一版、各排一行。
+    //
+    // 落库形态是「一行一平台一版本」：日历一行只放一个平台，一个平台一个版本文件。
+    // 「同一篇内容同步发多个平台」这件事由这个接口一次做完 —— 客户端不再自己拼 N 次请求
+    // （拼 N 次的话中途失败就留下半截：一个平台建好了，另一个没建，用户根本看不出来）。
+    // N 行用一次 addMany 写进去：一次锁、一次备份、一次原子写，要么全成要么全不成。
+    if (route === 'calendar/fanout' && method === 'POST') {
+      const cal = calendarTableFor(body?.month)
+      const wanted = []
+      for (const item of Array.isArray(body?.platforms) ? body.platforms : []) {
+        for (const one of splitPlatforms(String(item ?? ''))) {
+          if (!wanted.includes(one)) wanted.push(one)
+        }
+      }
+      if (wanted.length === 0) throw new VaultError('至少要选一个平台', 'bad_request')
+      const date = String(body?.date ?? '').trim()
+      if (date === '') throw new VaultError('排期要填日期', 'bad_request')
+      const masters = await collections.topics.all({ includeVariants: false })
+      const master = masters.find((record) => String(record.id ?? '') === String(body?.topicId ?? '').trim())
+        ?? masters.find((record) => String(record.path ?? '') === String(body?.topicPath ?? '').trim())
+      if (master === undefined) throw new VaultError('找不到这条选题笔记：' + String(body?.topicPath ?? body?.topicId ?? ''), 'not_found')
+      const status = normalizeVariantStatus(body?.status) || '待发'
+      if (!['在写', '待发'].includes(status)) throw new VaultError('批量分发只能创建「在写」或「待发」排期', 'bad_request')
+      const accounts = body?.accounts && typeof body.accounts === 'object' ? body.accounts : {}
+      const accountIds = body?.accountIds && typeof body.accountIds === 'object' ? body.accountIds : {}
+      const known = await domain.listVariants(master.id)
+      const state = await cal.table.read(cal.file)
+      const existingIds = new Set((state.entries ?? []).map((entry) => entry.id))
+      const results = []
+      const failed = []
+      const rows = []
+      for (const platform of wanted) {
+        const account = String(accounts[platform] ?? '').trim()
+        const accountId = String(accountIds[platform] ?? '').trim()
+        // 同一平台同一账号的版本已经存在就复用：再建一份只会让回流台账分成两笔，
+        // 榜单也并不到一起（同一个平台两个版本，数据对不上）。
+        let variant = known.find((item) => normalizePlatform(String(item.front?.platform ?? '')) === platform
+          && String(item.front?.accountId ?? '').trim() === accountId) ?? null
+        let variantCreated = false
+        if (variant === null) {
+          try {
+            variant = await domain.createVariant({ masterId: master.id, platform, account, accountId, status: '在写' })
+            variantCreated = true
+            known.push(variant)
+          } catch (error) {
+            failed.push({ platform, error: error?.message ?? String(error) })
+            continue
+          }
+        }
+        const row = {
+          date,
+          platform,
+          topic: String(body?.topic ?? master.title ?? '').trim(),
+          status,
+          note: String(body?.note ?? ''),
+          link: String(body?.link ?? ''),
+          topicPath: String(master.path ?? ''),
+          productPath: String(body?.productPath ?? ''),
+          topicId: String(master.id ?? ''),
+          variantId: String(variant.id ?? ''),
+          account,
+          gmv: String(body?.gmv ?? ''),
+          conv: String(body?.conv ?? ''),
+        }
+        const rowId = cal.table.idOf(row)
+        const rowExists = existingIds.has(rowId)
+        if (!rowExists) rows.push(row)
+        results.push({
+          platform,
+          variantId: String(variant.id ?? ''),
+          rowId,
+          variantCreated,
+          rowCreated: !rowExists,
+        })
+      }
+      if (rows.length > 0) {
+        const written = await cal.table.addMany(cal.file, rows, { expectedSha1: body?.expectedSha1 })
+        if (written.ok !== true) {
+          // 一次都没写进去：版本已经建好的那些要说清楚，别让人以为全成了。
+          for (const item of results) {
+            if (item.rowCreated) failed.push({ platform: item.platform, error: written.error ?? '排期没能写入' })
+          }
+          throw new VaultError('批量分发只完成了一部分；已建立的平台版本会保留，请只重试失败项', 'conflict', {
+            month: cal.month,
+            partial: true,
+            results: results.map((item) => ({ ...item, rowCreated: false })),
+            failed,
+          })
+        }
+      }
+      if (failed.length > 0) {
+        throw new VaultError('批量分发只完成了一部分；请查看失败项后重试', 'conflict', {
+          month: cal.month, partial: true, results, failed,
+        })
+      }
+      return { month: cal.month, results, failed: [] }
     }
     if (route === 'calendar' && method === 'PUT') {
       const cal = calendarTableFor(body?.month)
@@ -2150,11 +2662,41 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const current = (before.entries ?? []).find((entry) => entry.id === String(body?.id ?? ''))
       if (current === undefined) throw new VaultError('日历里找不到这条：' + String(body?.id ?? ''), 'not_found')
       const next = await calendarRowWithTopicId({ ...current, ...body })
+      // 一行只能一个平台。老行里已经有一格多平台的，允许改别的字段（别把人的数据锁死），
+      // 但不许新写成多平台，也不许把别的行改成这样。
+      assertSinglePlatformCell(next.platform, { allowSame: current.platform })
+      // 从别的状态改成「已发」= 这条真的发出去了：平台版本必须跟着走到「已发」，
+      // 否则日历记一本账、版本记另一本，谁都不知道哪本是准的。
+      //
+      // 顺序很重要：先 resolve（只读 + 门禁预检），推不动就整条拒绝 —— 日历一个字节都不写。
+      // 以前是「先写日历、再推版本，推不动就当没事返回 200」：日历已经写成「已发」，
+      // 版本还躺在草稿里，两本账从此对不上，而且没人知道哪儿错了。
+      const wantsPublish = String(next.status) === '已发' && String(current.status) !== '已发'
+      const planned = wantsPublish ? await resolveCalendarAdvance(next) : null
+      if (planned !== null && planned.ok !== true && planned.blocking === true) {
+        // 有矛盾：挂的版本不存在、平台对不上、同平台多个版本没指定推哪一版、门禁没过。
+        throw new VaultError(planned.reason, planned.ambiguous === true ? 'conflict' : 'bad_request')
+      }
       const result = { month: cal.month, ...(await requireTable(await cal.table.update(cal.file, current.id, next, { expectedSha1: body?.expectedSha1 }))) }
-      // 从别的状态改成「已发」= 这条真的发出去了：顺手把同选题同平台的平台版本
-      // 沿状态机推到「已发」，让日历和版本记同一本账。
-      if (String(next.status) === '已发' && String(current.status) !== '已发') {
-        result.advanced = await advanceVariantForCalendar(next)
+      if (planned !== null && planned.ok === true) {
+        const applied = await applyCalendarAdvance(planned, { at: body?.publishedAt, reviewDays: body?.reviewDays, link: next.link })
+        if (applied.ok !== true) {
+          // 日历写成功了、版本没推上去（多半是推之前版本被别人在 Obsidian 里改了）：
+          // 把日历这一行改回原样，不留「日历已发、版本没发」的裂缝。
+          const rolled = await cal.table.update(cal.file, current.id, current, { expectedSha1: result.sha1 })
+          if (rolled.ok !== true) {
+            throw new VaultError('平台版本没能推进，日历这一行也回滚失败，请手动检查：' + applied.reason, 'conflict')
+          }
+          throw new VaultError('平台版本没能推进（日历已改回原样）：' + applied.reason, 'conflict')
+        }
+        result.advanced = applied
+      } else if (planned !== null) {
+        if (String(next.topicPath ?? '').trim() !== '' || String(next.topicId ?? '').trim() !== '') {
+          const rolled = await cal.table.update(cal.file, current.id, current, { expectedSha1: result.sha1 })
+          if (rolled.ok !== true) throw new VaultError('缺少平台版本，且日历回滚失败，请手动检查', 'conflict')
+          throw new VaultError('内容排期必须关联平台版本后才能确认已发布：' + planned.reason, 'bad_request')
+        }
+        result.advanced = { ...planned, activityCompleted: true }
       }
       return result
     }
@@ -2162,8 +2704,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 有版本的行在上半段按平台版本录，这里再列一遍就是同一件事两个入口。
     if (route === 'pending' && method === 'GET') {
       const months = await calendarMonths()
-      const { gaps, total } = await pendingGapsOf()
-      return { rows: gaps, months, total }
+      const { gaps } = await pendingGapsOf()
+      // rows 是缺口列表，total 必须跟着 gaps 走；以前它数的是所有「已发」日历行，
+      // 连已经有平台版本、不缺口的行也算进去，于是同一个响应里 total 和 rows 对不上。
+      return { rows: gaps, months, total: gaps.length }
     }
     // 旧接口 POST /pending/writeback（把播放/赞写回选题 frontmatter）已删除。
     // 同一份数据有两个落点 —— 选题 frontmatter 和回流台账 —— 是「重复」的根源：
@@ -2255,7 +2799,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const rows = csv.parseCsv(raw)
       if (rows.length < 2) throw new VaultError('CSV 至少要有表头 + 一行数据', 'bad_request')
       const header = rows[0].map((value) => value.trim())
-      const fields = collections.data.schema.map((item) => item.key)
+      // 猜列名时把中文标签一起给出去：平台导出的 CSV 表头是中文（「周期」「GMV」），
+      // 只拿英文 key 去猜，一列都匹配不上 —— 导进来的表全是空的，还看不出是哪里错了。
+      const fields = collections.data.schema.map((item) => ({ key: item.key, label: item.label }))
       const mapping = body?.mapping !== undefined && Object.keys(body.mapping).length > 0
         ? body.mapping
         : csv.guessMapping(header, fields)
@@ -2266,7 +2812,57 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       await mkdir(archiveDir, { recursive: true })
       // 归档保存提交的原文：不能用重复表头做 object key，再序列化丢掉列。
       await withFileWriteLock(archive, () => writeFile(archive, raw, { encoding: 'utf8', flag: 'wx' }))
-      return { mapping, header, records, count: records.length, archive }
+      // 归档不是落库。以前这里把解析结果原样返回就结束了 —— 原文躺在 Data/csv/ 里，
+      // 而「电商数据复盘」那张卡读的是 Data/ 下的周期复盘笔记，两边永远对不上，
+      // 用户导完 CSV 看到「解析出 N 行」却发现卡上还是老数据，以为是自己看错了。
+      // 现在逐行写进周期复盘：一条记录 = 一篇笔记（周期 + 平台各一条）。
+      const archiveRef = relToVault(archive)
+      const existing = await collections.data.all({ includeVariants: false })
+      const byTitle = new Map(existing.map((record) => [String(record.title ?? ''), record]))
+      const written = []
+      const failed = []
+      for (const row of records) {
+        const period = String(row?.period ?? '').trim()
+        if (period === '') {
+          failed.push({ row, error: '没有周期（period）—— 这一行不知道该归到哪一期' })
+          continue
+        }
+        const platform = String(row?.platform ?? '').trim()
+        const title = safeFileName(platform === '' ? period : period + '-' + platform, 'period')
+        const front = {
+          period,
+          platform,
+          gmv: String(row?.gmv ?? ''),
+          traffic: String(row?.traffic ?? ''),
+          conv: String(row?.conv ?? ''),
+          roi: String(row?.roi ?? ''),
+          mom: String(row?.mom ?? ''),
+          // 出处：这份数字是从哪个文件导出来的。口径：CSV 里有就照抄，没有就明说还没填。
+          source: String(row?.source ?? '').trim() !== '' ? String(row.source).trim() : 'CSV 导入：' + archiveRef,
+          caliber: String(row?.caliber ?? '').trim(),
+        }
+        try {
+          const hit = byTitle.get(title)
+          if (hit !== undefined) {
+            const updated = await collections.data.update(hit.path, { front })
+            written.push({ title, path: updated.path ?? hit.path, updated: true })
+          } else {
+            const created = await collections.data.create({ ...front, title })
+            written.push({ title, path: created.path, updated: false })
+          }
+        } catch (error) {
+          failed.push({ row, error: error?.message ?? String(error) })
+        }
+      }
+      return {
+        mapping,
+        header,
+        records,
+        count: records.length,
+        archive,
+        written,
+        failed,
+      }
     }
 
     if (route === 'rules' && method === 'GET') {

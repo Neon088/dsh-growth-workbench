@@ -38,10 +38,23 @@ function hooksAfterEarlyReturn(source) {
   const isHook = (line) => /\buse[A-Z][A-Za-z0-9_]*\s*\(/.test(line)
   const bad = []
   let guard = null
+  let returnBlock = null
   for (let i = 0; i < rows.length; i++) {
     const line = rows[i]
     const trimmed = line.trim()
     const indent = line.length - line.trimStart().length
+    if (returnBlock !== null) {
+      if (/\breturn\b/.test(trimmed)) returnBlock.returnAt = i + 1
+      if (indent === 6 && trimmed === '}') {
+        if (returnBlock.returnAt > 0) guard = { at: returnBlock.returnAt }
+        returnBlock = null
+      }
+      continue
+    }
+    if (indent === 6 && /^if \(.+\)\s*\{\s*$/.test(trimmed)) {
+      returnBlock = { at: i + 1, returnAt: 0 }
+      continue
+    }
     if (indent === 6 && /^if \(.+\)[^{]*\breturn\b/.test(trimmed)) { guard = { at: i + 1 }; continue }
     if (guard === null) continue
     if (trimmed === '') continue
@@ -53,7 +66,7 @@ function hooksAfterEarlyReturn(source) {
 
 test('no hook after an early return', () => {
   const bad = hooksAfterEarlyReturn(src)
-  assert.deepEqual(bad, [], '早退之后还有 hook，会抛 React #310：\n' + bad.join('\n'))
+  assert.deepEqual(bad, [], '早退之后还有 hook，会抛 React #310：' + JSON.stringify(bad))
 })
 
 test('hook 守卫本身能抓住回归样例', () => {
@@ -68,6 +81,20 @@ test('hook 守卫本身能抓住回归样例', () => {
     '    }',
   ].join('\n')
   assert.equal(hooksAfterEarlyReturn(broken).length, 1)
+
+  const brokenBlock = [
+    '    function AccountsCard({ openPath }) {',
+    '      const list = useAsync(() => get("/x"), [])',
+    '      if (openPath !== null) {',
+    '        return h(NoteDetail, {',
+    '          path: openPath,',
+    '        })',
+    '      }',
+    '      useObjectDraftGuard({ draft: 1 }, false)',
+    '      return h("div", null)',
+    '    }',
+  ].join('\n')
+  assert.equal(hooksAfterEarlyReturn(brokenBlock).length, 1)
 
   // useEffect 回调里的 return 不该被当成组件早退。
   const ok = [
@@ -356,13 +383,14 @@ test('Calendar measures the real header lifetime, never a per-commit synchronous
   assert.match(body, /showAdd, setShowAdd\] = React\.useState\(false\)/)
   assert.doesNotMatch(src, /\.dsh-gw-cal-item\{[^}]*color:transparent!important/)
 })
-test('Pending retains ten real columns, fourteen metric fields, and local sticky scrolling', () => {
+test('Pending retains eleven real columns, fourteen metric fields, and local sticky scrolling', () => {
   const body = actualFunction('PendingCard')
   const header = body.slice(body.indexOf("h('thead'"), body.indexOf("h('tbody'"))
-  assert.match(header, /\['平台', '账号', '选题', '日期', '播放\/阅读', '赞\/收藏', '评论', '转发', '链接', '操作'\]\.map/)
+  assert.match(header, /\['平台', '账号', '选题', '日期', '任务', '播放\/阅读', '赞\/收藏', '评论', '转发', '链接', '操作'\]\.map/)
   assert.match(body, /pendingWidths\.map/)
-  assert.match(body, /\[64, 88, 176, 88, 70, 70, 70, 70, 68, 88\]/)
-  assert.match(body, /colSpan: 10/)
+  assert.match(body, /\[64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 88\]/)
+  assert.match(body, /colSpan: 11/)
+  assert.match(body, /reviewTask/)
   assert.match(src, /\.dsh-gw-tablebox\.dsh-gw-pending-box\{[^}]*overflow:auto/)
   assert.match(src, /\.dsh-gw-pending-table thead th\{[^}]*position:sticky;top:0/)
   assert.match(src, /td:not\(\[colspan\]\):nth-child\(-n\+3\)\{[^}]*position:sticky/)
@@ -603,5 +631,113 @@ test('version script heading shares the sticky action bar', () => {
   assert.match(src, /\.dsh-gw-note-title\{[^}]*font-size:var\(--gw-fz-2,13px\)[^}]*font-weight:600/)
 })
 
+test('calendar PUT preflights a version advance before it writes the table', () => {
+  const index = fs.readFileSync(path.join(here, '..', 'index.js'), 'utf8')
+  const putAt = index.indexOf("route === 'calendar' && method === 'PUT'")
+  assert.ok(putAt !== -1, 'PUT calendar route not found')
+  const resolveAt = index.indexOf('resolveCalendarAdvance', putAt)
+  const updateAt = index.indexOf('cal.table.update', putAt)
+  const applyAt = index.indexOf('applyCalendarAdvance', putAt)
+  assert.ok(resolveAt > putAt, 'resolve not inside calendar PUT')
+  assert.ok(updateAt > resolveAt, 'calendar table is written before resolve (must not)')
+  assert.ok(applyAt > updateAt, 'version advance not ordered after the calendar write')
+  assert.match(index.slice(putAt, updateAt), /blocking === true/, 'blocking advance must refuse before the write')
+})
+test('the swallowing calendar-advance helper is gone', () => {
+  const index = fs.readFileSync(path.join(here, '..', 'index.js'), 'utf8')
+  assert.doesNotMatch(index, /function\s+advanceVariantForCalendar\b/, 'old helper returned ok:false instead of failing')
+  assert.match(index, /function\s+resolveCalendarAdvance\b/)
+  assert.match(index, /function\s+applyCalendarAdvance\b/)
+  assert.match(index, /function\s+syncCalendarStatusForVariant\b/, 'version transition must project onto the calendar row')
+  assert.match(index, /CALENDAR_STATUS_RANK/)
+})
+test('a calendar row carries one platform and a fan-out spreads platforms', () => {
+  const index = fs.readFileSync(path.join(here, '..', 'index.js'), 'utf8')
+  assert.match(index, /日历一行只能放一个平台/)
+  assert.match(index, /assertSinglePlatformCell\(body\?\.platform\)/, 'POST /calendar not guarded')
+  assert.match(index, /assertSinglePlatformCell\(next\.platform/)
+  assert.match(index, /normalizePlatform, platformOptions, splitPlatforms/)
+})
+test('domain: one platform version = one platform; gate preflights without writing', () => {
+  const domain = fs.readFileSync(path.join(here, '..', 'lib', 'domain.js'), 'utf8')
+  assert.match(domain, /一个平台版本只能对应一个平台/)
+  assert.match(domain, /function\s+preflightSteps\b/)
+  assert.doesNotMatch(domain, /clean\(riskLevel,20\)==='高' && clean\(publishCheck,40\)!=='7\/7'/, '7/7 hard gate must be gone')
+  assert.match(domain, /但没找到这份清单/)
+})
+test('calendar client sends multi-platform drafts through one fanout call', () => {
+  const calendar = actualFunction('CalendarCard')
+  assert.match(calendar, /draftPlatformList/)
+  assert.match(calendar, /'\/calendar\/fanout'/, 'multi-platform scheduling must call the fanout endpoint')
+  assert.match(calendar, /platforms\.length > 1/)
+  assert.match(calendar, /names\.length !== 1/, 'row platform edit must stay single-platform')
+  assert.match(calendar, /PlatformInput, \{\s*value: platformEdit\.value/)
+})
+test('platform versions show a side-by-side comparison with completion and duration', () => {
+  const body = actualFunction('PlatformVariantsPanel')
+  assert.match(body, /dsh-gw-vcompare/)
+  assert.match(body, /formatPercent\(metric\?\.completion\)/)
+  assert.match(body, /formatDuration\(metric\?\.avgDuration\)/)
+})
+test('platform-version checklist is per-version and missing SOP is explicit', () => {
+  const body = actualFunction('PlatformVariantsPanel')
+  // 勾选状态曾写成面板级 useState(() => readCheckSelection(variant?.front))：
+  // 那个 variant 只有在 row(variant) 里才有，面板首屏直接 ReferenceError。
+  assert.doesNotMatch(body, /selectedCheckIds/, 'checklist selection must not be panel-level state')
+  assert.match(body, /const toggleCheck = async \(variant, id, on\)/)
+  assert.match(body, /readCheckSelection\(variant\?\.front\)/)
+  assert.match(body, /toggleCheck\(variant, String\(item\.id\)/)
+  // 清单缺失时 status 必须落到 missing；全写成 done 会让「没找到清单」永远不显示。
+  assert.match(body, /status: missing \? 'missing' : 'done'/)
+})
+test('ledger groups by platform variant and flags missing source/caliber', () => {
+  const body = actualFunction('LedgerTable')
+  assert.match(body, /variantId !== '' \? 'v:' \+ variantId/)
+  assert.match(body, /dsh-gw-ledger-miss/)
+  assert.match(body, /⚠ 未填/)
+})
+test('pending card closes a review against a concrete metric snapshot', () => {
+  const body = actualFunction('PendingCard')
+  assert.match(body, /closeItem/)
+  assert.match(body, /normalizeStatus\(variant\.status\) === '待回填'/)
+  assert.match(body, /\/close-review'/)
+  assert.match(body, /metricId: String\(row\.metricId \|\| row\.id\)/)
+})
+test('idea promote form never falls back to a deconstruction note', () => {
+  const body = actualFunction('IdeasCard')
+  const submit = body.slice(body.indexOf('async function submitPromote'), body.indexOf('async function makeTopic'))
+  assert.match(submit, /post\('\/ideas\/promote'/, 'submitPromote must call the promote endpoint')
+  assert.match(submit, /type: '选题'/, 'submitPromote must explicitly create a topic')
+  assert.doesNotMatch(submit, /type: '拆解'/, 'the inline → 选题 form must not create a deconstruction')
+  assert.match(body, /建一篇自己的选题/)
+})
+test('calendar stores GMV and conversion as structured fields', () => {
+  const body = actualFunction('CalendarCard')
+  assert.match(body, /label: 'GMV'/)
+  assert.match(body, /label: '转化率（%）'/)
+  assert.match(body, /saveMetric\(entry, 'gmv'/)
+  assert.match(body, /saveMetric\(entry, 'conv'/)
+  assert.match(body, /gmv: draft\.gmv, conv: draft\.conv/, 'fanout must carry both metrics')
+})
+test('feedback card has a real promote-to-topic action', () => {
+  const body = actualFunction('FeedbackCard')
+  assert.match(body, /post\('\/feedback\/promote'/, 'feedback card must call the promote endpoint')
+  assert.match(body, /updated === false/, 'partial write must not be presented as full success')
+  assert.match(body, /openCard\('studio'/, 'successful promotion should open the new topic')
+})
+test('topic detail can review against rules and jump to the release SOP', () => {
+  const body = actualFunction('TopicDetail')
+  assert.match(body, /promptKey: 'copyrules'/, 'review button must use the copyrules prompt')
+  assert.match(body, /get\('\/v2\/checklist'\)/, 'SOP button must resolve the real checklist path')
+  assert.match(body, /openCard\('sop', \{ path: target \}\)/, 'SOP button must open the checklist note directly')
+  assert.match(body, /按规则审稿/)
+  assert.match(body, /打开发布 SOP/)
+})
+test('SOP card honors a requested note path', () => {
+  const body = actualFunction('SopCard')
+  assert.match(body, /function SopCard\(\{ notify, onCrumb, crumb, closeTicket, preset \}\)/)
+  assert.match(body, /preset\.path \?\? preset\.note/)
+  assert.match(body, /setActivePath\(target\)/)
+})
 console.log('\n' + pass + ' passed, ' + failures.length + ' failed')
 process.exitCode = failures.length === 0 ? 0 : 1

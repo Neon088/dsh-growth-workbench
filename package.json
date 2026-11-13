@@ -5,7 +5,8 @@
   "description": "Growth workbench for DeepSeek Harness: conversation-header button + right-sidebar panels for new-media ops, ecommerce and marketing — accounts, topics, platform variants, calendar, metrics ledgers, products, feedback, campaigns, SOP, glossary and copy rules, all backed by your Obsidian vault.",
   "scripts": {
     "test": "node test/run-tests.mjs",
-    "test:browser": "node test/browser-safety.test.mjs"
+    "test:browser": "node test/browser-safety.test.mjs",
+    "verify": "node --check client.js && node --check index.js && node test/no-undefined-refs.mjs client.js index.js lib && node test/run-tests.mjs"
   },
   "exports": {
     ".": "./index.js",

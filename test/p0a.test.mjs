@@ -99,11 +99,22 @@ const calAfter = await request('GET', '/api/dsh-growth/calendar?month=2026-11')
 check('calendar renamed row readable', calAfter, (r) => (r.json?.entries ?? []).some((entry) => entry.id === calId && entry.topic === '排期改名'))
 
 // 4) 状态口径：日历创作中、笔记也创作中，topics/list 和 overview 必须一致。
+const scheduledOnly = await request('POST', '/api/dsh-growth/topics/create', {
+  title: '只在日历里进行中的选题', platform: 'B站', date: '2026-11-01', status: '已归档', type: '选题',
+})
+const scheduledOnlyPath = scheduledOnly.json?.created?.path ?? ''
+const scheduledOnlyRead = await request('GET', '/api/dsh-growth/topics/record?path=' + encodeURIComponent(scheduledOnlyPath))
+const scheduledOnlyId = scheduledOnlyRead.json?.record?.front?.id ?? ''
+await request('POST', '/api/dsh-growth/calendar', {
+  month: '2026-11', date: '2026-11-15', platform: 'B站', topic: '只在日历里进行中的选题', status: '在写',
+  topicPath: scheduledOnlyPath, topicId: scheduledOnlyId,
+})
 const topicsList = await request('GET', '/api/dsh-growth/topics/list?limit=200')
 const listRow = (topicsList.json?.records ?? []).find((record) => record.path === topicPath)
 check('topics list stage=doing', topicsList, () => listRow?.stage === 'doing')
 const overview = await request('GET', '/api/dsh-growth/overview')
-check('overview topicsDoing matches', overview, (r) => (r.json?.summary?.topicsDoing ?? 0) >= 1)
+const doingInList = (topicsList.json?.records ?? []).filter((record) => record.stage === 'doing').length
+check('overview topicsDoing matches list stages', overview, (r) => r.json?.summary?.topicsDoing === doingInList)
 
 // 5) 旧的 /pending/writeback 已删除：播放量只有一个写入口（平台版本 → 回流台账）。
 //    这里断言它确实不存在，避免有人又把它加回来、把同一份数字写散到两处。

@@ -9,6 +9,7 @@ import { createVaultStore, previewOf, sectionsOf } from '../lib/vault.js'
 import * as fm from '../lib/frontmatter.js'
 import * as csv from '../lib/csv.js'
 import * as rules from '../lib/rules.js'
+import { reviewDueAtFor } from '../lib/domain.js'
 
 async function tempVault() {
   const root = await mkdtemp(join(tmpdir(), 'growth-vault-'))
@@ -22,6 +23,13 @@ const glossary = () => createTable({
   idKeys: ['zh', 'en'],
   heading: '# 指标与黑话',
   label: '术语',
+})
+
+test('观察截止：发布当天算第 1 天，并按上海自然日截止', () => {
+  assert.equal(reviewDueAtFor('2026-01-31T16:30:00Z', 1), '2026-02-01T23:59:59+08:00')
+  assert.equal(reviewDueAtFor('2024-02-28T10:00:00+08:00', 2), '2024-02-29T23:59:59+08:00')
+  assert.equal(reviewDueAtFor('2024-02-29T23:30:00+08:00', 1), '2024-02-29T23:59:59+08:00')
+  assert.equal(reviewDueAtFor('2026-01-31T10:00:00+08:00', 2), '2026-02-01T23:59:59+08:00')
 })
 
 test('table: 增改删 + id 稳定 + 拒绝竖线', async () => {
@@ -267,4 +275,87 @@ test('table: legacy 多格式还原（5列/6列/7列老日历都读得对）', a
   // 8 列：全都有
   assert.equal(byTopic['新格式'].topicPath, 'Topics/d.md')
   assert.equal(byTopic['新格式'].productPath, 'Products/d.md')
+})
+
+test('table: 多补列按升级后的表头位置映射，旧行状态不串列', async () => {
+  const root = await tempVault()
+  const ideas = createTable({
+    header: ['日期', '来源', '来源URL', '内容', '状态', '去向'],
+    keys: ['date', 'source', 'sourceUrl', 'content', 'status', 'outcome'],
+    idKeys: ['date', 'content'],
+    legacy: [
+      { cells: 5, at: [{ index: 2 }] },
+      { cells: 4, at: [{ index: 2 }, { index: 5 }] },
+    ],
+    label: '灵感',
+  })
+  const ideaFile = join(root, 'Workbench', '灵感箱.md')
+  await mkdir(join(ideaFile, '..'), { recursive: true })
+  await writeFile(ideaFile, [
+    '| 日期 | 来源 | 内容 | 状态 |',
+    '| --- | --- | --- | --- |',
+    '| 2026-11-01 | 评论 | 四列老行 | 已用 |',
+    '',
+  ].join('\n'), 'utf8')
+  const idea = (await ideas.read(ideaFile)).entries[0]
+  assert.equal(idea.sourceUrl, '')
+  assert.equal(idea.content, '四列老行')
+  assert.equal(idea.status, '已用')
+  assert.equal(idea.outcome, '')
+
+  const feedback = createTable({
+    header: ['日期', '渠道', '来源', '情感', '内容', '标签', '处理意见', '处理结果', '状态'],
+    keys: ['date', 'channel', 'source', 'sentiment', 'content', 'tags', 'advice', 'resolution', 'status'],
+    idKeys: ['date', 'content'],
+    legacy: [
+      { cells: 8, at: [{ index: 2 }] },
+      { cells: 6, at: [{ index: 2 }, { index: 6 }, { index: 7 }] },
+    ],
+    label: '反馈',
+  })
+  const feedbackFile = join(root, 'Feedback', '客户反馈.md')
+  await mkdir(join(feedbackFile, '..'), { recursive: true })
+  await writeFile(feedbackFile, [
+    '| 日期 | 渠道 | 情感 | 内容 | 标签 | 状态 |',
+    '| --- | --- | --- | --- | --- | --- |',
+    '| 2026-11-02 | 私信 | 正 | 六列老行 | 口碑 | 未处理 |',
+    '',
+  ].join('\n'), 'utf8')
+  const row = (await feedback.read(feedbackFile)).entries[0]
+  assert.equal(row.source, '')
+  assert.equal(row.tags, '口碑')
+  assert.equal(row.advice, '')
+  assert.equal(row.resolution, '')
+  assert.equal(row.status, '未处理')
+})
+
+test('table: 旧表里已删除的列按 drop 丢掉，不会挤进新列', async () => {
+  const root = await tempVault()
+  const metrics = createTable({
+    header: ['日期', '主选题ID', '平台版本ID', '平台', '账号', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '完播率', '平均播放时长', '粉丝净增', '订单', 'GMV', '退货原因', '数据来源', '统计口径'],
+    keys: ['date', 'masterId', 'variantId', 'platform', 'account', 'views', 'likes', 'comments', 'shares', 'link', 'completion', 'avgDuration', 'followers', 'orders', 'gmv', 'returnReason', 'source', 'caliber'],
+    idKeys: ['variantId', 'date'],
+    legacy: [
+      { cells: 10, at: [] },
+      { cells: 11, at: [], drop: [10] },
+      { cells: 17, at: [] },
+    ],
+    label: '指标',
+  })
+  const file = join(root, 'Data', '回流台账', '2026-10.md')
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(file, [
+    '| 日期 | 主选题ID | 平台版本ID | 平台 | 账号 | 播放/阅读 | 赞/收藏 | 评论 | 转发 | 链接 | 备注 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| 2026-10-28 | t1 | v1 | 抖音 |  | 92000 | 4100 | 220 | 640 | https://v.douyin.com/demo | 旧备注不迁移 |',
+    '',
+  ].join('\n'), 'utf8')
+  const state = await metrics.read(file)
+  assert.equal(state.warning, undefined)
+  assert.equal(state.entries.length, 1)
+  assert.equal(state.entries[0].views, '92000')
+  assert.equal(state.entries[0].likes, '4100')
+  assert.equal(state.entries[0].link, 'https://v.douyin.com/demo')
+  assert.equal(state.entries[0].completion, '')
+  assert.equal(state.entries[0].gmv, '')
 })
