@@ -7,8 +7,8 @@
         # Obsidian vault 根目录：工作台列/读/写这里的 md 笔记。首次打开面板时会引导填写。
         vaultRoot: ""
         # 各板块在 vault 内的目录名（都可用 ~/.dsh-growth/config.json 覆盖）。
-        # sopDir 留空 = 自动检测：vault 根下已有 SOP/ 就用 SOP/，没有就以 vault 根为根。
-        sopDir: ""
+        # SOP 树只管理这个相对目录，避免把整个 vault 当成可编辑的 SOP 区域。
+        sopDir: "SOP"
         workbenchDir: "Workbench"
         copyRulesDir: "CopyRules"
         topicsDir: "Topics"

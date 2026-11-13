@@ -41,18 +41,18 @@ const PKG_VERSION = (() => {
 const DEFAULT_CARDS = [
   { id: 'accounts', workspace: 'ops', title: '账号档案', icon: '👤', enabled: true },
   { id: 'ideas', workspace: 'ops', title: '灵感箱', icon: '💡', enabled: true },
-  { id: 'topics', workspace: 'ops', title: '爆款拆解（别人的）', icon: '🎯', enabled: true },
+  { id: 'topics', workspace: 'ops', title: '爆款拆解', icon: '🎯', enabled: true },
   { id: 'studio', workspace: 'ops', title: '我的选题', icon: '🎬', enabled: true },
   { id: 'calendar', workspace: 'ops', title: '内容日历', icon: '🗓️', enabled: true },
   { id: 'pending', workspace: 'ops', title: '待回填数据', icon: '📥', enabled: true },
   { id: 'contentdata', workspace: 'ops', title: '数据复盘', icon: '📊', enabled: true },
   { id: 'products', workspace: 'ecom', title: '商品 / 竞品库', icon: '🏷️', enabled: true },
-  { id: 'data', workspace: 'ecom', title: '电商数据复盘', icon: '📈', enabled: true },
   { id: 'feedback', workspace: 'ecom', title: '客户反馈库', icon: '💬', enabled: true },
+  { id: 'data', workspace: 'ecom', title: '电商数据复盘', icon: '📈', enabled: true },
   { id: 'campaigns', workspace: 'mkt', title: '营销方案库', icon: '📣', enabled: true },
   { id: 'sop', workspace: 'common', title: 'SOP 树', icon: '📚', enabled: true },
-  { id: 'glossary', workspace: 'common', title: '术语表', icon: '🔤', enabled: true },
   { id: 'copyrules', workspace: 'common', title: '文案规则 / 语调库', icon: '✍️', enabled: true },
+  { id: 'glossary', workspace: 'common', title: '术语表', icon: '🔤', enabled: true },
 ]
 
 const STATUS_BY_CODE = new Map([
@@ -71,7 +71,7 @@ const OPEN_HOSTS = new Set([
 
 const DEFAULT_DIRS = {
   vaultRoot: '',
-  sopDir: '',
+  sopDir: 'SOP',
   workbenchDir: 'Workbench',
   copyRulesDir: 'CopyRules',
   topicsDir: 'Topics',
@@ -374,18 +374,11 @@ export function apply(ctx, config) {
     return cfg('vaultRoot')
   }
 
-  // SOP 目录默认跟随 vault 根目录：用户没单独指定时，vault 里有 SOP/ 子目录
-  // 就用 SOP/，没有就退回整个 vault。这样换 vault 根目录时 SOP 树自动跟过去，
-  // 用户不需要再维护第二个路径。
+  // SOP 默认只管理 vault 下的 SOP/。旧逻辑在目录不存在时退回整个 vault，
+  // 会让「SOP 树」变成第二个全库文件浏览器，也把其它 Obsidian 文件暴露给编辑操作。
   function sopDirValue() {
     const configured = String(cfg('sopDir') ?? '').trim()
-    if (configured !== '') return configured
-    try {
-      if (vaultRoot() !== '' && existsSync(join(vaultRoot(), 'SOP'))) return 'SOP'
-    } catch {
-      // 路径不可读就当作没有 SOP/，退回整个 vault。
-    }
-    return ''
+    return configured === '' ? 'SOP' : configured
   }
 
   // 绝对路径 → 相对 vault 根的 posix 路径。
@@ -913,11 +906,6 @@ export function apply(ctx, config) {
     const seen = new Set()
     for (const key of keys) {
       const value = key === 'sopDir' ? sopDirValue() : String(cfg(key) ?? '')
-      // sopDir 为空 = vault 根目录本身，搜索前缀要保留空串。
-      if (key === 'sopDir' && value.trim() === '') {
-        seen.add('')
-        continue
-      }
       const dir = value.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
       if (dir !== '') seen.add(dir)
     }
@@ -1040,7 +1028,9 @@ export function apply(ctx, config) {
     const masterIdOf = (master) => String(master.id ?? master.front?.id ?? '')
     const masterById = new Map(masters.map((master) => [masterIdOf(master), master]))
     const allVariants = await domain.listVariants()
+    const hasPublishFact = (variant) => String(variant.front?.publishedAt ?? '').trim() !== ''
     const published = allVariants.filter((variant) => ['已发', '待回填'].includes(String(variant.status))
+      && hasPublishFact(variant)
       && masterById.has(String(variant.front?.masterId ?? '')))
     // 覆盖判断按「选题 + 平台」这一对，而且要看收纳中的版本：
     // 收纳只影响日常显示，不能让已经发布的内容重新变成缺口。
@@ -1051,8 +1041,7 @@ export function apply(ctx, config) {
       // 以前草稿、待审也一并算上 —— 日历标了已发、版本还躺在草稿里，缺口被静默吞掉，
       // 待回填数据上半段只收已发/数据回流，于是两边都不显示，这条内容凭空消失。
       const status = String(variant.status ?? '')
-      const countsAsPublished = ['已发', '待回填', '已结案'].includes(status)
-        && String(variant.front?.publishedAt ?? '').trim() !== ''
+      const countsAsPublished = ['已发', '待回填', '已结案'].includes(status) && hasPublishFact(variant)
       if (!countsAsPublished) continue
       const master = masterById.get(String(variant.front?.masterId ?? ''))
       if (master === undefined) continue
@@ -1659,8 +1648,6 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
   async function readChecklistDoc() {
     if (vault === null) return null
     const prefix = String(sopDirValue() ?? '').trim().replace(/^\/+|\/+$/g, '')
-    // prefix 为空 = sopDir 没配，SOP 树就是整个 vault 根；这里必须保留空串，
-    // 否则根目录的清单永远扫不到（下面的 '' 分支会走 vault.discover()）。
     const dirs = [...new Set([prefix, String(cfg('workbenchDir')).trim()])]
     for (const dir of dirs) {
       let listed = []
@@ -1715,10 +1702,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     // 从零开始跑的板块：目录还不存在时先把建出来，别等第一次写入才发现路径缺了。
     // （列目录/写文件本身都会 mkdir，这里兜的是「读一个空板块」的场景——
     //  discover 对缺失目录返回 missing，用户看到的却是「找不到路径」。）
-    const dirKeys = ['workbenchDir', 'copyRulesDir', 'topicsDir', 'campaignsDir', 'dataDir', 'feedbackDir', 'productsDir', 'accountsDir', 'calendarDir']
-    for (const key of dirKeys) await vault.assertInsidePath(dirOf(key))
+    const dirKeys = ['sopDir', 'workbenchDir', 'copyRulesDir', 'topicsDir', 'campaignsDir', 'dataDir', 'feedbackDir', 'productsDir', 'accountsDir', 'calendarDir']
+    for (const key of dirKeys) await vault.assertInsidePath(key === 'sopDir' ? join(vaultRoot(), sopDirValue()) : dirOf(key))
     for (const key of dirKeys) {
-      const dir = normalizeVaultSubdir(cfg(key))
+      const dir = normalizeVaultSubdir(key === 'sopDir' ? sopDirValue() : cfg(key))
       if (dir === '' || dir === '.') continue
       try {
         await mkdir(join(vaultRoot(), dir), { recursive: true })
@@ -1798,9 +1785,8 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     } catch {
       ruleCounts = { hard: 0, soft: 0, watch: 0 }
     }
-    // sopDir 为空时「SOP」= 整个 vault，否则是整个库一篇都数不到。
     const sopPrefix = sopDirValue().replace(/^\/+|\/+$/g, '')
-    const inSop = (path) => sopPrefix === '' || path === sopPrefix || path.startsWith(sopPrefix + '/')
+    const inSop = (path) => path === sopPrefix || path.startsWith(sopPrefix + '/')
     // 数据复盘 = 回流台账里的记录条数（播放/赞/评/转的唯一来源）。
     const metrics = domain === null ? [] : await domain.listMetrics()
     return {
@@ -1893,7 +1879,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
 
     if (route === 'state' && method === 'GET') {
       const config = { vaultRoot: vaultRoot() }
-      for (const key of Object.keys(DEFAULT_DIRS)) config[key] = cfg(key)
+      for (const key of Object.keys(DEFAULT_DIRS)) config[key] = key === 'sopDir' ? sopDirValue() : cfg(key)
       return { config, dataDir: dataDir(), configured: vaultRoot() !== '', cards }
     }
 
@@ -1904,19 +1890,19 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         throw new VaultError('数据目录只能由 DSH 启动配置指定，不能在运行中修改', 'bad_request')
       }
       const nextDirs = {}
-      const removeSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
+      const resetSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
       // 全部校验完再改内存/落盘；子目录不能利用 ../ 或链接绕过 vault 边界。
       for (const key of Object.keys(DEFAULT_DIRS)) {
         if (key === 'vaultRoot' || key === 'pluginDataDir') continue
         const supplied = typeof body?.[key] === 'string' ? body[key].trim() : ''
-        const raw = supplied || (key === 'sopDir' && removeSop ? '' : String(cfg(key) ?? ''))
+        const raw = supplied || (key === 'sopDir' && resetSop ? DEFAULT_DIRS.sopDir : String(cfg(key) ?? ''))
         const dir = raw === '' ? '' : normalizeVaultSubdir(raw, { allowEmpty: false })
         if (supplied !== '') nextDirs[key] = dir
         if ((root || vaultRoot()) !== '') await assertPathInsideRoot(root || vaultRoot(), join(root || vaultRoot(), dir))
       }
       if (root !== '') userConfig.vaultRoot = root
       Object.assign(userConfig, nextDirs)
-      if (removeSop) delete userConfig.sopDir
+      if (resetSop) delete userConfig.sopDir
       await saveUserConfig()
       build()
       vault?.invalidate()
@@ -2080,6 +2066,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'metrics' && method === 'POST') {
       const variant = await domain.getVariant(v2[1])
       if (!['已发', '待回填', '已结案'].includes(variant.status)) throw new VaultError('只有已经发布的版本才能回填数据', 'bad_request')
+      if (String(variant.front?.publishedAt ?? '').trim() === '') throw new VaultError('这个版本没有实际发布时间，不能回填发布后数据；请先在版本或日历中确认发布', 'bad_request')
       return { metric: await domain.appendMetric({ ...body, variantId: variant.id, masterId: variant.front?.masterId, platform: variant.front?.platform, account: variant.front?.account, dataDir: dirOf('dataDir') }) }
     }
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'close-review' && method === 'POST') {
@@ -2175,6 +2162,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
 
       for (const variant of allVariants) {
         if (variant.archived || !['已发', '待回填'].includes(variant.status)) continue
+        // 状态文字不是发布事实。旧数据可能手工写成「已发」，但没有经过发布动作，
+        // 因而没有实际发布时间。这类矛盾记录留在版本处修正，不能进入发布后的回填队列。
+        if (String(variant.front?.publishedAt ?? '').trim() === '') continue
         const master = masterById.get(String(variant.front?.masterId ?? ''))
         // 主选题被删或落在测试目录的版本不往这里列：没有标题的行点了也没处去。
         if (master === undefined) continue
@@ -2190,7 +2180,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         const publishedAt = String(front.publishedAt ?? '').trim()
         const dueDate = String(front.reviewDueAt ?? '').slice(0, 10)
         const hasMetric = item.variant.latestMetric !== null && item.variant.latestMetric !== undefined
-        if (publishedAt === '' || dueDate === '') return { kind: 'missing_publish_time', label: '缺发布时间', dueDate: '', rank: 4 }
+        // publishedAt 已在入队前验证。这里只兜旧数据里缺观察截止的情况；
+        // 它仍有真实发布时间，可以回填，只是无法按截止日排序。
+        if (dueDate === '') return { kind: 'unscheduled_review', label: '未设截止', dueDate: '', rank: 4 }
         if (dueDate < todayKey) return { kind: 'overdue', label: '逾期', dueDate, rank: 0 }
         if (dueDate === todayKey) return { kind: 'due_today', label: '今日截止', dueDate, rank: 1 }
         if (!hasMetric) return { kind: 'unrecorded', label: '未录入', dueDate, rank: 2 }
@@ -2237,8 +2229,6 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return { matches: inScope.slice(0, 80), scope, prefixes, total: inScope.length }
     }
 
-    // sopDir 为空 = 树就是整个 vault 根，不再套一层目录；
-    // 配了 sopDir 才把树的路径补成 vault 根的相对路径，让读、写、删同一个基准。
     const prefixOf = () => String(sopDirValue() ?? '').trim().replace(/^\/+|\/+$/g, '')
     // tree() 里笔记节点的 path 已经是 vault 根相对路径（relOf），目录节点则是相对 sopDir 的。
     // 所以只给目录补前缀，笔记保持原样 —— 补两次会变成 SOP/SOP/xxx.md。
@@ -2258,9 +2248,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return { tree: withPrefix(tree, prefix), scope: 'sop', root: prefix }
     }
     if (route === 'sop' && method === 'GET') return treePayload()
-    // SOP 搜索 = 全局搜索：搜整个 vault，不只搜树上那份。
-    // scopeTree=false 时额外给出一条 treeHit，告诉前端「这条在树里 / 不在树里」，
-    // 树里就正常展开；树外也能点，走 readNote 直接预览，不依赖树节点。
+    // SOP 搜索只在 SOP 子目录内进行。通用板块不能借搜索入口读写其它 Obsidian 文件夹。
     if (route === 'sop/search' && method === 'GET') {
       const needle = q('q').trim().toLowerCase()
       if (needle === '') return { matches: [] }
@@ -2276,10 +2264,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const raw = await vault.search(q('q'), { limit: 400 })
       const matches = []
       for (const hit of raw) {
+        if (prefixOf() !== '' && hit.path !== prefixOf() && !hit.path.startsWith(prefixOf() + '/')) continue
         matches.push({ ...hit, inTree: visible.has(hit.path) })
         if (matches.length >= 60) break
       }
-      return { matches, total: matches.length, root: payload.root, global: true }
+      return { matches, total: matches.length, root: payload.root, global: false }
     }
     if (route === 'sop/refresh' && method === 'POST') {
       vault.invalidate()
@@ -2293,9 +2282,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const prefix = prefixOf()
       if (prefix === '') return rel
       if (rel.startsWith(prefix + '/')) return rel
-      const known = new Set(Object.values(DEFAULT_DIRS).filter((name) => name !== ''))
-      const top = rel.split('/')[0]
-      if (known.has(top) || !rel.includes('/')) return rel
+      if (!rel.includes('/')) return prefix + '/' + rel
       return prefix + '/' + rel
     }
     if (route === 'annotations' && method === 'GET') {
@@ -2305,27 +2292,17 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return { annotations: annotationsOf(note.text, target), path: target, sha1: note.sha1 }
     }
     if (route === 'sop/note' && method === 'GET') {
-      // 搜索是全局的，命中的笔记可能不在 SOP 树里（vault 根之外的 SOP/ 之外）。
-      // notePathOf 会给相对路径补 SOP/ 前缀，树外的笔记因此打不开 ——
-      // 所以先按 vault 根的相对路径试一次，存在就用它。
-      const raw = String(q('note') ?? '').trim().replace(/\\\\/g, '/')
-      const direct = raw.startsWith('/') ? raw.slice(1) : raw
-      const target = direct !== '' && await vault.exists(direct) ? direct : notePathOf(q('note'))
+      const target = notePathOf(q('note'))
       const note = await vault.readNote(target)
       return { note: { ...note, sections: sectionsOf(note.text) } }
     }
     if (route === 'sop/note' && method === 'DELETE') {
-      const raw = String(q('note') ?? '').trim().replace(/\\\\/g, '/')
-      const direct = raw.startsWith('/') ? raw.slice(1) : raw
-      const target = direct !== '' && await vault.exists(direct) ? direct : notePathOf(q('note'))
+      const target = notePathOf(q('note'))
       return { deleted: await vault.deleteNote(target, { expectedSha1: q('sha1') }) }
     }
     if (route === 'sop/note' && method === 'PUT') {
       if (typeof body?.text !== 'string') throw new VaultError('text 必填', 'bad_request')
-      // 同 GET：树外笔记按 vault 根相对路径直接写，别再套 SOP/ 前缀。
-      const raw = String(q('note') ?? '').trim().replace(/\\\\/g, '/')
-      const direct = raw.startsWith('/') ? raw.slice(1) : raw
-      const target = direct !== '' && await vault.exists(direct) ? direct : notePathOf(q('note'))
+      const target = notePathOf(q('note'))
       return { written: await vault.writeNote(target, body.text, { expectedSha1: body.expectedSha1 }) }
     }
     if (route === 'sop/note' && method === 'POST') {
@@ -2718,6 +2695,26 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return { month: cal.month, ...(await requireTable(await cal.table.remove(cal.file, q('id'), { expectedSha1: body?.expectedSha1 ?? (q('expectedSha1') || q('sha1')) }))) }
     }
 
+    function validateCampaign(front, markdown = '') {
+      const start = String(front?.start ?? '').trim()
+      const end = String(front?.end ?? '').trim()
+      if (start !== '' && end !== '' && end < start) throw new VaultError('结束日期不能早于开始日期', 'bad_field')
+      if (String(front?.status ?? '').trim() !== '已结束') return
+      const text = String(markdown ?? '')
+      const metricsSection = text.split(/^###\s+效果对比\s*$/m)[1]?.split(/^###\s+/m)[0] ?? ''
+      const metricRows = metricsSection.split('\n')
+        .filter((line) => line.trim().startsWith('|'))
+        .map((line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim()))
+      const actualColumn = metricRows[0]?.findIndex((cell) => cell === '实际') ?? -1
+      const hasActual = actualColumn >= 0 && metricRows.slice(2).some((cells) => {
+        const value = String(cells[actualColumn] ?? '').trim()
+        return value !== '' && value !== '-' && !/^:?-{3,}:?$/.test(value)
+      })
+      const review = text.split(/^###\s+经验\s*$/m)[1]?.split(/^#{1,3}\s+/m)[0] ?? ''
+      const hasReview = review.split('\n').some((line) => line.trim() !== '' && !/^[-*]\s*$/.test(line.trim()))
+      if (!hasActual && !hasReview) throw new VaultError('方案标为「已结束」前，至少填写一项实际效果或复盘经验', 'bad_request')
+    }
+
     for (const kind of ['topics', 'campaigns', 'products', 'accounts', 'data']) {
       const collection = collections[kind]
       if (route === kind + '/list' && method === 'GET') {
@@ -2746,7 +2743,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         }
         return { ...page, records, schema: collection.schema }
       }
-      if (route === kind + '/create' && method === 'POST') return { created: await collection.create(body) }
+      if (route === kind + '/create' && method === 'POST') {
+        if (kind === 'campaigns') {
+          if (String(body?.status ?? '').trim() === '已结束') throw new VaultError('新方案不能直接建成「已结束」；先记录执行结果，再在详情中结束', 'bad_request')
+          validateCampaign(body)
+        }
+        return { created: await collection.create(body) }
+      }
       if (route === kind + '/record' && method === 'GET') {
         const path = q('path') || (await collection.findById(q('id'))).path
         const record = await collection.read(path)
@@ -2760,7 +2763,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         }
         return { record }
       }
-      if (route === kind + '/record' && method === 'PUT') return { written: await collection.update(q('path'), body) }
+      if (route === kind + '/record' && method === 'PUT') {
+        if (kind === 'campaigns') {
+          const current = await collection.read(q('path'))
+          validateCampaign({ ...current.front, ...(body?.front ?? {}) }, body?.body === undefined ? current.body : body.body)
+        }
+        return { written: await collection.update(q('path'), body) }
+      }
     }
 
     // 拆解 → 建选题：从一篇拆解笔记派生「自己的选题」进我的选题（2026-11-08 拆分）。
@@ -3155,7 +3164,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         }
         out.push({ id, folder: cfg(dirKey), noteCount: count, fields: collections[id].schema.map((item) => item.key) })
       }
-      out.push({ id: 'sop', folder: sopDirValue() === '' ? '(vault 根)' : sopDirValue(), noteCount: null, fields: [] })
+      out.push({ id: 'sop', folder: sopDirValue(), noteCount: null, fields: [] })
       return out
     },
     listRecords: async (board, limit, options) => {
@@ -3189,7 +3198,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
           .map((seg) => safeFileName(seg.trim(), ''))
           .filter((seg) => seg !== '')
           .join('/')
-        const head = sopDirValue() === '' ? '' : sopDirValue() + '/'
+        const head = sopDirValue() + '/'
         const rel = head + (sub === '' ? '' : sub + '/') + safeFileName(title) + '.md'
         const text = typeof options.markdown === 'string' && options.markdown.trim() !== ''
           ? options.markdown
@@ -3198,7 +3207,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         vault.invalidate()
         return { path: rel, sha1: created.sha1 ?? '' }
       }
-      const roots = await vault.tree()
+      const roots = await vault.tree({ scope: 'sop' })
       const flat = []
       const walk = (nodes) => {
         for (const node of nodes ?? []) {
