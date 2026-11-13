@@ -350,14 +350,17 @@ const rawEleven = fs.readFileSync(path.join(calendarDir, '2024-11.md'), 'utf8')
 check('11 列老表写回后补 GMV / 转化率两列', writtenEleven, () => rawEleven.includes('| 账号 | GMV | 转化率 |')
   && rawEleven.includes('https://example.com/11') && rawEleven.includes('账号11'))
 
-// 没有 SOP/ 目录时，SOP 树本来就是整个 vault。放在 vault 根下的清单也必须能找到；
-// 以前这里只扫 Workbench/，于是根目录清单永远 missing，高风险内容反而发不出去。
+// SOP 树只管理明确的 SOP/ 子目录，不能退回整个 vault。
 const rootSopVault = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-cal-root-sop-'))
 fs.writeFileSync(path.join(rootSopVault, '发布前检查清单.md'), '# 发布前检查清单\n\n- 根目录清单也要能被发现\n', 'utf8')
 await request('PUT', '/api/dsh-growth/config', { vaultRoot: rootSopVault, pluginDataDir: dataDir })
 const rootChecklist = await request('GET', '/api/dsh-growth/v2/checklist')
-check('根目录 SOP 清单能被发现', rootChecklist, (r) => ok(r) && r.json?.missing === false
-  && Number(r.json?.total) === 1 && String(r.json?.path ?? '').endsWith('发布前检查清单.md'))
+check('vault 根目录的同名清单不会混入 SOP', rootChecklist, (r) => ok(r) && r.json?.missing === true)
+fs.mkdirSync(path.join(rootSopVault, 'SOP'), { recursive: true })
+fs.writeFileSync(path.join(rootSopVault, 'SOP', '发布前检查清单.md'), '# 发布前检查清单\n\n- SOP 子目录清单\n', 'utf8')
+const scopedChecklist = await request('GET', '/api/dsh-growth/v2/checklist')
+check('SOP 子目录的清单能被发现', scopedChecklist, (r) => ok(r) && r.json?.missing === false
+  && Number(r.json?.total) === 1 && String(r.json?.path ?? '').includes('SOP/发布前检查清单.md'))
 
 console.log('\n' + (failures === 0 ? 'ALL PASSED' : failures + ' FAILED'))
 process.exitCode = failures === 0 ? 0 : 1

@@ -321,7 +321,8 @@ const afterConflict = await request('GET', `/api/dsh-growth/v2/variants/${varian
 check('归属冲突不会改动原版本', afterConflict, (r) => r.json?.variant?.front?.platform === 'B站'
   && r.json?.variant?.front?.accountId === accountTargetId)
 
-// 待回填任务顺序由服务端统一给出：逾期、今日截止、未录入、最近截止、缺发布时间。
+// 待回填任务顺序由服务端统一给出：逾期、今日截止、未录入、最近截止。
+// 只有状态文字、没有实际发布时间的旧记录不属于已发布事实，不能混入回填队列。
 const localDay = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
   const take = (type) => parts.find((part) => part.type === type)?.value ?? ''
@@ -343,9 +344,11 @@ const unrecordedId = await publishedFixture('未录入夹具', 7)
 const upcomingId = await publishedFixture('观察中夹具', 7, true)
 const missingMaster = await request('POST', '/api/dsh-growth/v2/masters', { title: '缺发布时间夹具', platform: 'B站', date: localDay(), status: '在写' })
 const missingId = 'v-missing-published-at'
+const missingReviewId = 'v-missing-review-due'
 const missingDir = path.join(vault, 'Workbench', '平台版本', String(missingMaster.json?.master?.id ?? ''))
 fs.mkdirSync(missingDir, { recursive: true })
 fs.writeFileSync(path.join(missingDir, 'legacy.md'), `---\nid: ${missingId}\nmasterId: ${missingMaster.json?.master?.id ?? ''}\nplatform: B站\naccount: 目标号\naccountId: ${accountTargetId}\nstatus: 已发\n---\n`, 'utf8')
+fs.writeFileSync(path.join(missingDir, 'legacy-review.md'), `---\nid: ${missingReviewId}\nmasterId: ${missingMaster.json?.master?.id ?? ''}\nplatform: 抖音\nstatus: 已发\npublishedAt: '${nowIso}'\n---\n`, 'utf8')
 const orderedPending = await request('GET', '/api/dsh-growth/v2/pending')
 const ordered = orderedPending.json?.items ?? []
 const ranks = ordered.map((item) => Number(item.reviewTask?.rank))
@@ -354,7 +357,10 @@ check('待回填任务按优先级稳定排序', orderedPending, (r) => r.status
   && ordered.find((item) => item.variant?.id === dueTodayId)?.reviewTask?.kind === 'due_today'
   && ordered.find((item) => item.variant?.id === unrecordedId)?.reviewTask?.kind === 'unrecorded'
   && ordered.find((item) => item.variant?.id === upcomingId)?.reviewTask?.kind === 'upcoming'
-  && ordered.find((item) => item.variant?.id === missingId)?.reviewTask?.kind === 'missing_publish_time')
+  && ordered.find((item) => item.variant?.id === missingReviewId)?.reviewTask?.kind === 'unscheduled_review'
+  && ordered.every((item) => item.variant?.id !== missingId))
+const missingMetric = await request('POST', `/api/dsh-growth/v2/variants/${missingId}/metrics`, { date: localDay(), views: '1' })
+check('缺实际发布时间的旧已发状态不能回填', missingMetric, (r) => r.status === 400 && String(r.json?.message ?? '').includes('没有实际发布时间'))
 
 console.log('\n' + (failures === 0 ? 'ALL PASSED' : failures + ' FAILED'))
 process.exitCode = failures === 0 ? 0 : 1

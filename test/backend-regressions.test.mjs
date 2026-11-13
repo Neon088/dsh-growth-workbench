@@ -391,3 +391,51 @@ test('backend: repeated CSV imports preserve exact original duplicate columns wi
   assert.equal(fs.readFileSync(first.json.archive, 'utf8'), raw)
   assert.equal(fs.readFileSync(second.json.archive, 'utf8'), raw)
 })
+
+test('backend: SOP endpoints stay inside the configured SOP directory', async (t) => {
+  const { root, request } = await fixture(t)
+  put(root, 'Topics/outside.md', '# outside\n\nPRIVATE_OUTSIDE_MARKER\n')
+  put(root, 'SOP/inside.md', '# inside\n\nSOP_INSIDE_MARKER\n')
+  const outsideSearch = await request('GET', '/sop/search?q=' + encodeURIComponent('PRIVATE_OUTSIDE_MARKER'))
+  assert.equal(outsideSearch.status, 200)
+  assert.deepEqual(outsideSearch.json.matches, [])
+  const insideSearch = await request('GET', '/sop/search?q=' + encodeURIComponent('SOP_INSIDE_MARKER'))
+  assert.equal(insideSearch.status, 200)
+  assert.equal(insideSearch.json.matches.length, 1)
+  const outsideRead = await request('GET', '/sop/note?note=' + encodeURIComponent('Topics/outside.md'))
+  assert.equal(outsideRead.status, 404)
+  assert.match(String(outsideRead.json.message ?? ''), /SOP\/Topics\/outside\.md/)
+  const insideRead = await request('GET', '/sop/note?note=' + encodeURIComponent('SOP/inside.md'))
+  assert.equal(insideRead.status, 200)
+  assert.match(insideRead.json.note.text, /SOP_INSIDE_MARKER/)
+})
+
+test('backend: a campaign needs real results before it can be closed', async (t) => {
+  const { root, request } = await fixture(t)
+  const created = await request('POST', '/campaigns/create', {
+    title: 'Closure guard', platform: '抖音', status: '进行中',
+    start: '2026-11-01', end: '2026-11-11', goal: '验证结案流程',
+  })
+  assert.equal(created.status, 200, JSON.stringify(created.json))
+  const relative = created.json.created.path
+  const endpoint = '/campaigns/record?path=' + encodeURIComponent(relative)
+  const before = await request('GET', endpoint)
+  const file = path.join(root, relative)
+  const original = fs.readFileSync(file, 'utf8')
+
+  const emptyClose = await request('PUT', endpoint, {
+    front: { status: '已结束' }, expectedSha1: before.json.record.sha1,
+  })
+  assert.equal(emptyClose.status, 400, JSON.stringify(emptyClose.json))
+  assert.match(String(emptyClose.json.message ?? ''), /实际效果|复盘经验/)
+  assert.equal(fs.readFileSync(file, 'utf8'), original, 'rejected closure must not change the note')
+
+  const bodyWithResult = before.json.record.body.replace('|  |  |  |', '| 转化率 | 3% | 3.4% |')
+  const closed = await request('PUT', endpoint, {
+    front: { status: '已结束' }, body: bodyWithResult, expectedSha1: before.json.record.sha1,
+  })
+  assert.equal(closed.status, 200, JSON.stringify(closed.json))
+  const after = await request('GET', endpoint)
+  assert.equal(after.json.record.front.status, '已结束')
+  assert.match(after.json.record.body, /\| 转化率 \| 3% \| 3\.4% \|/)
+})

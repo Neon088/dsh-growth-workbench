@@ -51,10 +51,10 @@ const month = day.slice(0, 7)
 const title = '隔离测试选题'
 const topicPath = 'Topics/隔离测试选题.md'
 const cards = [
-  ['accounts', 'ops', '账号档案'], ['ideas', 'ops', '灵感箱'], ['topics', 'ops', '爆款拆解（别人的）'], ['studio', 'ops', '我的选题'],
+  ['accounts', 'ops', '账号档案'], ['ideas', 'ops', '灵感箱'], ['topics', 'ops', '爆款拆解'], ['studio', 'ops', '我的选题'],
   ['calendar', 'ops', '内容日历'], ['pending', 'ops', '待回填数据'], ['contentdata', 'ops', '数据复盘'],
-  ['products', 'ecom', '商品 / 竞品库'], ['data', 'ecom', '电商数据复盘'], ['feedback', 'ecom', '客户反馈库'],
-  ['campaigns', 'mkt', '营销方案库'], ['sop', 'common', 'SOP 树'], ['glossary', 'common', '术语表'], ['copyrules', 'common', '文案规则 / 语调库'],
+  ['feedback', 'ecom', '客户反馈库'], ['products', 'ecom', '商品 / 竞品库'], ['data', 'ecom', '电商数据复盘'],
+  ['campaigns', 'mkt', '营销方案库'], ['sop', 'common', 'SOP 树'], ['copyrules', 'common', '文案规则 / 语调库'], ['glossary', 'common', '术语表'],
 ].map(([id, workspace, title]) => ({ id, workspace, title, icon: '', enabled: true }))
 const fixtures = {
   cards, month, day, title, topicPath,

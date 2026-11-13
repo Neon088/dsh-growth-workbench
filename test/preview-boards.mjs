@@ -58,7 +58,7 @@ const fbTable = (w, compact) => {
   const body = compact
     ? `<td>快递太慢了，三天还没到，客服也不回消息</td><td>先道歉再补发</td><td>已补发</td><td><select class="dsh-gw-fb-state" data-state="跟进中"><option>跟进中</option></select></td>${actCell}`
     : `<td>11-06</td><td>小红书</td><td><span class="dsh-gw-pill" data-tone="error">负</span></td><td>快递太慢了，三天还没到</td><td><span class="dsh-gw-pill">物流</span></td><td>先道歉再补发</td><td>已补发</td><td><select class="dsh-gw-fb-state" data-state="跟进中"><option>跟进中</option></select></td>${actCell}`
-  return `<div class="dsh-gw-tablebox" style="width:${w}px">
+  return `<div class="dsh-gw-tablebox dsh-gw-fb-box" style="width:${w}px">
     <table class="dsh-gw-table dsh-gw-fb-table${compact ? ' dsh-gw-fb-compact' : ''}">
       <colgroup>${cols.map(([n, p]) => `<col class="${n}" style="width:${p}%">`).join('')}</colgroup>
       <thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
@@ -70,7 +70,7 @@ const fbTable = (w, compact) => {
 const glossTable = (w, widths = [12, 14, 16, 16, 32, 10]) => {
   const cols = ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note', 'c-act']
   const cells = ['护肤', '成分, 功效', '早C晚A', 'skin cycling', '只在有依据时使用']
-  return `<div class="dsh-gw-tablebox" style="width:${w}px">
+  return `<div class="dsh-gw-tablebox dsh-gw-gloss-box" style="width:${w}px">
     <table class="dsh-gw-table dsh-gw-gloss-table">
       <colgroup>${cols.map((n, i) => `<col class="${n}" style="width:${widths[i]}%">`).join('')}</colgroup>
       <thead><tr>${['领域', '标签', '中文', '英文', '备注'].map((h) => `<th>${h}</th>`).join('')}<th></th></tr></thead>
@@ -83,7 +83,7 @@ const block = (title, w, html) =>
 
 const blocks = []
 for (const w of WIDTHS) {
-  blocks.push(block('cal-row', w, `<div class="dsh-gw-pane">${calRow(w)}</div>`))
+  blocks.push(block('cal-row', w, `<div class="dsh-gw-pane"><div class="dsh-gw-body"${w < 520 ? ' data-narrow="true"' : ''}${w < 440 ? ' data-tight="true"' : ''}>${calRow(w)}</div></div>`))
   blocks.push(block('prod-row', w, `<div class="dsh-gw-pane">${prodRow(w)}</div>`))
   blocks.push(block('fb-compact', w, `<div class="dsh-gw-pane">${fbTable(w, true)}</div>`))
   blocks.push(block('fb-wide', w, `<div class="dsh-gw-pane">${fbTable(w, false)}</div>`))

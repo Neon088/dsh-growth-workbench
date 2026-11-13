@@ -95,18 +95,17 @@ window.__ModuleLoader__.load({
 
     const WORKSPACES = [
       { id: 'ops', label: '运营', hint: '内容、创作、日历、数据' },
-      { id: 'ecom', label: '电商', hint: '数据、商品、反馈' },
-      { id: 'mkt', label: '营销', hint: '方案' },
-      { id: 'common', label: '通用', hint: 'SOP、术语表、文案规则' },
+      { id: 'ecom', label: '电商', hint: '反馈、商品、数据' },
+      { id: 'mkt', label: '营销', hint: '策划、执行、复盘' },
+      { id: 'common', label: '通用', hint: 'SOP、文案规则、术语' },
     ]
-    // 首页摘要行按工作流分组：卡名管「是什么」，这里管「在哪一步」。
-    const STAGE_ORDER = ['收集', '创作', '发布', '复盘', '资料']
-    const CARD_STAGE = {
-      accounts: '收集', ideas: '收集', topics: '收集', products: '收集',
-      studio: '创作', calendar: '创作', campaigns: '创作',
-      pending: '发布', feedback: '发布',
-      contentdata: '复盘', data: '复盘',
-      sop: '资料', glossary: '资料', copyrules: '资料',
+    // 首页按每个板块自己的工作流排序。提醒只改变标记，不再把某张卡突然顶到最上面，
+    // 否则用户每次打开看到的顺序都不同，无法形成固定路径。
+    const CARD_ORDER = {
+      ops: ['accounts', 'ideas', 'topics', 'studio', 'calendar', 'pending', 'contentdata'],
+      ecom: ['feedback', 'products', 'data'],
+      mkt: ['campaigns'],
+      common: ['sop', 'copyrules', 'glossary'],
     }
 
     /* ────────────── 取数 ────────────── */
@@ -320,8 +319,9 @@ window.__ModuleLoader__.load({
 /* 拆解笔记一多就把正文挤到屏幕外：给列表一个上限，自己滚。 */
 /* 拆解笔记表：一条一行、四列并排。原来每条是两行文字 + 6px 间隔，六条就吃掉半屏高度。 */
 /* 外框 + 内部横线 + 列间竖线：不画线的时候四列文字飘着，读起来分不清哪个日期属于哪一行。 */
-.dsh-gw-notetable{display:flex;flex-direction:column;max-height:240px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-notetable{display:flex;flex-direction:column;max-width:100%;max-height:240px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);overscroll-behavior:contain}
 .dsh-gw-notetable-head,.dsh-gw-notetable-row{display:grid;grid-template-columns:84px minmax(0,1fr) 62px 50px 76px 62px;align-items:center;gap:0}
+.dsh-gw-notetable-head,.dsh-gw-notetable-row{width:100%;min-width:520px}
 .dsh-gw-notetable-head{position:sticky;top:0;z-index:1;height:20px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px);letter-spacing:.02em}
 .dsh-gw-notetable-row{height:24px;font-size:var(--gw-fz-2,11.5px);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent);cursor:pointer}
 .dsh-gw-notetable-row:last-child{border-bottom:none}
@@ -1232,6 +1232,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-annot-wrap.dsh-gw-note-boxbody{border-radius:0 0 6px 6px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-note-page .dsh-gw-note-acts{gap:4px}
 .dsh-gw-tablebox{min-width:0;max-width:100%;overscroll-behavior-inline:contain}
+.dsh-gw-matrixbox,.dsh-gw-fb-box,.dsh-gw-gloss-box{overflow:auto;max-width:100%;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-matrixbox>.dsh-gw-matrix{min-width:520px}
+.dsh-gw-fb-box>.dsh-gw-fb-compact{min-width:560px;table-layout:fixed}
+.dsh-gw-fb-box>.dsh-gw-fb-table:not(.dsh-gw-fb-compact){min-width:860px;table-layout:fixed}
+.dsh-gw-gloss-box>.dsh-gw-gloss-table{min-width:620px}
 .dsh-gw-tablebox.dsh-gw-topiclist-box{overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable}
 .dsh-gw-topiclist-box .dsh-gw-topiclist thead th{top:0}
 .dsh-gw-topiclist{min-width:540px}
@@ -1349,6 +1354,27 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-table tbody tr:hover,.dsh-gw-md-table tbody tr:hover{background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-row-num,.dsh-gw-table td.num,.dsh-gw-md-table td.num{text-align:right;font-variant-numeric:tabular-nums}
 .dsh-gw-panel details>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,12px);padding:8px 0}
+/* 侧栏宽度由 ResizeObserver 写入 data-narrow/data-tight；不能只看浏览器 viewport。
+   宽表统一留在自己的滚动盒里，普通表单和摘要行则在窄栏改成单列。 */
+.dsh-gw-body[data-narrow=true] .dsh-gw-grid2{grid-template-columns:minmax(0,1fr)}
+.dsh-gw-body[data-narrow=true] .dsh-gw-rule-edit .dsh-gw-rule-fields,.dsh-gw-body[data-narrow=true] .dsh-gw-rules-form-fields{grid-template-columns:minmax(0,1fr)}
+.dsh-gw-body[data-narrow=true] .dsh-gw-rules-form{grid-template-columns:minmax(0,1fr)}
+.dsh-gw-body[data-narrow=true] .dsh-gw-pending-more{grid-template-columns:repeat(2,minmax(0,1fr))}
+.dsh-gw-body[data-narrow=true] .dsh-gw-cal-row>.dsh-gw-row-main{flex-basis:calc(100% - 40px)}
+.dsh-gw-body[data-narrow=true] .dsh-gw-cal-row .dsh-gw-cal-ctrls{justify-content:flex-start}
+.dsh-gw-body[data-narrow=true] .dsh-gw-product-split{flex-direction:column;gap:8px}
+.dsh-gw-body[data-narrow=true] .dsh-gw-product-split>.dsh-gw-product-pane{width:100%!important}
+.dsh-gw-body[data-narrow=true] .dsh-gw-product-split>.dsh-gw-product-divider{display:none!important}
+.dsh-gw-body[data-tight=true] .dsh-gw-pending-more{grid-template-columns:minmax(0,1fr)}
+.dsh-gw-body[data-tight=true] .dsh-gw-row:not(.dsh-gw-cal-row):not(.dsh-gw-account-row){flex-wrap:wrap;align-items:flex-start}
+.dsh-gw-body[data-tight=true] .dsh-gw-row:not(.dsh-gw-cal-row):not(.dsh-gw-account-row)>.dsh-gw-row-main{flex:1 1 calc(100% - 46px)}
+.dsh-gw-body[data-tight=true] .dsh-gw-row-num{margin-left:auto}
+.dsh-gw-body[data-tight=true] .dsh-gw-row-side,.dsh-gw-body[data-tight=true] .dsh-gw-topiclist-acts{max-width:100%;flex-wrap:wrap;justify-content:flex-start}
+.dsh-gw-body[data-tight=true] .dsh-gw-rank-tabs{display:flex;max-width:100%;overflow-x:auto;padding-bottom:2px}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tabs{flex-wrap:wrap;padding-bottom:6px}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tablist{flex:1 1 100%}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tabs .dsh-gw-search{flex:1 1 100%;width:100%;margin-left:0}
+.dsh-gw-body[data-tight=true] .dsh-gw-ms-pop{max-width:calc(100vw - 48px)}
 @media(max-width:520px){.dsh-gw-account-row{grid-template-columns:minmax(0,1fr);row-gap:8px}.dsh-gw-account-row .dsh-gw-account-acts{justify-self:start}}
 @media (prefers-reduced-motion:reduce){.dsh-gw-panel *{scroll-behavior:auto;transition:none!important}}
 `
@@ -2023,7 +2049,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         meta: (value.pendingCount ?? 0) > 0 ? '已发等回写数据' : '没有待回填的',
         tone: (value.pendingCount ?? 0) > 0 ? 'warn' : '',
       })
-      return cards.map((card) => ({ card, stage: CARD_STAGE[card.id] ?? '资料', ...(map[card.id]?.() ?? { num: 0, unit: '', meta: '' }) }))
+      return cards.map((card) => ({ card, ...(map[card.id]?.() ?? { num: 0, unit: '', meta: '' }) }))
     }
 
     /* ────────────── 各卡片的取数 hook ────────────── */
@@ -3417,7 +3443,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       // "Cannot access 'tagOptions' before initialization"，整张卡片挂掉。
       useObjectDraftGuard(draft, busy)
 
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '爆款拆解（别人的）', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify, studioRecords: allRecords })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '爆款拆解', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify, studioRecords: allRecords })
 
       // 爆款拆解卡只放「拆解别人的案例」（type==='选题' 的是自己的选题，归我的选题）。
       // 老笔记没写 type，两边照旧显示，等详情里归一次类。
@@ -3760,7 +3786,7 @@ const STAGE_OF_STATUS = {
       })
     }
 
-    // 我的选题：和「爆款拆解（别人的）」是同一批 Topics/ 笔记，只是换成创作视角——
+    // 我的选题：和「爆款拆解」是同一批 Topics/ 笔记，只是换成创作视角——
     // 拆解卡管「为什么火」（事后），日历管「哪天发」，这里管「这条怎么拍」：
     // 按状态分区（创作中置顶），每行给脚本进度和「写脚本」直达，详情复用 TopicDetail。
     // 「创作中」看两个来源：笔记 frontmatter 和日历排期行，任一说了就算——
@@ -3894,7 +3920,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '一句话角度' }, h('input', { value: draft.angle, onChange: (event) => setDraft({ ...draft, angle: event.target.value }), placeholder: '这条凭什么值得看' })),
           h(Field, { label: '创建日期（只记录）' }, h('input', { type: 'date', value: draft.date, onChange: (event) => setDraft({ ...draft, date: event.target.value }) }))),
         h('div', { className: 'dsh-gw-actions' },
-          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；拆解别人的内容去「爆款拆解（别人的）」卡，从那里点「用这条建选题」', onClick: create }, '建选题')))
+          h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；案例拆解请到「爆款拆解」，再从详情中建立自己的选题', onClick: create }, '建选题')))
       const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', className: 'dsh-gw-create-card', open: allRecords.length === 0 || preset?.createTopic === true }, newTopicForm)
 
       // 早退必须放在 tagOptions 收集之后（TopicsCard 在这里撞过 TDZ，静态测试有守卫）。
@@ -5655,7 +5681,7 @@ const STAGE_OF_STATUS = {
               ? h('span', { className: 'dsh-gw-row-meta' }, '归到哪张卡：')
               : null,
             typeValue === ''
-              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '拆解' ? 'true' : null, title: '标记成拆解：只出现在「爆款拆解（别人的）」里', onClick: () => { void classify('拆解') } }, '拆解')
+              ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '拆解' ? 'true' : null, title: '标记成拆解：只出现在「爆款拆解」里', onClick: () => { void classify('拆解') } }, '拆解')
               : null,
             typeValue === ''
               ? h('button', { className: 'dsh-gw-chip', 'data-on': typeValue === '选题' ? 'true' : null, title: '标记成选题：只出现在「我的选题」里，可以排期、建平台版本', onClick: () => { void classify('选题') } }, '选题')
@@ -7552,8 +7578,9 @@ const STAGE_OF_STATUS = {
         setBusy(true)
         try {
           const result = await post('/data/import', { csv: csvText, name: 'import' })
-          notify('解析出 ' + result.count + ' 行，原始 CSV 已存到 ' + result.archive)
+          notify('已导入 ' + result.written.length + ' 条复盘记录' + (result.failed.length > 0 ? '，另有 ' + result.failed.length + ' 行未写入' : ''))
           setCsvText('')
+          list.reload()
         } catch (error) {
           notify(String(error.message), true)
         } finally {
@@ -7973,20 +8000,20 @@ const STAGE_OF_STATUS = {
           ? h(Empty, null, '还没有商品档案')
           : baseShown.length === 0
             ? h(Empty, null, '没有匹配的商品。')
-            : h('div', { ref: splitRef, style: { display: 'flex', alignItems: 'flex-start', marginBottom: 8 } },
-              h('div', { style: { width: 'calc(' + splitPct + '% - 5px)', minWidth: 0 } },
+            : h('div', { ref: splitRef, className: 'dsh-gw-product-split', style: { display: 'flex', alignItems: 'flex-start', marginBottom: 8 } },
+              h('div', { className: 'dsh-gw-product-pane', style: { width: 'calc(' + splitPct + '% - 5px)', minWidth: 0 } },
                 h(Fold, { title: '自家（' + mineRows.length + '）', open: true },
                   mineRows.length === 0 ? h('div', { className: 'dsh-gw-hint' }, '没有符合条件的自家商品。') : mineRows.map(renderProductRow))),
-              h('div', { onPointerDown: startSplit, title: '拖动调整两栏宽度', style: { width: 10, flex: 'none', cursor: 'col-resize', alignSelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+              h('div', { className: 'dsh-gw-product-divider', onPointerDown: startSplit, title: '拖动调整两栏宽度', style: { width: 10, flex: 'none', cursor: 'col-resize', alignSelf: 'stretch', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
                 h('span', { style: { width: 2, height: 28, borderRadius: 1, background: 'var(--dsw-alias-border-l2)' } })),
-              h('div', { style: { width: 'calc(' + (100 - splitPct) + '% - 5px)', minWidth: 0 } },
+              h('div', { className: 'dsh-gw-product-pane', style: { width: 'calc(' + (100 - splitPct) + '% - 5px)', minWidth: 0 } },
                 h(Fold, { title: '竞品（' + rivalRows.length + '）', open: true },
                   rivalRows.length === 0 ? h('div', { className: 'dsh-gw-hint' }, '没有符合条件的竞品。') : rivalRows.map(renderProductRow)))),
         h('div', { className: 'dsh-gw-side' },
         h('div', null,
         picked.length >= 2
           ? h(Fold, { title: '竞品比对（' + picked.length + ' 个并排）', open: true },
-            h('div', { className: 'dsh-gw-tablebox dsh-gw-matrixbox' },
+            h('div', { className: 'dsh-gw-tablebox dsh-gw-matrixbox', role: 'region', tabIndex: 0, 'aria-label': '商品对比表：可横向滚动' },
               h('table', { className: 'dsh-gw-matrix' },
               h('thead', null, h('tr', null, h('th', { style: { width: 80 } }, '字段'), picked.map((record) => h('th', { key: record.path }, record.title)))),
               h('tbody', null,
@@ -8325,7 +8352,7 @@ const STAGE_OF_STATUS = {
           h('select', { value: tagFilter, onChange: (event) => setTagFilter(event.target.value), className: 'dsh-gw-catselect', style: { height: 24 }, title: '按标签筛选' },
             ['全部标签'].concat(tagOptions).map((value) => h('option', { key: value, value }, value === '全部标签' ? '标签：全部' : '标签：' + value)))) : null,
         shown.length === 0 ? h(Empty, null, '没有符合当前筛选的反馈') : h(Fold, { title: '反馈明细', count: shown.length, open: true },
-          h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
+        h('div', { className: 'dsh-gw-tablebox dsh-gw-fb-box', role: 'region', tabIndex: 0, 'aria-label': '反馈明细表：可横向滚动', style: { marginTop: 10 } },
           h('table', { className: 'dsh-gw-table dsh-gw-fb-table' + (compact ? ' dsh-gw-fb-compact' : ''), ref: fbTableRef },
           compact
             ? h('colgroup', null, ['c-body', 'c-fix', 'c-fix', 'c-state'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbCompactWidths[index] + '%' } })))
@@ -8500,6 +8527,14 @@ const STAGE_OF_STATUS = {
       const rf = useRecordFilter(records, list)
 
       async function create() {
+        if (draft.start !== '' && draft.end !== '' && draft.end < draft.start) {
+          notify('结束日期不能早于开始日期', true)
+          return
+        }
+        if (draft.status === '已结束') {
+          notify('新方案不能直接建成已结束；先记录执行结果，再在详情中结束', true)
+          return
+        }
         setBusy(true)
         try {
           await post('/campaigns/create', draft)
@@ -8537,7 +8572,7 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-grid2' },
           h(Field, { label: '方案名（= 文件名）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }) })),
           h(Field, { label: '平台' }, h(PlatformInput, { value: draft.platform, onChange: (next) => setDraft({ ...draft, platform: next }) })),
-          h(Field, { label: '状态' }, h('select', { value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, ['草稿', '进行中', '已结束'].map((value) => h('option', { key: value, value }, value)))),
+          h(Field, { label: '状态' }, h('select', { value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, ['草稿', '进行中'].map((value) => h('option', { key: value, value }, value)))),
           h(Field, { label: '预算' }, h('input', { value: draft.budget, onChange: (event) => setDraft({ ...draft, budget: event.target.value }) })),
           h(Field, { label: '开始' }, h('input', { type: 'date', value: draft.start, onChange: (event) => setDraft({ ...draft, start: event.target.value }) })),
           h(Field, { label: '结束' }, h('input', { type: 'date', value: draft.end, onChange: (event) => setDraft({ ...draft, end: event.target.value }) })),
@@ -10220,20 +10255,6 @@ const STAGE_OF_STATUS = {
       const outline = note === null ? [] : mdBlocks(text).outline
       const keyword = filter.trim().toLowerCase()
       const hitMap = keyword === '' ? new Map() : buildHitMap(searchMatches, keyword)
-      // 全局搜索会搜出 SOP 树之外的笔记（Topics/、Daily/ 等）。它们没法画在树里，
-      // 单独列在树下面一片「树外命中」，点了照样能读能改。
-      const outsideHits = keyword === '' ? [] : (() => {
-        const seen = new Set()
-        const out = []
-        for (const match of searchMatches) {
-          if (match.inTree === true) continue
-          const path = String(match.path ?? '').replace(/\\/g, '/')
-          if (path === '' || seen.has(path)) continue
-          seen.add(path)
-          out.push({ path, name: path.split('/').pop(), snippet: match.snippet ?? '' })
-        }
-        return out
-      })()
       const shownNodes = keyword === '' ? nodes : pruneTree(nodes, keyword, hitMap)
       const renderedTree = renderTree(shownNodes, activePath, openNote, 0, keyword)
 
@@ -10388,24 +10409,9 @@ const STAGE_OF_STATUS = {
               tree.loading ? h(Empty, null, t('loading'))
                 : nodes.length === 0
                   ? h(Empty, null, 'vault 还是空的。点右上角「新建」写第一篇。')
-                  : shownNodes.length === 0 && outsideHits.length === 0
+                  : shownNodes.length === 0
                     ? h(Empty, null, '没有匹配「' + filter.trim() + '」的条目')
-                    : h('div', null,
-                        renderedTree,
-                        outsideHits.length === 0 ? null : h('div', { className: 'dsh-gw-sop-outside' },
-                          h('div', { className: 'dsh-gw-sop-outside-head' }, '树外命中 · ' + outsideHits.length),
-                          outsideHits.map((hit) => h('button', {
-                            key: 'out-' + hit.path,
-                            type: 'button',
-                            className: 'dsh-gw-tree-note',
-                            'data-on': hit.path === activePath,
-                            'data-outside': '1',
-                            style: { paddingLeft: 14 },
-                            title: hit.path,
-                            onClick: () => openNote(hit.path),
-                          },
-                            highlightNodes(hit.name, keyword, 'out-' + hit.path),
-                            hit.snippet === '' ? null : h('span', { className: 'dsh-gw-tree-snippet' }, highlightNodes(hit.snippet, keyword, 'out-s-' + hit.path))))))),
+                    : h('div', null, renderedTree)),
             h(SopTreeSplitter, {
               percent: treeWidth,
               onResize: (next) => { setTreeWidth(next); saveSopTreeWidth(next) },
@@ -10716,7 +10722,7 @@ const STAGE_OF_STATUS = {
         h(ListPager, { list }),
           list.loading ? h(Empty, null, t('loading')) : shown.length === 0
             ? h(Empty, null, '还没有术语。先把团队天天吵的那几个指标口径记下来。')
-            : h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 4 } },
+            : h('div', { className: 'dsh-gw-tablebox dsh-gw-gloss-box', role: 'region', tabIndex: 0, 'aria-label': '术语表：可横向滚动', style: { marginTop: 4 } },
               h('table', { className: 'dsh-gw-table dsh-gw-gloss-table' },
               h('colgroup', null,
                 ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note'].map((name, index) => h('col', { key: name, className: name, style: { width: glossWidths[index] + '%' } })),
@@ -10880,9 +10886,8 @@ const STAGE_OF_STATUS = {
 
     function SettingsView({ state, onSaved, onClose }) {
       const [vaultRoot, setVaultRoot] = React.useState(state?.config?.vaultRoot ?? '')
-      // SOP 目录是唯一会把 vault 根目录整个铺开的配置：留空 = 整个 vault 都算 SOP，
-      // 通用板块的树会退化成第二个文件浏览器。这里允许单独指到一个子目录。
-      const [sopDir, setSopDir] = React.useState(state?.config?.sopDir ?? '')
+      // SOP 树只管理一个明确的子目录，避免通用板块退化成整个 vault 的编辑器。
+      const [sopDir, setSopDir] = React.useState(state?.config?.sopDir || 'SOP')
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState(null)
       const [cardState, setCardState] = React.useState(state?.cards ?? [])
@@ -11010,8 +11015,8 @@ const STAGE_OF_STATUS = {
         h(Field, { label: t('vaultRoot') }, h('input', { value: vaultRoot, onChange: (event) => setVaultRoot(event.target.value), placeholder: 'D:\\Notes\\vault' })),
         h('p', { className: 'dsh-gw-row-meta' }, t('vaultRootHint')),
         h('div', { className: 'dsh-gw-field-hint-row' },
-          h(Field, { label: 'SOP 目录' }, h('input', { value: sopDir, onChange: (event) => setSopDir(event.target.value), placeholder: '留空 = 自动跟随 vault 目录' })),
-          h('span', { className: 'dsh-gw-hintmark', title: '「通用 → SOP 树」只列这个目录下的笔记。留空会优先用 vault 里的 SOP/ 子目录，没有就整个 vault 都算 SOP；换 vault 根目录时会自动跟过去。' }, '？')),
+          h(Field, { label: 'SOP 目录' }, h('input', { value: sopDir, onChange: (event) => setSopDir(event.target.value), placeholder: 'SOP' })),
+          h('span', { className: 'dsh-gw-hintmark', title: '「通用 → SOP 树」只列这个 vault 相对目录下的笔记。默认是 SOP；不会把整个 vault 当成 SOP。' }, '？')),
         h('div', { className: 'dsh-gw-actions' },
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || vaultRoot.trim() === '', onClick: save }, t('save')),
           h('button', { className: 'dsh-gw-btn', onClick: onClose }, t('cancel'))),
@@ -11215,8 +11220,8 @@ const STAGE_OF_STATUS = {
 
       const plainCell = (value) => h('td', { title: String(value ?? '') }, String(value ?? '') === '' ? '—' : String(value))
       const countCell = (value) => h('td', { title: String(value ?? '') }, String(value ?? '') === '' ? '—' : formatCount(value))
-      const taskCell = (task) => h('td', { title: task?.dueDate ? '观察截止：' + task.dueDate : '缺少实际发布时间，无法计算观察截止日' },
-        h(Pill, { tone: task?.kind === 'overdue' || task?.kind === 'missing_publish_time' ? 'warn' : task?.kind === 'due_today' || task?.kind === 'unrecorded' ? 'brand' : '' }, task?.label || '观察中'))
+      const taskCell = (task) => h('td', { title: task?.dueDate ? '观察截止：' + task.dueDate : '已经发布，但旧数据没有设置观察截止日' },
+        h(Pill, { tone: task?.kind === 'overdue' || task?.kind === 'unscheduled_review' ? 'warn' : task?.kind === 'due_today' || task?.kind === 'unrecorded' ? 'brand' : '' }, task?.label || '观察中'))
       const fieldInput = (key, placeholder, inputMode) => h('input', {
         value: String(editing?.draft?.[key] ?? ''),
         placeholder,
@@ -11830,6 +11835,8 @@ const STAGE_OF_STATUS = {
       // 面板宽度跟窗口宽度没关系：侧栏可以很窄而窗口很宽。所以按元素宽度打标记，
       // 不按视口写 @media（那种情况下一条都不会命中）。520 / 440 是内容区的两个拐点。
       useNarrow(bodyRef, 520, 440)
+      // 顶部页签在 body 外，直接按整张面板宽度打标；28px 是 body 的左右内边距。
+      useNarrow(paletteRef, 548, 468)
       // 面包屑高度喂给 CSS 变量：卡片自己的标题条吸顶时要正好接在它下面，别叠上去。
       React.useLayoutEffect(() => {
         const body = bodyRef.current
@@ -12147,11 +12154,8 @@ const STAGE_OF_STATUS = {
             h('div', { className: 'dsh-gw-row-meta' }, row.meta)),
           h('div', { className: 'dsh-gw-row-num' }, String(row.num),
             row.unit === undefined || row.unit === null || row.unit === '' ? null : h('span', { className: 'dsh-gw-row-unit' }, row.unit)))
-        const stageRank = new Map(STAGE_ORDER.map((stage, index) => [stage, index]))
-        const orderedRows = rows.slice().sort((left, right) => (
-          (left.tone === 'warn' ? 0 : 1) - (right.tone === 'warn' ? 0 : 1)
-          || (stageRank.get(left.stage) ?? 99) - (stageRank.get(right.stage) ?? 99)
-        ))
+        const order = new Map((CARD_ORDER[workspace] ?? []).map((id, index) => [id, index]))
+        const orderedRows = rows.slice().sort((left, right) => (order.get(left.card.id) ?? 99) - (order.get(right.card.id) ?? 99))
         const nodes = orderedRows.map(rowNode)
         if (rows.length === 0) nodes.push(h(Empty, { key: 'empty' }, '这个工作区的卡片都被关掉了，去设置里打开。'))
         return h('div', null, nodes)
