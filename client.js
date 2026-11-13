@@ -47,9 +47,14 @@ window.__ModuleLoader__.load({
     // 统一确认框：把 React 状态桥给深层组件里的 async 删除动作。
     // window.confirm 只留给「未保存离开」这类必须浏览器级阻断的场景。
     let confirmBridge = null
+    let formBridge = null
     function askConfirm(message, okLabel, cancelLabel) {
       if (confirmBridge === null) return Promise.resolve(window.confirm(message))
       return confirmBridge(message, okLabel, cancelLabel)
+    }
+    function askForm(request) {
+      if (formBridge === null) return Promise.resolve(null)
+      return formBridge(request)
     }
 
     const ZH = {
@@ -185,6 +190,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-row-unit{font-size:var(--gw-fz-1,11px);font-weight:400;color:var(--dsw-alias-label-secondary);margin-left:3px;white-space:nowrap}
 .dsh-gw-panel.dsh-gw-confirm,.dsh-gw-pane .dsh-gw-panel.dsh-gw-confirm{width:min(440px,94vw);height:auto;max-width:min(440px,94vw);max-height:none;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.34)}
 .dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-gw-confirm-body .dsh-gw-field textarea{min-height:84px;max-height:180px;font-family:inherit}
 .dsh-gw-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
 .dsh-gw-search{position:relative;flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
 .dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
@@ -239,7 +245,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-date-input{height:24px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;font-size:var(--gw-fz-1,11px)}
 .dsh-gw-filter-label{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary);margin-left:5px;white-space:nowrap}
 .dsh-gw-ledger-filters .dsh-gw-chip{padding:1px 8px;font-size:var(--gw-fz-1,11px)}
-/* 台账：同一内容的多天记录并成一格，内容在最左、日期紧随其后；日期表头点一下换升降序。 */
+/* 台账按版本分组保留每次累计快照；内容在最左，日期表头可切换升降序。 */
 .dsh-gw-ledger-table th.dsh-gw-sort-th{cursor:pointer;user-select:none;white-space:nowrap}
 .dsh-gw-ledger-table th.dsh-gw-sort-th:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-gw-sort-mark{margin-left:3px;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-link)}
@@ -249,6 +255,14 @@ window.__ModuleLoader__.load({
 .dsh-gw-ledger-table td.dsh-gw-ledger-date{white-space:nowrap;font-variant-numeric:tabular-nums}
 .dsh-gw-ledger-table{min-width:1080px}
 .dsh-gw-ledger-table td:not(.dsh-gw-ledger-content){white-space:nowrap}
+.dsh-gw-ledger-miss{color:var(--dsw-alias-state-warn-primary,#b45309);font-weight:600;white-space:nowrap}
+/* 同题多版对照：一屏横向排开，数字列右对齐；版本再多也不挤掉主列表。 */
+.dsh-gw-vcompare{margin:6px 0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;overflow:auto;max-height:240px}
+.dsh-gw-vcompare table{width:100%;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);white-space:nowrap}
+.dsh-gw-vcompare th,.dsh-gw-vcompare td{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:top}
+.dsh-gw-vcompare th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:500}
+.dsh-gw-vcompare td.is-num{text-align:right;font-variant-numeric:tabular-nums}
+.dsh-gw-vcompare tr:last-child td{border-bottom:none}
 /* 行内小垃圾桶：平时低调，指针移上去才变红，免得一屏都是红按钮。 */
 .dsh-gw-row .dsh-gw-row-del{flex:none;opacity:0;transition:opacity .12s}
 .dsh-gw-row:hover .dsh-gw-row-del{opacity:.72}
@@ -589,12 +603,17 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-preview-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l1);font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary);min-width:0}
 .dsh-gw-preview-foot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .dsh-gw-preview-foot a{color:var(--dsw-alias-link);text-decoration:none;white-space:nowrap}
-.dsh-gw-chat-preview{width:min(100%,920px);margin:6px auto 0;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.dsh-gw-chat-preview{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,16px) - var(--dsh-composer-side-clearance,16px));max-width:var(--dsh-composer-card-max-width,952px);margin:6px auto 0;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .dsh-gw-chat-preview-head{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--dsw-alias-border-l1);min-width:0}
 .dsh-gw-chat-preview-title{font-size:var(--gw-fz-3,12.5px);font-weight:600;white-space:nowrap}
 .dsh-gw-chat-preview-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--gw-fz-2,11.5px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-chat-preview-open{flex:0 0 auto;color:var(--dsw-alias-link);text-decoration:none;font-size:var(--gw-fz-2,11.5px);white-space:nowrap}
-.dsh-gw-chat-preview-frame{display:block;width:100%;height:min(34vh,260px);border:0;background:#000}
+.dsh-gw-chat-preview-body{background:#000;overflow:hidden}
+.dsh-gw-chat-preview-frame{display:block;width:100%;height:240px;max-height:calc(100vh - 240px);border:0;background:#000}
+.dsh-gw-chat-preview[data-fit="wide"] .dsh-gw-chat-preview-body{display:flex;justify-content:center}
+.dsh-gw-chat-preview[data-fit="wide"] .dsh-gw-chat-preview-frame{width:min(100%, calc((100vh - 240px) * 1.7777778));height:auto;max-height:calc(100vh - 240px);aspect-ratio:16/9;flex:0 0 auto}
+.dsh-gw-chat-preview[data-fit="tall"] .dsh-gw-chat-preview-body{display:flex;justify-content:center}
+.dsh-gw-chat-preview[data-fit="tall"] .dsh-gw-chat-preview-frame{width:auto;max-width:100%;height:min(64vh,640px);aspect-ratio:9/16;flex:0 0 auto}
 .dsh-gw-chat-preview-resize{height:8px;cursor:ns-resize;user-select:none;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-chat-preview-resize:hover{background:var(--dsw-alias-link)}
 /* 操作列（「加入选题」/「改选题」+ 删除）：
@@ -1278,7 +1297,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:64px}
 .dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:152px;border-right:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-pending-table thead th:nth-child(-n+3){z-index:4}
-.dsh-gw-pending-table td:nth-child(n+5):nth-child(-n+8){text-align:right}
+.dsh-gw-pending-table td:nth-child(n+6):nth-child(-n+9){text-align:right}
 .dsh-gw-more-trigger:focus-visible,.dsh-gw-th-sort:focus-visible,.dsh-gw-account-candidates>summary:focus-visible,.dsh-gw-cal-row-links>summary:focus-visible,.dsh-gw-pending-box:focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
 /* Editorial worktable: cool paper in light mode, blue-violet ink layers in dark mode. */
 .dsh-gw-panel[data-gw-scheme=light]{--gw-canvas:#f3f4fa;--gw-paper:#fbfbfe;--gw-paper-raised:#ffffff;--gw-paper-soft:#eceef7;--gw-ink:#242438;--gw-muted:#64687d;--gw-faint:#85899e;--gw-rule:#d8dbea;--gw-rule-strong:#c2c7dc;--gw-accent:#6448ab;--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#aeb5d0;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#e6e4f3;--gw-glass-panel:var(--gw-canvas)}
@@ -1325,6 +1344,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-pending-box .dsh-gw-pending-table{width:var(--gw-pending-width,852px);min-width:var(--gw-pending-width,852px)}
 .dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:var(--gw-pending-left-2,64px)}
 .dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:var(--gw-pending-left-3,152px)}
+.dsh-gw-table th,.dsh-gw-table td,.dsh-gw-md-table th,.dsh-gw-md-table td{border-right:none}
+.dsh-gw-table tbody tr:nth-child(even),.dsh-gw-rules tbody tr:nth-child(even),.dsh-gw-row:nth-child(even){background:transparent}
+.dsh-gw-table tbody tr:hover,.dsh-gw-md-table tbody tr:hover{background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-row-num,.dsh-gw-table td.num,.dsh-gw-md-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.dsh-gw-panel details>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,12px);padding:8px 0}
 @media(max-width:520px){.dsh-gw-account-row{grid-template-columns:minmax(0,1fr);row-gap:8px}.dsh-gw-account-row .dsh-gw-account-acts{justify-self:start}}
 @media (prefers-reduced-motion:reduce){.dsh-gw-panel *{scroll-behavior:auto;transition:none!important}}
 `
@@ -1731,6 +1755,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       script: '下面是一条短视频脚本的草稿。正文最前面带有【这一版的资料】（平台 / 账号 / 标题备选 / 封面文案 / 素材清单 / 目标人群 / 发布目的 / 风险与自检）——资料是改稿的约束条件，不是背景介绍。' + NL1
         + '请对照资料修订草稿：开头钩子是否对准目标人群；长度和节奏是否符合平台与发布目的；结尾 CTA 是否和封面文案、标题备选呼应；标题备选空着或偏弱就补两三个；风险等级为高或禁发时，指出脚本里最可能踩线的句子并给安全的替代写法。资料没写的平台、商品、价格不要擅自改动或编造。' + NL1
         + '改完把成稿替换回这条笔记自己的「版本脚本」一节（action replaceSection，heading 填 版本脚本；没有这一节就配 appendIfMissing 补上）。不要动正文开头的资料块，不要写进主选题笔记，也不要把整份脚本重复输出到对话里 —— 用一两句说明改了什么就够。' + NL1
+        + COPY_RULES_HINT,
+      copyrules: '下面是我准备发布的稿子。请先读 CopyRules/rules.md（文案规则 / 语调库），再读 SOP 目录里的《发布前检查清单》，按这两份真实文件逐条审稿。' + NL1
+        + '输出要能直接改：先列会拦发布的问题，每条引用原句并写明违反了哪条规则；再给安全替代句。然后列建议优化项，最后给这份稿子的发布前检查结果。' + NL1
+        + '这次只审稿，不要直接改我的笔记，也不要把整份稿子重复输出。' + NL1
         + COPY_RULES_HINT,
       sop: '这是我的 SOP 笔记，帮我把步骤理顺、指出容易漏的一步。',
       note: '帮我把这篇笔记整理得更清楚，指出哪里还可以补。',
@@ -3278,6 +3306,18 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       return String(Math.round(num))
     }
 
+    function formatPercent(value) {
+      const text = String(value ?? '').trim()
+      if (text === '') return '—'
+      return text.endsWith('%') ? text : text + '%'
+    }
+
+    function formatDuration(value) {
+      const text = String(value ?? '').trim()
+      if (text === '') return '—'
+      return /[秒sS]$/.test(text) ? text : text + 's'
+    }
+
     // 行内编辑长文本：高度跟着内容走（至少三行），超过上限再内部滚动。
     // 灵感箱的「内容」、术语表的多列、营销方案库的「目标」、客户反馈的
     // 「原文 / 处理意见 / 处理结果」都用它，避免单行 input 只露出一小截。
@@ -3467,7 +3507,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     // 选题笔记的状态词表：和内容日历一致（CAL_STATUSES 同款）。我的选题按它分区，
     // 笔记详情也能直接改。声明放在两张卡之前，避开 TDZ 守卫。
-    const TOPIC_STATUSES = ['在写', '待发', '已发', '待回填', '已归档']
+    const TOPIC_STATUSES = ['在写', '待发', '已发', '待回填', '已结案', '已取消']
     // 平台版本 / 日历 / 选题共用这一套旧值映射。老笔记里的七态不要求用户手动迁移，
     // 读出来统一变成五态；下一次保存时自然写成新词。
     const LEGACY_STATUS = { 选题: '在写', 创作中: '在写', 待审: '待发', 已排期: '待发', 数据回流: '待回填', 已回填: '待回填' }
@@ -3524,46 +3564,39 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       draft: { label: '已成稿', tone: 'ok' },
       ab: { label: '已成稿', tone: 'ok' },
     }
-    /**
-     * 平台版本内部有 7 个状态（转移规则在 lib/domain.js，服务端说了算），
-     * 但写内容的人只需要认 4 个阶段：在写 / 待发 / 已发 / 已回填。
-     * 以前下拉里直接列 7 个状态，选「待审」还是「已排期」对写稿的人没有区别，
-     * 只是多一次点错的机会。
-     */
+    /** 平台版本的生命周期由服务端状态机约束；收纳仅控制是否在日常视图显示。 */
     // 当前打开的那张卡片有没有「没保存的改动」。Esc 和「返回卡片列表」都从这里问一句 ——
 // 以前 Esc 直接关卡片，写了一半的稿子就没了，连个提醒都没有。
 // 草稿守卫由 DraftContext 的面板实例持有。
 
-// 发布前的两个门槛，给行内编辑器用：禁发不能发，高风险必须先做完 7 项。
-const RISK_LEVELS = ['低', '中', '高', '禁发']
-const CHECK_STEPS = ['0/7', '1/7', '2/7', '3/7', '4/7', '5/7', '6/7', '7/7']
-const PUBLISH_CHECKS = ['事实/数字有来源', '价格/规格与商品档案一致', '无绝对化用语', '无未授权竞品对比', '封面/标题不误导', '账号与平台选对', '发布时间确认']
-// 自检明细：publishCheckItems 存勾选的序号（如 "1,3,5"）；老数据没有明细，
-// 只有 publishCheck='7/7' 时按全勾处理，其余情况按未勾。
-function checkItemsOf(front) {
-  const out = new Set()
-  const raw = String(front?.publishCheckItems ?? '').trim()
-  if (raw !== '') {
-    for (const part of raw.split(/[,，\s]+/)) {
-      const number = Number(part)
-      if (Number.isInteger(number) && number >= 1 && number <= 7) out.add(number)
-    }
-    return out
+// 自检门槛的持久化版本。publishCheckItems 存勾选项的 id（不是序号），条目来自 /v2/checklist：
+// 服务端把条目按「文本哈希」编成 id，顺序或增减都不会让历史勾选静默跑位；条目措辞一改，那一项
+// 的勾选有效性自然过期（改了就要重看，这是特性不是 bug）。老数据可能还写着序号（"1,3"）或 '7/7':
+// 归一后的 id 匹配不上任何真实条目 → 当作没勾，服务端门禁也是同一套条目判定，两边不会收敛成假通过。
+function readCheckSelection(front) {
+  const ids = new Set()
+  for (const part of String(front?.publishCheckItems ?? '').split(/[,，\s]+/)) {
+    const value = String(part).trim()
+    if (value !== '') ids.add(value)
   }
-  if (String(front?.publishCheck ?? '') === '7/7') { for (let i = 1; i <= 7; i += 1) out.add(i) }
-  return out
+  return ids
 }
+const RISK_LEVELS = ['低', '中', '高', '禁发']
+
 
 const STAGE_OF_STATUS = {
       在写: 'writing',
       待发: 'review',
       已发: 'live',
       待回填: 'collected',
+      已结案: 'closed',
+      已取消: 'cancelled',
+      // legacy：旧笔记读入后由服务端转换成「收纳 + 原生命周期状态」。
       已归档: 'archived',
     }
 
     /**
-     * 归档 / 恢复：详情页和我的选题卡片行都要用，实现只能有一份 ——
+      * 收纳 / 恢复显示：详情页和我的选题卡片行都要用，实现只能有一份。
      * 以前两处各写一遍，一处有防连点、一处没有，确认文案也不一样。
      * 这里只管「问一句 + 发请求」，通知和刷新由调用方按自己的列表做。
      */
@@ -3573,10 +3606,10 @@ const STAGE_OF_STATUS = {
       if (id === '' || variantInFlight.has(id)) return { skipped: true }
       const account = String(variant.front?.account ?? '')
       const label = String(variant.front?.platform ?? '') + (account === '' ? '' : ' · ' + account)
-      if (!(await askConfirm('归档「' + label + '」这一版？\n\n归档不是删除：它会挪到「已归档」，随时能恢复。', '归档这一版', '先不归档'))) return { cancelled: true }
+      if (!(await askConfirm('收纳「' + label + '」这一版？\n\n只会从日常视图隐藏，原状态和数据都不会改变。', '收纳此版本', '暂不收纳'))) return { cancelled: true }
       variantInFlight.add(id)
       try {
-        await post('/v2/variants/' + encodeURIComponent(id) + '/transition', { to: '已归档' })
+        await post('/v2/variants/' + encodeURIComponent(id) + '/archive', {})
         return { label }
       } finally {
         variantInFlight.delete(id)
@@ -3598,19 +3631,42 @@ const STAGE_OF_STATUS = {
     const STAGES = [
       { id: 'writing', label: '在写', target: '在写', hint: '在写稿' },
       { id: 'review', label: '待发', target: '待发', hint: '排好期等发' },
-      { id: 'live', label: '已发', target: '已发', hint: '发出去了，等数据' },
+      { id: 'live', label: '确认已发布', target: '已发', hint: '人工登记已发布' },
       { id: 'collected', label: '待回填', target: '待回填', hint: '数据已经记进台账' },
+      { id: 'closed', label: '已结案', target: '已结案', hint: '本轮复盘完成' },
+      { id: 'cancelled', label: '已取消', target: '已取消', hint: '发布前终止' },
     ]
     /**
      * 状态机的客户端副本。和 lib/domain.js 的 VARIANT_TRANSITIONS 必须一字不差，
      * test/static.test.mjs 会盯着这两份表（以前抄漏一处，界面就会列出后端必然拒掉的目标）。
      */
     const VARIANT_NEXT = {
-      在写: ['待发', '已归档'],
-      待发: ['已发', '在写', '已归档'],
-      已发: ['待回填', '已归档'],
-      待回填: ['已归档'],
-      已归档: [],
+      在写: ['待发', '已取消'],
+      待发: ['已发', '在写', '已取消'],
+      已发: ['待回填'],
+      待回填: ['已结案'],
+      已结案: [],
+      已取消: ['在写'],
+    }
+
+    async function publicationDetails() {
+      let recent = '7'
+      try { recent = window.localStorage.getItem('dsh-growth:last-review-days') || recent } catch {}
+      const now = new Date()
+      const localAt = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+      const values = await askForm({
+        title: '确认已发布',
+        message: '登记实际发布时间，并设置本轮观察天数。发布当天算第 1 天。',
+        submitLabel: '确认已发布',
+        fields: [
+          { key: 'at', label: '实际发布时间', type: 'datetime-local', value: localAt, required: true },
+          { key: 'reviewDays', label: '观察天数', type: 'number', value: recent, min: 1, max: 365, required: true },
+        ],
+      })
+      if (values === null) return null
+      const days = Number(String(values.reviewDays).trim())
+      try { window.localStorage.setItem('dsh-growth:last-review-days', String(days)) } catch {}
+      return { at: values.at, reviewDays: days }
     }
     /**
      * 从 from 走到 to，按状态机最短路径要经过哪几步。null = 走不过去。
@@ -3654,7 +3710,12 @@ const STAGE_OF_STATUS = {
       if (steps === null) throw new Error('不能从「' + from + '」直接到「' + to + '」')
       let last = variant, committed = 0
       try {
-        for (const step of steps) { const written = await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: step }); last = written?.variant ?? { ...last, status: step }; committed++; if (typeof onProgress === 'function') onProgress(last) }
+        for (const step of steps) {
+          const publish = step === '已发' ? await publicationDetails() : {}
+          if (publish === null) throw new Error('已取消确认发布')
+          const written = await post('/v2/variants/' + encodeURIComponent(variant.id) + '/transition', { to: step, ...publish })
+          last = written?.variant ?? { ...last, status: step }; committed++; if (typeof onProgress === 'function') onProgress(last)
+        }
         return last
       } catch (error) { error.variantProgress = { from, target: to, status: last?.status ?? from, committed }; throw error }
     }
@@ -3720,7 +3781,7 @@ const STAGE_OF_STATUS = {
         if (String(other?.id ?? '') === String(variant?.id ?? '')) return false
         if (String(other?.front?.masterId ?? '') !== masterId) return false
         if (normalizePlatform(other?.front?.platform) !== platform) return false
-        return String(other?.status ?? '') !== '已归档'
+        return other?.archived !== true
       })
       if (stillUsed) {
         notify('这一版删了；排期那行还在，同选题同平台还有别的版本在用它')
@@ -3854,10 +3915,8 @@ const STAGE_OF_STATUS = {
       // 进行中，选题本身就不再占储备那一行，免得同一条内容在列表里出现两次。
       const variantStage = (variant) => {
         const status = normalizeStatus(variant?.status)
-        // 归档不能落回「储备」：以前这里没这一支，归档的版本会换个分区又冒出来，
-        // 用户以为收起来了，结果它还在列表里 —— 归档就成了假的。
-        if (status === '已归档') return 'archived'
-        if (status === '已发' || status === '待回填') return 'shipped'
+        if (variant?.archived === true) return 'archived'
+        if (status === '已发' || status === '待回填' || status === '已结案') return 'shipped'
         if (status === '在写' || status === '待发') return 'doing'
         return 'backlog'
       }
@@ -3867,8 +3926,7 @@ const STAGE_OF_STATUS = {
       const shippedVariants = []
       const archivedVariants = []
       const busyMasters = new Set()
-      // 归档的选题只出现在「已归档」区（2026-11-08 用户拍板「归档就是归档」），
-      // 不再以灰行留在「选题储备」；archivedMasters 只负责把全归档选题从
+      // 收纳的选题只出现在收纳区，不再占日常任务列表；archivedMasters 负责把
       // 创作中/已发/储备区排除，避免同一条在两区各出现一次。
       const archivedMasters = new Set()
       for (const record of shown) {
@@ -3882,8 +3940,7 @@ const STAGE_OF_STATUS = {
         if (own.length > 0 && own.every((variant) => variantStage(variant) === 'archived')) archivedMasters.add(record.path)
       }
       const doing = shown.filter((record) => stageOf(record) === 'doing' && !busyMasters.has(record.path) && !archivedMasters.has(record.path))
-      // 全归档的选题由「已归档」区收（它自己的归档版本行就在那里，能恢复、能再开一版），
-      // 储备区不再收它。
+      // 全部收纳的选题不再放进储备区。
       const backlog = shown.filter((record) => stageOf(record) === 'backlog' && !busyMasters.has(record.path) && !archivedMasters.has(record.path))
       const shipped = shown.filter((record) => stageOf(record) === 'shipped' && !busyMasters.has(record.path) && !archivedMasters.has(record.path))
 
@@ -3900,12 +3957,12 @@ const STAGE_OF_STATUS = {
         finally { setDeletingId('') }
       }
 
-      // 归档 = 收起来，不是删除。卡片行上直接给按钮：收进去的能在「已归档」里原样拿回来。
+      // 收纳只隐藏，不是删除；卡片行可恢复显示。
       async function archiveVariantRow(variant) {
         try {
           const result = await archiveVariantOnce(variant)
           if (result.cancelled === true || result.skipped === true) return
-          notify('已归档：' + result.label + '（在「已归档」里可以恢复）')
+          notify('已收纳：' + result.label)
           list.reload()
         } catch (error) {
           notify(String(error.message), true)
@@ -3959,8 +4016,8 @@ const STAGE_OF_STATUS = {
               record.schedule === null || record.schedule === undefined ? '' : '已排 ' + String(record.schedule.date).slice(5) + '（' + String(record.schedule.status) + '）',
             ].filter((part) => part !== '').join(' · '))),
           h('div', { className: 'dsh-gw-row-side' },
-            // 全归档的选题还留在储备里，但得让人一眼看出「这条已经收起来了」。
-            archived ? h('span', { className: 'dsh-gw-row-tag', title: '这条选题下的平台版本全部归档了：点「再开一版」，或在详情里恢复某一版' }, '已归档') : null,
+            // 已收纳的选题要明确标记。
+            archived ? h('span', { className: 'dsh-gw-row-tag', title: '这条选题下的平台版本已收纳：可进入详情恢复显示' }, '已收纳') : null,
             // 平台和版本行一样做成标签：同一列位置、同一套高度。
             platform === '' ? null : h('span', { className: 'dsh-gw-row-tag' }, platform),
             // 还没有平台版本的统一标记：创作中/储备区的行连回流按钮都没有，
@@ -3987,7 +4044,7 @@ const STAGE_OF_STATUS = {
                 className: 'dsh-gw-row-act',
                 'data-tone': 'primary',
                 title: archived
-                  ? '这条选题的版本都归档了：进去恢复某一版，或直接再开一个新版本'
+                  ? '这条选题的版本都已收纳：进去恢复显示，或直接再开一个新版本'
                   : '进我的选题：选笔记、建平台版本、写脚本都在详情里',
                 onClick: (event) => {
                   event.stopPropagation()
@@ -4005,9 +4062,8 @@ const STAGE_OF_STATUS = {
         const platform = normalizePlatform(variant.front?.platform) || String(variant.front?.platform ?? '')
         const account = String(variant.front?.account ?? '')
         const filled = sectionFilled(variant.body, '## 版本脚本')
-        // 归档的版本只出现在「已归档」那一区：这里不给「创作」「回流」，
-        // 否则收起来的东西还能一键回去接着写，归档就等于没归。
-        const archived = String(variant.status ?? '') === '已归档'
+        // 已收纳版本只在收纳区显示。
+        const archived = variant?.archived === true
         return h('div', { className: 'dsh-gw-row', key: variant.path, 'data-static': true },
           h('div', { className: 'dsh-gw-row-main' },
             h('div', { className: 'dsh-gw-row-title' }, h('span', { className: 'dsh-gw-row-name' }, record.title)),
@@ -4046,13 +4102,12 @@ const STAGE_OF_STATUS = {
                 title: '进我的选题写「' + platform + '」这一版，直接打开它的版本脚本',
                 onClick: (event) => { event.stopPropagation(); setBodyWanted(true); setPendingVariant(variant.id); setVariantRequest(variantRequest + 1); setOpenPath(record.path) },
               }, '创作'),
-            // 归档 / 恢复：归档是「收起来」，卡片上就得有回来的按钮，
-            // 否则只有进详情页才能恢复，等于把出口藏起来了。
+            // 收纳 / 恢复显示。
             archived
               ? [
                 h('button', {
                   className: 'dsh-gw-row-act', key: 'restore', 'data-tone': 'ghost',
-                  title: '恢复这一版：回到归档前的状态',
+                  title: '恢复显示这一版，不改变它的生命周期状态',
                   onClick: (event) => { event.stopPropagation(); void restoreVariantRow(variant) },
                 }, '恢复'),
                 h('button', {
@@ -4064,9 +4119,9 @@ const STAGE_OF_STATUS = {
               : h('button', {
                 className: 'dsh-gw-row-act',
                 'data-tone': 'ghost',
-                title: '归档这一版：收进「已归档」，不是删除，随时能恢复',
+                title: '收纳这一版：只从日常视图隐藏，不改变状态和数据',
                 onClick: (event) => { event.stopPropagation(); void archiveVariantRow(variant) },
-              }, '归档'),
+              }, '收纳'),
             // 版本行也能删，但删的是这一版（拆解笔记不动），所以和笔记行那颗不是同一个动作。
             h('button', {
               className: 'dsh-gw-ibtn dsh-gw-row-del',
@@ -4094,7 +4149,7 @@ const STAGE_OF_STATUS = {
         ? topicRows
         : topicRows.filter(({ statusText }) => String(statusText).split(' / ').some((status) => statusFilters.includes(status)))
       const sortedTopicRows = sortCollectionRows(visibleTopicRows, studioSort)
-      const statusToneOf = (text) => String(text).includes('已归档') ? '' : String(text).includes('已发') || String(text).includes('待回填') ? 'ok' : String(text).includes('在写') ? 'brand' : 'warn'
+      const statusToneOf = (text) => String(text).includes('已发') || String(text).includes('待回填') || String(text).includes('已结案') ? 'ok' : String(text).includes('在写') ? 'brand' : 'warn'
       return h('div', null,
         h(ListFilter, { filter, setFilter, placeholder: '搜索当前卡片：标题 / 标签 / 正文', shown: shown.length, total: allRecords.length }),
         h('div', { className: 'dsh-gw-card-top' },
@@ -4300,11 +4355,18 @@ const STAGE_OF_STATUS = {
       const accountList = usePagedList('/accounts/list?limit=300')
       const accountLinks = useLinkedRecords('accounts', accountList.data?.records ?? [], [{ id: draft.accountId }, ...(list.data?.variants ?? []).map((variant) => ({ id: variant.front?.accountId }))])
       const accountRecords = accountLinks.records
+      // 账号名回查要读账号列表。账号列表本就是 memo 过的（records 随请求缓存），
+      // 直接 .find() 会让每次渲染绕一圈数组；小库看不出来，几百个账号就每帧都重查。
+      const accountNameCache = new Map()
       // 账号档案改名后，版本上存的名字是旧的：按 accountId 反查当前名字，查不到再退回副本。
       const accountNameOf = (variant) => {
         const id = String(variant?.front?.accountId ?? '')
-        const hit = id === '' ? undefined : accountRecords.find((record) => String(record.front?.id ?? '') === id)
-        return hit === undefined ? String(variant?.front?.account ?? '') : String(hit.front?.name ?? hit.title ?? '')
+        if (id === '') return String(variant?.front?.account ?? '')
+        if (accountNameCache.has(id)) return accountNameCache.get(id)
+        const hit = accountRecords.find((record) => String(record.front?.id ?? '') === id)
+        const name = hit === undefined ? String(variant?.front?.account ?? '') : String(hit.front?.name ?? hit.title ?? '')
+        accountNameCache.set(id, name)
+        return name
       }
       const [showCreate, setShowCreate] = React.useState(false)
       // 这一整块默认收着（我的选题详情摊开太占地）；「回流-无平台版本」跳进来时自动展开。
@@ -4312,8 +4374,68 @@ const STAGE_OF_STATUS = {
       const [busy, setBusy] = React.useState(false)
       const [writeError, setWriteError] = React.useState(null)
       const allowMutation = useDraftGuard(writeError !== null, busy)
-      // 风险等级 / 7 项自检就在行里改：它们卡着「能不能发」，藏起来等于没有。
+      // 风险等级 / 发布自检就在行里改：它们卡着「能不能发」，藏起来等于没有。
+      // 自检**条目**不写死在客户端（原来硬编码 7 项，和 SOP 对不上）——来自 /v2/checklist，
+      // 服务端那份缺失时如实说，不装「0/7」。
       const [checkEdit, setCheckEdit] = React.useState('')
+      // 清单条目是全库共用的一份（SOP 文件），勾选进度则按平台版本各存各的：
+      // 勾选状态不在这里存副本，直接读 list.data 里那一版的 publishCheckItems。
+      const [checkState, setCheckState] = React.useState({ status: 'idle', items: [], missing: false })
+      // 条目来自服务端（SOP 文件），不在客户端抄一份：抄一份就会和 SOP 对不上——
+      // 以前 SOP 6 条、这儿 7 项，措辞还完全不同，两边各自为政。
+      const loadChecklist = async () => {
+        setCheckState((prev) => (prev.status === 'loading' ? prev : { status: 'loading', items: prev.items, missing: prev.missing }))
+        try {
+          const answer = await get('/v2/checklist')
+          const items = Array.isArray(answer?.items) ? answer.items : []
+          const missing = answer?.missing === true || items.length === 0
+          setCheckState({ status: missing ? 'missing' : 'done', items, missing })
+          return answer
+        } catch (error) {
+          setCheckState((prev) => ({ ...prev, status: 'error', items: [] }))
+          notify('自检清单读取失败：' + String(error?.message ?? error), true)
+          return null
+        }
+      }
+      React.useEffect(() => { void loadChecklist() }, [])
+      // 勾选走和门禁同一个服务端事实：写 publishCheckItems（条目 id），以服务端回读为准。
+      // 勾选是「这一版」的事实，不是整个面板的：同一选题的抖音版和小红书版各勾各的。
+      const replaceVariant = (id, next) => {
+        const data = list.data ?? { variants: [] }
+        list.setData({
+          ...data,
+          variants: (data.variants ?? []).map((item) => (
+            String(item?.id ?? '') === String(id ?? '')
+              ? { ...item, ...next, front: { ...item.front, ...(next?.front ?? {}) } }
+              : item
+          )),
+        })
+      }
+      const toggleCheck = async (variant, id, on) => {
+        if (busy) return
+        const next = new Set(readCheckSelection(variant?.front))
+        if (on) next.add(id)
+        else next.delete(id)
+        const total = checkState.items.length
+        const valid = checkState.items.filter((item) => next.has(String(item.id))).map((item) => String(item.id))
+        // 先按同一份清单算个乐观进度，服务端回来后再以它为准。
+        replaceVariant(variant.id, { front: { publishCheckItems: valid.join(','), publishCheck: total === 0 ? '' : valid.length + '/' + total } })
+        setBusy(true); setWriteError(null); list.invalidate(); if (typeof onVariantWriting === 'function') onVariantWriting(variant.id)
+        try {
+          const sha1 = String(typeof getVariantBaseline === 'function' ? getVariantBaseline(variant.id) ?? variant.sha1 ?? '' : variant.sha1 ?? '')
+          const written = await put('/v2/variants/' + encodeURIComponent(variant.id), { front: { publishCheckItems: valid.join(',') }, ...(sha1 === '' ? {} : { expectedSha1: sha1 }) })
+          // 以服务端算好的为准：它按同一份清单重算，和门禁同一个事实源。
+          const merged = written?.variant ?? variant
+          replaceVariant(variant.id, merged)
+          if (typeof onVariantSaved === 'function') onVariantSaved(merged)
+          notify('已保存发布自检：' + String(merged.front?.publishCheck ?? '未开始'))
+        } catch (error) {
+          // 失败时重取这一版，别让界面留着「勾上了但没存」的假象。
+          list.reload()
+          setWriteError({ error, retry: () => { void toggleCheck(variant, id, on) } })
+          notify('发布自检保存失败：' + String(error?.message ?? error), true)
+        } finally { setBusy(false) }
+      }
       const [infoEdit, setInfoEdit] = React.useState('')
       // 谁让你来建版本的（递增请求号）：接到请求就展开面板 + 摊开新建表单，一步到位。
       const createRequestSeen = React.useRef(0)
@@ -4385,8 +4507,7 @@ const STAGE_OF_STATUS = {
       }
 
       /**
-       * 归档：收起来，不再占「在写 / 待发 / 已发」的位置。
-       * 归档能恢复（见 restoreVariant），所以这里只问一句就够。
+       * 收纳：隐藏于日常视图，生命周期状态与数据不变。
        */
       async function archiveVariant(variant) {
         if (busy) return
@@ -4394,7 +4515,7 @@ const STAGE_OF_STATUS = {
         try {
           const result = await archiveVariantOnce(variant)
           if (result.cancelled === true || result.skipped === true) return
-          notify('已归档：' + result.label + '（在「已归档」里可以恢复）')
+          notify('已收纳：' + result.label)
           list.reload()
           if (typeof onChanged === 'function') onChanged()
         } catch (error) {
@@ -4404,7 +4525,7 @@ const STAGE_OF_STATUS = {
         }
       }
 
-      // 恢复：发过的回「已发」，没发过的回「在写」—— 由服务端按 publishedAt 决定。
+      // 恢复显示不会改变生命周期；旧「已归档」数据由服务端恢复原状态。
       async function restoreVariant(variant) {
         if (busy) return
         setBusy(true)
@@ -4419,6 +4540,59 @@ const STAGE_OF_STATUS = {
         } finally {
           setBusy(false)
         }
+      }
+
+      async function startAnotherReview(variant) {
+        if (busy) return
+        let recent = String(variant.front?.reviewDays ?? '7')
+        try { recent = window.localStorage.getItem('dsh-growth:last-review-days') || recent } catch {}
+        const values = await askForm({
+          title: '开启新一轮观察',
+          message: '上一轮结论保持冻结，新数据进入新的观察周期。',
+          submitLabel: '开启新一轮',
+          fields: [{ key: 'reviewDays', label: '观察天数', type: 'number', value: recent, min: 1, max: 365, required: true }],
+        })
+        if (values === null) return
+        const days = Number(String(values.reviewDays).trim())
+        setBusy(true)
+        try {
+          await post('/v2/variants/' + encodeURIComponent(variant.id) + '/start-review', { reviewDays: days })
+          try { window.localStorage.setItem('dsh-growth:last-review-days', String(days)) } catch {}
+          notify('已开启新一轮观察')
+          list.reload()
+          if (typeof onChanged === 'function') onChanged()
+        } catch (error) { notify(String(error.message), true) }
+        finally { setBusy(false) }
+      }
+
+      async function correctIdentity(variant) {
+        if (busy) return
+        const platform = normalizePlatform(variant.front?.platform)
+        const options = accountRecords.filter((record) => normalizePlatform(record.front?.platform) !== '' && normalizePlatform(record.front?.platform) !== platform
+          || String(record.front?.id ?? '') !== String(variant.front?.accountId ?? ''))
+        if (options.length === 0) { notify('没有可选的账号档案，请先建立账号', true); return }
+        const values = await askForm({
+          title: '纠正平台与账号',
+          message: '版本、关联日历和全部历史快照会同步更新，版本文件名保持不变。',
+          submitLabel: '继续核对',
+          fields: [{
+            key: 'accountId', label: '改为账号', type: 'select', value: String(options[0]?.front?.id ?? ''), required: true,
+            options: options.slice(0, 100).map((record) => ({ value: String(record.front?.id ?? ''), label: String(record.front?.name ?? record.title) + ' · ' + normalizePlatform(record.front?.platform) })),
+          }],
+        })
+        if (values === null) return
+        const account = options.find((record) => String(record.front?.id ?? '') === String(values.accountId ?? ''))
+        if (account === undefined) { notify('所选账号已经不存在，请刷新后重试', true); return }
+        const label = String(account.front?.name ?? account.title) + ' · ' + normalizePlatform(account.front?.platform)
+        if (!(await askConfirm('把这一版纠正为「' + label + '」？\n\n关联的日历和历史台账会一起更新，版本文件不会改名。', '纠正归属', '不修改'))) return
+        setBusy(true)
+        try {
+          await post('/v2/variants/' + encodeURIComponent(variant.id) + '/correct-identity', { accountId: String(account.front?.id ?? '') })
+          notify('归属已纠正：' + label)
+          list.reload()
+          if (typeof onChanged === 'function') onChanged()
+        } catch (error) { notify(String(error.message), true) }
+        finally { setBusy(false) }
       }
 
       /**
@@ -4570,13 +4744,14 @@ const STAGE_OF_STATUS = {
 
       const row = (variant) => {
         const latest = variant.latestMetric
+        const checkedIds = readCheckSelection(variant?.front)
         const statusValue = normalizeStatus(variant.status) || '在写'
         const stageId = STAGE_OF_STATUS[statusValue] ?? 'writing'
-        // 归档的版本只给「恢复」：再给一个状态下拉，等于多开一条把它弄丢的路。
-        const archived = statusValue === '已归档'
+        // 已收纳的版本只给恢复显示。
+        const archived = variant?.archived === true
         // 「数据回流」用进度蓝（A1：全站一个状态一个颜色），「已发」保持完成绿。
         const tone = statusValue === '待回填' ? 'brand' : statusValue === '已发' ? 'ok' : statusValue === '待发' ? 'warn' : ''
-        // 风险等级 / 7 项发布自检不再在这行里改：这两个字段是发布前给自己看的，
+        // 风险等级与发布自检就在这行改：风险等级本地存，勾选走服务端（/v2/checklist，条目来自 SOP 目录），进度以服务端回读为准。
         // 和「写这一版稿子」没关系，摆在这里只是把四个按钮挤成一排看不清。
         // 每个平台版本自己一份脚本：不同平台的开头、节奏、CTA 本来就不一样，
         // 共用主选题正文等于逼你写一份谁都不合适的稿子。
@@ -4594,13 +4769,15 @@ const STAGE_OF_STATUS = {
                   ? '未排发布'
                   : '发布 ' + String(variant.schedule.date).slice(0, 10),
                 // 低风险是默认值，说了等于没说；「风险 高/禁发」单独渲染成红色小旗（S5），不混进灰色 meta。
-                '自检 ' + (String(variant.front?.publishCheck ?? '') === '' ? '0/7' : String(variant.front?.publishCheck)),
+                '自检 ' + (String(variant.front?.publishCheck ?? '') === '' ? '' : String(variant.front?.publishCheck)),
               ].filter((part) => part !== '').join(' · ')),
               (String(variant.front?.riskLevel ?? '') !== '' && String(variant.front?.riskLevel) !== '低') ? h('span', { className: 'dsh-gw-risk-flag' }, '风险 ' + String(variant.front?.riskLevel)) : null,
               latest === undefined || latest === null ? null : h('div', { className: 'dsh-gw-row-meta', title: String(latest.file ?? '') },
                 '最近数据 ' + String(latest.date ?? '') + ' · 播放 ' + formatCount(latest.views) + ' · 赞 ' + formatCount(latest.likes)
                 + (String(latest.comments ?? '') === '' ? '' : ' · 评 ' + formatCount(latest.comments))
-                + (String(latest.shares ?? '') === '' ? '' : ' · 转 ' + formatCount(latest.shares)))),
+                + (String(latest.shares ?? '') === '' ? '' : ' · 转 ' + formatCount(latest.shares))
+                + (String(latest.completion ?? '') === '' ? '' : ' · 完播 ' + formatPercent(latest.completion))
+                + (String(latest.avgDuration ?? '') === '' ? '' : ' · 时长 ' + formatDuration(latest.avgDuration)))),
             h('div', { className: 'dsh-gw-row-side' },
               // 状态只给 4 个阶段：写稿的人不用记「待审」和「已排期」差在哪。
               // 选一个阶段，中间该走哪几步由状态机算（moveStage），走不通就原样报错。
@@ -4638,10 +4815,12 @@ const STAGE_OF_STATUS = {
               }, activeScriptId !== undefined && activeScriptId === variant.id ? '正在编辑' : '版本脚本'),
               h(ActionMenu, { disabled: busy, label: '版本更多操作 · ' + String(variant.front?.platform ?? '') + ' · ' + (accountNameOf(variant) || '默认账号'), items: [
                 archived ? null : { label: infoEdit === variant.id ? '收起资料' : '资料', title: '这一版的标题备选、封面文案、素材清单、目标人群、发布目的', onSelect: () => setInfoEdit(infoEdit === variant.id ? '' : variant.id) },
-                archived ? null : { label: checkEdit === variant.id ? '收起自检' : '自检', title: '风险等级 / 7 项发布自检', onSelect: () => setCheckEdit(checkEdit === variant.id ? '' : variant.id) },
+                archived ? null : { label: checkEdit === variant.id ? '收起自检' : '自检', title: '风险等级 / 发布自检', onSelect: () => setCheckEdit(checkEdit === variant.id ? '' : variant.id) },
                 { label: variant?.schedule?.date ? '改期' : '排期', title: '选日期后同步内容日历，跨月安全搬移', onSelect: () => setSchedEdit(variant.id) },
                 variant?.schedule?.date && typeof openCard === 'function' ? { label: '去日历', onSelect: () => openCard('calendar', { date: String(variant.schedule.date) }) } : null,
-                archived ? null : { label: '归档版本', danger: true, title: '只收起这一版，随时可恢复', onSelect: () => { void archiveVariant(variant) } },
+                statusValue === '已结案' ? { label: '开启新一轮观察', title: '保留本轮结论，建立新的观察周期', onSelect: () => { void startAnotherReview(variant) } } : null,
+                ['在写', '待发', '已取消'].includes(statusValue) ? { label: '纠正平台与账号', title: '使用账号档案同步纠正版本、日历和历史台账', onSelect: () => { void correctIdentity(variant) } } : null,
+                archived ? null : { label: '收纳版本', title: '只从日常视图隐藏，不改变状态与数据', onSelect: () => { void archiveVariant(variant) } },
                 { label: '删除版本', danger: true, title: '先备份；保留主选题；旧指纹冲突时不自动重试', onSelect: () => { void removeVariant(variant) } },
               ] }))),
           schedEdit === variant.id ? h('div', { className: 'dsh-gw-variant-schedule' },
@@ -4668,30 +4847,31 @@ const STAGE_OF_STATUS = {
           checkEdit === variant.id
             ? h('div', { className: 'dsh-gw-row', style: { paddingTop: 0, borderTop: 'none' } },
               h('div', { className: 'dsh-gw-row-main', style: { display: 'block' } },
-                h('div', { className: 'dsh-gw-row-meta' }, '发布前的门槛：风险等级「禁发」不能发；「高」必须把下面 7 项全部勾上才能标已发。'),
+                h('div', { className: 'dsh-gw-row-meta' }, '发布前的门槛：风险等级「禁发」不能发；「高」必须把《发布前检查清单》全部勾上才能标已发。条目来自服务端（SOP 目录，/v2/checklist）。'),
                 h('div', { className: 'dsh-gw-check-list' },
-                  PUBLISH_CHECKS.map((label, index) => h('label', { className: 'dsh-gw-check-item', key: label },
-                    h('input', {
-                      type: 'checkbox',
-                      checked: checkItemsOf(variant.front).has(index + 1),
-                      disabled: busy,
-                      onChange: (event) => {
-                        const next = checkItemsOf(variant.front)
-                        if (event.target.checked) next.add(index + 1)
-                        else next.delete(index + 1)
-                        const items = Array.from(next).sort((a, b) => a - b)
-                        void saveChecks(variant, { publishCheck: items.length + '/7', publishCheckItems: items.join(',') })
-                      },
-                    }),
-                    h('span', null, label))))),
-              h('div', { className: 'dsh-gw-row-side', style: { alignSelf: 'flex-start' } },
-                h('select', {
-                  className: 'dsh-gw-status-select',
-                  value: String(variant.front?.riskLevel ?? '') === '' ? '低' : String(variant.front?.riskLevel),
-                  disabled: busy,
-                  title: '风险等级',
-                  onChange: (event) => { void saveChecks(variant, { riskLevel: String(event.target.value) }) },
-                }, RISK_LEVELS.map((level) => h('option', { key: level, value: level }, '风险 ' + level)))))
+                    checkState.status === 'done'
+                      ? checkState.items.map((item) => h('label', { className: 'dsh-gw-check-item', key: String(item.id) },
+                          h('input', {
+                            type: 'checkbox',
+                            checked: checkedIds.has(String(item.id)),
+                            disabled: busy,
+                            onChange: (event) => { void toggleCheck(variant, String(item.id), event.target.checked) },
+                          }),
+                          h('span', null, String(item.text))))
+                      : checkState.status === 'missing'
+                        ? h('span', { className: 'dsh-gw-row-meta' }, '服务端没有找到《发布前检查清单》——先在 SOP 目录里建一份（条目随 SOP 走，改 SOP 即改清单；这里不装 0/7）')
+                        : checkState.status === 'error'
+                          ? h('span', { className: 'dsh-gw-row-meta' }, '自检清单读取失败；勾选与门禁以服务端为准。')
+                          : h('span', { className: 'dsh-gw-row-meta' }, '自检清单加载中…')),
+                    h('div', { className: 'dsh-gw-row-side', style: { alignSelf: 'flex-start' } },
+                      h('select', {
+                        className: 'dsh-gw-status-select',
+                        value: String(variant.front?.riskLevel ?? '') === '' ? '低' : String(variant.front?.riskLevel),
+                        disabled: busy,
+                        title: '风险等级',
+                        onChange: (event) => { void saveChecks(variant, { riskLevel: String(event.target.value) }) },
+                      }, RISK_LEVELS.map((level) => h('option', { key: level, value: level }, '风险 ' + level))))))
+
             : null)
       }
 
@@ -4721,6 +4901,28 @@ const STAGE_OF_STATUS = {
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         writeError ? h('div', null, h(ErrorBar, { error: writeError.error, onRetry: writeError.error?.code === 'conflict' ? list.reload : writeError.retry }), h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setWriteError(null) }, '放弃失败的字段保存')) : null,
         h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
+        // 同题多版并排对照（W2）：不点进每一行，也能一屏看清各平台版本
+        // 的账号、排期、完播/时长/播放/赞，以及数据来源和统计口径有没有缺。
+        variants.length > 1 ? h('div', { className: 'dsh-gw-vcompare', role: 'region', 'aria-label': '同题多版对照' },
+          h('table', null,
+            h('thead', null, h('tr', null, ['版本', '平台', '账号', '发布', '完播', '时长', '播放', '赞', '来源', '口径'].map((label) => h('th', { key: label }, label)))),
+            h('tbody', null, variants.map((variant) => {
+              const metric = variant.latestMetric ?? null
+              const hasMetric = metric !== null && metric !== undefined
+              const source = hasMetric ? String(metric.source ?? '').trim() : ''
+              const caliber = hasMetric ? String(metric.caliber ?? '').trim() : ''
+              return h('tr', { key: 'cmp-' + String(variant.id) },
+                h('td', { title: String(variant.title ?? '') }, String(variant.title ?? variant.id ?? '')),
+                h('td', null, String(variant.front?.platform ?? '')),
+                h('td', null, accountNameOf(variant) === '' ? '默认账号' : accountNameOf(variant)),
+                h('td', null, variant?.schedule?.date ? String(variant.schedule.date).slice(5, 10) : '未排'),
+                h('td', { className: 'is-num' }, formatPercent(metric?.completion)),
+                h('td', { className: 'is-num' }, formatDuration(metric?.avgDuration)),
+                h('td', { className: 'is-num' }, formatCount(metric?.views)),
+                h('td', { className: 'is-num' }, formatCount(metric?.likes)),
+                h('td', { title: source }, hasMetric && source === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : (source || '—')),
+                h('td', { title: caliber }, hasMetric && caliber === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : (caliber || '—')))
+            })))) : null,
         newTopicForm === null || newTopicForm === undefined ? null : h(Fold, {
           title: '新建选题',
           className: 'dsh-gw-create-card',
@@ -5192,6 +5394,42 @@ const STAGE_OF_STATUS = {
         pushToAgent(doc.path, brief === '' ? body : brief + '\n\n' + body, notify, { promptKey: 'script' })
       }
 
+      // 按规则审稿：把当前主选题正文或平台版本脚本交给 agent，并要求它先读真实的
+      // CopyRules 与 SOP 发布检查清单。只审不改，避免一次点击就把用户稿子重写。
+      async function reviewWithRules() {
+        const text = String(body ?? '').trim()
+        if (text === '') { notify('这篇还没有正文，先写一点再审', true); return }
+        let reviewFront = null
+        let reviewPath = path
+        if (doc !== null) {
+          reviewPath = doc.path
+          try {
+            const payload = await get('/v2/variants/' + encodeURIComponent(doc.id))
+            reviewFront = payload?.variant?.front ?? null
+          } catch {
+            notify('这一版的资料没取到，先只按脚本正文审', true)
+          }
+        }
+        const brief = variantBriefOf(reviewFront)
+        pushToAgent(reviewPath, brief === '' ? text : brief + '\n\n' + text, notify, { promptKey: 'copyrules' })
+      }
+
+      // 选题详情直达发布清单：不再让用户自己在 SOP 树里一层层找。
+      async function openReleaseSop() {
+        if (!confirmUnsavedIfNeeded(dirty, notify)) return
+        try {
+          const checklist = await get('/v2/checklist')
+          const target = String(checklist?.path ?? '').trim()
+          if (target === '') {
+            notify('还没找到《发布前检查清单》：先在 SOP 目录建一份，条目会自动接进来', true)
+            return
+          }
+          if (typeof openCard === 'function') openCard('sop', { path: target })
+        } catch (error) {
+          notify(String(error.message), true)
+        }
+      }
+
       // 收起这一版：回到「只有拆解笔记 + 平台版本」的状态。
       // 我的选题里连拆解脚本也一起收 —— 否则收起版本后正文块会从平台版本下面跳回上面，
       // 看上去就像上方的拆解笔记被点开了。拆解页没有平台版本，正文就是整页内容，留着。
@@ -5513,6 +5751,18 @@ const STAGE_OF_STATUS = {
                 void pushVariantWithBrief()
               },
             }, '发送至Agent'),
+            studio === true || typeValue === '选题' ? h('button', {
+              className: 'dsh-gw-row-act',
+              disabled: busy || body === null || String(body).trim() === '',
+              title: '把当前稿子发给 agent，先读文案规则和发布前检查清单，再逐条审稿（只审不改）',
+              onClick: () => { void reviewWithRules() },
+            }, '按规则审稿') : null,
+            studio === true || typeValue === '选题' ? h('button', {
+              className: 'dsh-gw-row-act',
+              disabled: busy,
+              title: '打开 SOP/运营SOP/发布前检查清单.md，改清单条目会同步到平台版本的自检',
+              onClick: () => { void openReleaseSop() },
+            }, '打开发布 SOP') : null,
             // 拆解详情的主按钮按类型分流（2026-11-08 拆分）：
             // 拆解案例（type!=='选题'）→「用这条建选题」，派生一篇自己的选题进我的选题；
             // 归类成「选题」的 → 原样去我的选题建平台版本写稿。
@@ -5589,8 +5839,8 @@ const STAGE_OF_STATUS = {
     // 状态词表只有一套：就是平台版本那 7 个状态（lib/domain.js 的 VARIANT_STATUSES）。
     // 客户端从 VARIANT_NEXT 的键顺序取，不再自己维护第二张表 —— 以前日历一份四态、
     // 版本一份七态、分区一份四桶，同一个「待发」在三个地方各说一套。
-    // 日历是排期表：归档是内容管理动作，只在我的选题 / 详情页做，日历下拉里不给这个选项。
-    const CAL_STATUSES = Object.keys(VARIANT_NEXT).filter((status) => status !== '已归档')
+    // 日历是排期表：收纳是内容管理动作，只在我的选题 / 详情页做。
+    const CAL_STATUSES = ['在写', '待发', '已发', '待回填']
     // 颜色按「阶段」算，也不再单开一张「状态 → 颜色」的映射表。
     const calToneOf = (status) => {
       const stage = STAGE_OF_STATUS[String(status ?? '').trim()]
@@ -5794,7 +6044,7 @@ const STAGE_OF_STATUS = {
 
     function CalendarCard({ notify, preset, onCrumb, openCard }) {
       const [month, setMonth] = React.useState(() => todayISO().slice(0, 7))
-      const [draft, setDraft] = React.useState({ platform: '', topic: '', status: '待发', note: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
+      const [draft, setDraft] = React.useState({ platform: '', topic: '', status: '待发', note: '', gmv: '', conv: '', topicPath: '', productPath: '', variantId: '', account: '', accountId: '' })
       const [pickedTopic, setPickedTopic] = React.useState(null)
       const [pickedProduct, setPickedProduct] = React.useState(null)
       const draftBaseline = React.useRef(JSON.stringify(draft))
@@ -5838,19 +6088,37 @@ const STAGE_OF_STATUS = {
       const variantsFor = (masterId, platform) => {
         const id = String(masterId ?? '')
         if (id === '') return []
-        const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
+        const names = splitPlatforms(String(platform ?? '')).map((part) => normalizePlatform(part)).filter((part) => part !== '')
         return allVariants.filter((variant) => {
           if (String(variant.front?.masterId ?? '') !== id) return false
-          return first === '' || normalizePlatform(String(variant.front?.platform ?? '')) === first
+          return names.length === 0 || names.includes(normalizePlatform(String(variant.front?.platform ?? '')))
         })
+      }
+      // 平台多选在草稿里是「小红书 / 抖音」这样一个字符串：这里统一拆成去重后的平台名，
+      // 保存、建版本、扇出都用同一份，避免每个分支各拆一次还拆得不一致。
+      const draftPlatformList = () => {
+        const seen = new Set()
+        const out = []
+        for (const part of splitPlatforms(String(draft.platform ?? ''))) {
+          const name = normalizePlatform(part)
+          if (name === '' || seen.has(name)) continue
+          seen.add(name)
+          out.push(name)
+        }
+        return out
       }
       const variantLabelOf = (variant) => normalizePlatform(variant?.front?.platform) + ' · ' + calendarAccountName(null, variant, allAccounts) + ' #' + String(variant?.id ?? '').slice(0, 4)
       function pickTopicRecord(record) {
-        const platform = normalizePlatform(record.front?.platform) || draft.platform
-        const candidates = variantsFor(record.id ?? record.front?.id, platform)
+        const pickedPlatforms = draftPlatformList()
+        const platform = pickedPlatforms.length > 1
+          ? joinPlatforms(pickedPlatforms)
+          : (normalizePlatform(record.front?.platform) || normalizePlatform(draft.platform))
+        const candidates = pickedPlatforms.length > 1 ? [] : variantsFor(record.id ?? record.front?.id, platform)
         const variant = candidates.length === 1 ? candidates[0] : null
+        const keepAccount = pickedPlatforms.length <= 1
         setPickedTopic(record)
-        setDraft({ ...draft, topic: String(record.title ?? record.front?.title ?? record.path ?? ''), topicPath: record.path, platform, variantId: variant ? String(variant.id) : '', accountId: String(variant?.front?.accountId ?? draft.accountId), account: String(variant?.front?.account ?? draft.account) })
+        setDraft({ ...draft, topic: String(record.title ?? record.front?.title ?? record.path ?? ''), topicPath: record.path, platform, variantId: variant ? String(variant.id) : '',
+          accountId: keepAccount ? String(variant?.front?.accountId ?? draft.accountId) : '', account: keepAccount ? String(variant?.front?.account ?? draft.account) : '' })
         if (topicList.query !== '') topicList.setQuery('')
       }
       function pickProductRecord(record) {
@@ -5901,7 +6169,8 @@ const STAGE_OF_STATUS = {
         setDraft((prev) => {
           const next = { ...prev, ...(preset.calendarDraft ?? {}), topic: String(preset.topic ?? preset.calendarDraft?.topic ?? prev.topic), platform: normalizePlatform(preset.platform ?? preset.calendarDraft?.platform ?? prev.platform),
             topicPath: String(preset.topicPath ?? preset.calendarDraft?.topicPath ?? ''), productPath: String(preset.productPath ?? preset.calendarDraft?.productPath ?? ''),
-            account: String(preset.account ?? preset.calendarDraft?.account ?? prev.account), accountId: String(preset.accountId ?? preset.calendarDraft?.accountId ?? prev.accountId), variantId: String(preset.variantId ?? '') }
+            account: String(preset.account ?? preset.calendarDraft?.account ?? prev.account), accountId: String(preset.accountId ?? preset.calendarDraft?.accountId ?? prev.accountId), variantId: String(preset.variantId ?? ''),
+            gmv: String(preset.gmv ?? preset.calendarDraft?.gmv ?? prev.gmv ?? ''), conv: String(preset.conv ?? preset.calendarDraft?.conv ?? prev.conv ?? '') }
           draftBaseline.current = JSON.stringify(next); return next
         })
         // 只有「带着排期意图」跳进来（选题/账号/商品预填）才展开新建表单；
@@ -5963,21 +6232,70 @@ const STAGE_OF_STATUS = {
 
       function prepareTopic(createVariant) {
         if (typeof openCard !== 'function') return
-        void openCard('studio', { path: createVariant ? draft.topicPath : '', createTopic: !createVariant, createVariant, platform: draft.platform, title: draft.topic, date: selected ?? todayISO(), account: draft.account, accountId: draft.accountId,
+        const platforms = draftPlatformList()
+        if (createVariant && platforms.length > 1) {
+          notify('建平台版本一次只能选一个平台：先把平台收敛到一个，再建版本', true)
+          return
+        }
+        void openCard('studio', { path: createVariant ? draft.topicPath : '', createTopic: !createVariant, createVariant, platform: platforms[0] ?? '', title: draft.topic, date: selected ?? todayISO(), account: draft.account, accountId: draft.accountId,
           calendarIntent: { ...draft, date: selected ?? todayISO() } })
       }
       async function add() {
         if (selected === null || busy) return
-        let record, variant
-        try { record = resolveCalendarTopic(draft, topicOptions); variant = chooseCalendarVariant(record, variantsFor(record.id ?? record.front?.id, draft.platform), draft.variantId) }
+        let record
+        try { record = resolveCalendarTopic(draft, topicOptions) }
         catch (error) { notify(String(error.message), true); return }
         if (topicLinks.error || variantList.error) { notify('关联读取失败，请先重试，不能把未知当成没有版本', true); return }
+        const platforms = draftPlatformList()
+        if (platforms.length === 0) { notify('先选平台再排期', true); return }
+        // 多平台分发：一次动作让服务端各建一版、各排一行（addMany 原子写），
+        // 客户端不再自己循环 POST /calendar —— 那样中途失败会留下半截账。
+        if (platforms.length > 1) {
+          setBusy(true)
+          try {
+            const accountRecord = allAccounts.find((item) => String(item.front?.id ?? '') === String(draft.accountId ?? ''))
+            const accounts = {}
+            const accountIds = {}
+            const accountPlatform = normalizePlatform(accountRecord?.front?.platform)
+            if (accountRecord !== undefined && accountPlatform !== '' && platforms.includes(accountPlatform)) {
+              accounts[accountPlatform] = String(accountRecord.front?.name ?? accountRecord.title ?? '')
+              accountIds[accountPlatform] = String(accountRecord.front?.id ?? '')
+            }
+            const result = await post('/calendar/fanout', {
+              month, date: selected, platforms,
+              topicId: String(record.id ?? record.front?.id ?? ''),
+              topicPath: record.path,
+              topic: String(record.title ?? record.front?.title ?? ''),
+              status: draft.status, note: draft.note, link: draft.link, gmv: draft.gmv, conv: draft.conv, productPath: draft.productPath,
+              accounts, accountIds,
+            })
+            const results = Array.isArray(result?.results) ? result.results : []
+            const failed = Array.isArray(result?.failed) ? result.failed : []
+            const createdVariants = results.filter((item) => item.variantCreated === true).length
+            cal.reload(); variantList.reload()
+            if (failed.length > 0) {
+              notify('多平台分发未完成：' + failed.map((item) => String(item.platform) + '（' + String(item.error ?? '原因不明') + '）').join('；')
+                + (createdVariants > 0 ? '；已建 ' + createdVariants + ' 个版本但没全部写进日历，请刷新核对' : ''), true)
+              return
+            }
+            const written = results.filter((item) => item.rowCreated === true).length
+            const kept = results.length - written
+            const next = { ...draft, topic: '', topicPath: '', variantId: '', productPath: '', note: '', gmv: '', conv: '' }
+            draftBaseline.current = JSON.stringify(next); setDraft(next)
+            notify('已扇出：' + selected + ' · ' + platforms.length + ' 个平台各一版一行'
+              + (written < results.length ? '；' + String(kept) + ' 个平台已有同一排期，未重复写' : ''))
+          } catch (error) { notify('多平台排期未完成：' + String(error.message), true) } finally { setBusy(false) }
+          return
+        }
+        let variant
+        try { variant = chooseCalendarVariant(record, variantsFor(record.id ?? record.front?.id, platforms[0]), draft.variantId) }
+        catch (error) { notify(String(error.message), true); return }
         setBusy(true)
         try {
-          const platform = normalizePlatform(variant.front?.platform) || normalizePlatform(draft.platform)
+          const platform = normalizePlatform(variant.front?.platform) || platforms[0]
           await post('/calendar', { ...draft, month, date: selected, topic: record.title, topicPath: record.path, topicId: String(record.id ?? record.front?.id ?? ''), variantId: String(variant.id), platform,
             accountId: String(variant.front?.accountId ?? draft.accountId ?? ''), account: String(variant.front?.account ?? draft.account ?? '') })
-          const next = { ...draft, topic: '', topicPath: '', variantId: '', productPath: '', note: '' }; draftBaseline.current = JSON.stringify(next); setDraft(next)
+          const next = { ...draft, topic: '', topicPath: '', variantId: '', productPath: '', note: '', gmv: '', conv: '' }; draftBaseline.current = JSON.stringify(next); setDraft(next)
           cal.reload(); notify('已排期：' + selected + ' · ' + variantLabelOf(variant))
         } catch (error) { notify('排期未完成：' + String(error.message), true) } finally { setBusy(false) }
       }
@@ -6012,13 +6330,23 @@ const STAGE_OF_STATUS = {
         }
       }
 
-      // 改已排条目的平台（支持多选）：整行替换，id 还按改之前的算。
+      // 改已排条目的平台：一行只允许一个平台（多平台走新建排期时的 fanout）。
       async function savePlatform(entry) {
-        const platform = String(platformEdit?.value ?? '').trim()
+        const raw = String(platformEdit?.value ?? '').trim()
         try {
-          // 换了平台，原来绑的版本多半不属于新平台了：清掉绑定，让人重新选，别留一个指向别处的版本ID。
-          const variantId = String(platform) === String(entry.platform ?? '') ? String(entry.variantId ?? '') : ''
-          await put('/calendar', { ...entry, platform, variantId, month, expectedSha1: calendarData?.sha1 })
+          const names = splitPlatforms(raw).map((part) => normalizePlatform(part)).filter((part) => part !== '')
+          if (names.length === 0) { notify('先选平台', true); return }
+          if (names.length !== 1) {
+            notify('一行只能放一个平台：要分发多平台，请在新建排期时多选，系统会一次扇出 N 行', true)
+            return
+          }
+          const platform = names[0]
+          const changed = normalizePlatform(entry.platform) !== platform
+          // 换了平台，原来绑的版本和账号多半不属于新平台了：一起清掉，别留指向别处的绑定。
+          const variantId = changed ? '' : String(entry.variantId ?? '')
+          const account = changed ? '' : String(entry.account ?? '')
+          const accountId = changed ? '' : String(entry.accountId ?? '')
+          await put('/calendar', { ...entry, platform, variantId, account, accountId, month, expectedSha1: calendarData?.sha1 })
           setPlatformEdit(null)
           cal.reload()
         } catch (error) {
@@ -6028,7 +6356,15 @@ const STAGE_OF_STATUS = {
 
       async function setStatus(entry, status) {
         try {
-          const result = await put('/calendar', { ...entry, status, month, expectedSha1: calendarData?.sha1 })
+          const publish = status === '已发' && String(entry.status) !== '已发' ? await publicationDetails() : {}
+          if (publish === null) return
+          const result = await put('/calendar', {
+            ...entry,
+            status,
+            month,
+            expectedSha1: calendarData?.sha1,
+            ...(publish === null ? {} : { publishedAt: publish.at, reviewDays: publish.reviewDays }),
+          })
           cal.reload()
           // 标「已发」时后端会顺手把同选题同平台的平台版本推到「已发」。
           // 推成功了要说一句（否则用户不知道两个地方已经同步），推不动更要说 ——
@@ -6037,12 +6373,25 @@ const STAGE_OF_STATUS = {
           if (advanced !== undefined && advanced !== null) {
             if (advanced.ok === true) {
               notify(advanced.steps.length === 0
-                ? '日历已标已发；平台版本本来就在「已发」'
-                : '日历已标已发；平台版本也跟着走到了「已发」')
+                ? '已登记发布；平台版本原本已经发布'
+                : '已登记发布；平台版本和日历已同步')
             } else {
-              notify('日历已标已发，但平台版本没跟上：' + String(advanced.reason ?? '原因不明'), true)
+              notify('发布登记未完成：' + String(advanced.reason ?? '原因不明'), true)
             }
           }
+        } catch (error) {
+          notify(String(error.message), true)
+        }
+      }
+
+      // GMV / 转化率是结构化列：行内输入，失焦或回车保存，不再埋进备注让商品汇总去猜。
+      async function saveMetric(entry, key, value) {
+        const next = String(value ?? '').trim()
+        if (next === String(entry[key] ?? '').trim()) return
+        try {
+          await put('/calendar', { ...entry, [key]: next, month, expectedSha1: calendarData?.sha1 })
+          cal.reload()
+          notify(key === 'gmv' ? '已更新 GMV' : '已更新转化率')
         } catch (error) {
           notify(String(error.message), true)
         }
@@ -6240,18 +6589,27 @@ const STAGE_OF_STATUS = {
                 h(Field, { label: '平台（可多选）' },
                   h(PlatformMultiInput, {
                     value: draft.platform,
-                    onChange: (next) => setDraft({ ...draft, platform: next, variantId: '' }),
+                    onChange: (next) => {
+                      const multi = splitPlatforms(next).length > 1
+                      // 多平台扇出先不绑定某个平台的账号：一个账号只属于一个平台，
+                      // 强行把单选账号套到 N 个平台上只会让另外几版挂错号。
+                      setDraft({ ...draft, platform: next, variantId: '', ...(multi ? { account: '', accountId: '' } : {}) })
+                    },
                     options: calPlatforms,
                   })),
-                h(Field, { label: '账号（可选）' }, h(AccountPicker, {
-                  platform: draft.platform,
-                  options: allAccounts,
-                  value: draft.accountId,
-                  onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
-                  notify,
-                  hideCreate: true,
-                }))),
+                draftPlatformList().length > 1
+                  ? h(Field, { label: '账号（可选）' }, h('span', { className: 'dsh-gw-row-meta' }, '多平台分发先不指定账号：每个平台各建一版，建好再到平台版本里补账号。'))
+                  : h(Field, { label: '账号（可选）' }, h(AccountPicker, {
+                    platform: draft.platform,
+                    options: allAccounts,
+                    value: draft.accountId,
+                    onChange: (accountId, account) => setDraft({ ...draft, accountId, account }),
+                    notify,
+                    hideCreate: true,
+                  }))),
               h(Field, { label: '状态' }, h('select', { className: 'dsh-gw-cal-fieldselect', value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, calStatusOptions(draft.status).map((status) => h('option', { key: status, value: status }, status)))),
+              h(Field, { label: 'GMV' }, h('input', { type: 'number', min: '0', step: '0.01', inputMode: 'decimal', value: draft.gmv, onChange: (event) => setDraft({ ...draft, gmv: event.target.value }), placeholder: '0.00' })),
+              h(Field, { label: '转化率（%）' }, h('input', { type: 'number', min: '0', step: '0.1', inputMode: 'decimal', value: draft.conv, onChange: (event) => setDraft({ ...draft, conv: event.target.value }), placeholder: '3.2' })),
               h(Field, { label: '备注', wide: true }, h('input', { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), onKeyDown: (event) => { if (event.key === 'Enter' && draft.topic.trim() !== '') add() }, placeholder: '发布时段 / 需要谁配合 / 临时想法' })),
               h(Field, { label: '选题名称（新标题或搜索）', wide: true }, h('span', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
                 h('input', { value: draft.topic, placeholder: '输入新选题名称，或搜索已有选题', 'aria-label': '选题名称 / 全库搜索', onChange: (event) => { const topic = event.target.value; setPickedTopic(null); setDraft({ ...draft, topic, topicPath: '', variantId: '' }); topicList.setQuery(topic) } }),
@@ -6269,8 +6627,17 @@ const STAGE_OF_STATUS = {
               h(Field, { label: '版本（多版必选）' }, (() => {
                 if (draft.topic.trim() === '') return null
                 const hit = topicChoices.find((item) => item.path === draft.topicPath)
-                const candidates = hit === undefined ? [] : variantsFor(hit.front?.id, draft.platform)
-                if (candidates.length === 0) return null
+                if (hit === undefined) return null
+                const platformNames = draftPlatformList()
+                if (platformNames.length > 1) {
+                  return h('div', { className: 'dsh-gw-row-meta' },
+                    '多平台分发：' + platformNames.map((name) => {
+                      const count = variantsFor(hit.front?.id, name).length
+                      return name + (count === 0 ? ' 将新建 1 版' : ' 已有 ' + count + ' 版，按同账号复用')
+                    }).join('；') + '。保存时每个平台各排一行。')
+                }
+                const candidates = variantsFor(hit.front?.id, platformNames[0])
+                if (candidates.length === 0) return h('div', { className: 'dsh-gw-row-meta' }, '这个平台还没有版本：点上方「先建平台版本」，或改成多平台分发让系统各建一版。')
                 return h('select', {
                   className: 'dsh-gw-cal-fieldselect',
                   value: draft.variantId,
@@ -6334,6 +6701,32 @@ const STAGE_OF_STATUS = {
                     style: { fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     onChange: (event) => { void moveEntry(entry, event.target.value) },
                   }),
+                  h('label', { className: 'dsh-gw-row-meta', style: { display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' } }, 'GMV',
+                    h('input', {
+                      key: entry.id + '-gmv-' + String(entry.gmv ?? ''),
+                      type: 'number',
+                      min: '0',
+                      step: '0.01',
+                      inputMode: 'decimal',
+                      defaultValue: String(entry.gmv ?? ''),
+                      title: '这条内容带来的 GMV（金额）',
+                      style: { width: 76, fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                      onBlur: (event) => { void saveMetric(entry, 'gmv', event.target.value) },
+                      onKeyDown: (event) => { if (event.key === 'Enter') event.currentTarget.blur() },
+                    })),
+                  h('label', { className: 'dsh-gw-row-meta', style: { display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' } }, '转化率 %',
+                    h('input', {
+                      key: entry.id + '-conv-' + String(entry.conv ?? ''),
+                      type: 'number',
+                      min: '0',
+                      step: '0.1',
+                      inputMode: 'decimal',
+                      defaultValue: String(entry.conv ?? ''),
+                      title: '这条内容的转化率，填百分数（3.2 表示 3.2%）',
+                      style: { width: 64, fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                      onBlur: (event) => { void saveMetric(entry, 'conv', event.target.value) },
+                      onKeyDown: (event) => { if (event.key === 'Enter') event.currentTarget.blur() },
+                    })),
                   h('select', {
                     value: entry.status,
                     onChange: (event) => setStatus(entry, event.target.value),
@@ -6345,7 +6738,7 @@ const STAGE_OF_STATUS = {
                   // 平台也能补/改：一条内容可能分发多个平台，点开是多选胶囊。
                   h('button', {
                     className: 'dsh-gw-row-act',
-                    title: '改这条的平台（可多选：同一篇内容可以分发到多个平台）',
+                    title: '改这条的平台（一行一个平台：多平台分发在新建排期时多选，一次扇出多行）',
                     onClick: () => setPlatformEdit(platformEdit !== null && platformEdit.id === entry.id ? null : { id: entry.id, value: String(entry.platform ?? '') }),
                   }, String(entry.platform ?? '') === '' ? '未选平台' : String(entry.platform ?? '')),
                   // 挂在行上的选题可以直接换：排期时多半先建好选题，发布后再回头补关联。
@@ -6384,10 +6777,11 @@ const STAGE_OF_STATUS = {
                   bound === null ? h(Field, { label: '账号' }, h(AccountPicker, { platform: entry.platform, options: entryAccountOptions, value: String(entryAccount?.front?.id ?? entry.accountId ?? ''), onChange: (accountId) => { void setAccount(entry, accountId) }, hideCreate: true, notify })) : null),
                   h('button', { type: 'button', className: 'dsh-gw-row-act', 'data-tone': 'danger', disabled: busy, title: '只删除这一条排期；冲突时不自动重试', onClick: () => { void remove(entry) } }, '删除排期')),
                 platformEdit !== null && platformEdit.id === entry.id ? h('span', { style: { flexBasis: '100%', display: 'flex', alignItems: 'center', gap: 4, margin: '4px 0 0' } },
-                  h(PlatformMultiInput, {
+                  h(PlatformInput, {
                     value: platformEdit.value,
                     onChange: (next) => setPlatformEdit({ id: entry.id, value: next }),
                     options: calPlatforms,
+                    placeholder: '一个平台',
                   }),
                   h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', onClick: () => { void savePlatform(entry) } }, '保存'),
                   h('button', { className: 'dsh-gw-btn', onClick: () => setPlatformEdit(null) }, '取消')) : null)
@@ -6549,6 +6943,7 @@ const STAGE_OF_STATUS = {
             id: promote.id,
             title: promoteTitle.trim(),
             platform: promotePlatform.trim(),
+            type: '选题',
           })
           const created = result?.created
           setPromote(null)
@@ -6743,9 +7138,9 @@ const STAGE_OF_STATUS = {
                         className: 'dsh-gw-btn',
                         'data-tone': 'primary',
                         disabled: promoteBusy || promoteTitle.trim() === '' || promotePlatform.trim() === '',
-                        title: promotePlatform.trim() === '' ? '先选平台' : '建一篇拆解笔记',
+                        title: promotePlatform.trim() === '' ? '先选平台' : '建一篇自己的选题',
                         onClick: () => { void submitPromote() },
-                      }, promoteBusy ? '建中…' : '建'),
+                      }, promoteBusy ? '建中…' : '建选题'),
                       h('button', { className: 'dsh-gw-btn dsh-gw-btn-quiet', title: '取消', onClick: () => setPromote(null) }, '取消')))))
               }
               if (relinking) {
@@ -6939,13 +7334,15 @@ const STAGE_OF_STATUS = {
         rowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
       }, [hitCount, rows.length])
 
-      // 同一个内容（主选题）的多天记录并成一格：内容第一列、日期第二列。
-      // 这样一条内容这几天的数字上下排着，一眼能看出涨了多少；没挂主选题的行按平台版本各自成组。
+      // 同一个平台版本的多天记录并成一格：内容第一列、日期第二列。
+      // 同题不同平台是两条独立的账，必须分成两组；组内多天的数字上下排着，
+      // 才能看出同一版这几天涨了多少。没挂版本的老行才退回按主选题分组。
       const groups = []
       const byKey = new Map()
       for (const row of rows) {
+        const variantId = String(row.variantId ?? '')
         const masterId = String(row.masterId ?? '')
-        const key = masterId !== '' ? 'm:' + masterId : 'v:' + String(row.variantId ?? '')
+        const key = variantId !== '' ? 'v:' + variantId : masterId !== '' ? 'm:' + masterId : 'x:' + String(row.id ?? row.date ?? '')
         let group = byKey.get(key)
         if (group === undefined) {
           group = { key, rows: [] }
@@ -6992,14 +7389,16 @@ const STAGE_OF_STATUS = {
             h('td', null, formatCount(row.likes)),
             h('td', null, formatCount(row.comments)),
             h('td', null, formatCount(row.shares)),
-            h('td', null, String(row.completion ?? '') === '' ? '—' : (String(row.completion).endsWith('%') ? String(row.completion) : String(row.completion) + '%')),
-            h('td', null, String(row.avgDuration ?? '') === '' ? '—' : (/[秒sS]$/.test(String(row.avgDuration)) ? String(row.avgDuration) : String(row.avgDuration) + 's')),
+            h('td', null, formatPercent(row.completion)),
+            h('td', null, formatDuration(row.avgDuration)),
             h('td', null, String(row.followers ?? '') === '' ? '—' : formatCount(row.followers)),
             h('td', null, String(row.orders ?? '') === '' ? '—' : formatCount(row.orders)),
             h('td', null, String(row.gmv ?? '') === '' ? '—' : '¥' + formatCount(row.gmv)),
             h('td', { title: String(row.returnReason ?? ''), style: { maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' } }, String(row.returnReason ?? '') === '' ? '—' : String(row.returnReason)),
-            h('td', { title: String(row.source ?? ''), style: { maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' } }, String(row.source ?? '') === '' ? '—' : String(row.source)),
-            h('td', { title: String(row.caliber ?? ''), style: { maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' } }, String(row.caliber ?? '') === '' ? '—' : String(row.caliber))))
+            h('td', { title: String(row.source ?? '') === '' ? '数据来源未填：补上才能判断这组数字从哪来' : String(row.source ?? ''), style: { maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' } },
+              String(row.source ?? '') === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : String(row.source)),
+            h('td', { title: String(row.caliber ?? '') === '' ? '统计口径未填：补上才能和别的平台对齐' : String(row.caliber ?? ''), style: { maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' } },
+              String(row.caliber ?? '') === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : String(row.caliber))))
         })
       }
 
@@ -7017,10 +7416,7 @@ const STAGE_OF_STATUS = {
     }
 
 
-    /**
-     * 「按平台汇总」：把回流台账里同一平台、同一选题的多天记录累加成一张表。
-     * 平台列 rowspan 合并，末尾一行合计。数据只在渲染时聚合，不落盘。
-     */
+    /** 数据复盘保留每次累计快照；榜单只取每个版本最新快照，避免跨日期重复累加。 */
     function ContentDataCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
       const list = usePagedList('/data/list?limit=100')
       const boards = useAsync(() => get('/boards'), [])
@@ -7165,12 +7561,22 @@ const STAGE_OF_STATUS = {
         }
       }
 
-      // 带货榜：按单篇笔记聚合回流台账（同一篇内容在多个平台/多天发布都并到一行），
-      // 排序在表头点，默认按播放从高到低。
+      // 台账记录的是累计快照。先按平台版本只取最新日期，再按选题+平台汇总；
+      // 不能把同一版本 1 万、2 万两天的累计数加成 3 万。
       const noteBoard = useAsync(() => get('/v2/ledger'), [])
       const noteRows = React.useMemo(() => {
         const map = new Map()
+        const latestByVariant = new Map()
         for (const row of (noteBoard.data?.rows ?? [])) {
+          const variantId = String(row.variantId ?? '').trim()
+          const identity = variantId === '' ? String(row.id ?? '') : variantId
+          const previous = latestByVariant.get(identity)
+          if (previous === undefined || String(row.date ?? '').localeCompare(String(previous.date ?? '')) > 0
+            || (String(row.date ?? '') === String(previous.date ?? '') && String(row.updatedAt ?? '').localeCompare(String(previous.updatedAt ?? '')) > 0)) {
+            latestByVariant.set(identity, row)
+          }
+        }
+        for (const row of latestByVariant.values()) {
           const masterId = String(row.masterId ?? '').trim()
           const title = String(row.masterTitle ?? '').trim()
           const platform = String(row.platform ?? '').trim()
@@ -7304,6 +7710,9 @@ const STAGE_OF_STATUS = {
         }
       }
 
+      void crumb
+      useObjectDraftGuard(draft, busy)
+
       if (openPath !== null) {
         return h(NoteDetail, {
           key: openPath,
@@ -7312,8 +7721,6 @@ const STAGE_OF_STATUS = {
           onBack: () => { setOpenPath(null); if (onCrumb) onCrumb(null); list.reload() }, notify,
         })
       }
-      void crumb
-      useObjectDraftGuard(draft, busy)
 
       return h('div', null,
         h(ListFilter, { filter: rf.filter, setFilter: rf.setFilter, placeholder: '账号名 / 平台 / 定位 / 目标人群', shown: shown.length, total: records.length }),
@@ -7392,17 +7799,11 @@ const STAGE_OF_STATUS = {
       const records = list.data?.records ?? []
       const schema = list.data?.schema ?? []
       const rf = useRecordFilter(records, list)
-      // 自家 / 竞品胶囊：跟搜索框叠加使用（先按 kind 筛，再按关键词搜）。
-      const kindOf = (path) => {
-        const tail = tailKey(path)
-        const hit = records.find((record) => tailKey(record.path) === tail)
-        return hit === undefined ? '' : String(hit.front?.kind ?? '')
-      }
       const [platformFilters, setPlatformFilters] = React.useState([])
       const [statusFilter, setStatusFilter] = React.useState('')
       const [onlyWithContent, setOnlyWithContent] = React.useState(false)
       const [splitPct, setSplitPct] = React.useState(50)
-      const [rollupWidths, setRollupWidths] = React.useState([28, 16, 33, 11, 12])
+      const [rollupWidths, setRollupWidths] = React.useState([25, 14, 28, 10, 11, 12])
       const startRollupResize = colResizeStart(rollupWidths, setRollupWidths)
       const splitRef = React.useRef(null)
       const platforms = platformOptions(records.map((record) => record.front?.platform))
@@ -7441,6 +7842,8 @@ const STAGE_OF_STATUS = {
         }
       }
       const totalItemsCount = allItems.length
+      const convSamples = rolled.reduce((sum, product) => sum + Number(product.convSamples ?? 0), 0)
+      const convAvg = convSamples === 0 ? null : rolled.reduce((sum, product) => sum + Number(product.conv ?? 0) * Number(product.convSamples ?? 0), 0) / convSamples
 
       // 筛选：平台多选 + 状态单选 + 只看带过内容（= 在日历里挂过、且已发布过的商品）。
       const withContentPaths = new Set(rolledAll.filter((product) => (product.items || []).length > 0).map((product) => product.productPath))
@@ -7526,9 +7929,9 @@ const STAGE_OF_STATUS = {
               h('colgroup', null, rollupWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
               h('thead', null,
                 h('tr', null,
-                  ['商品档案', '日期', '带过内容', '播放', 'GMV'].map((label, index) => h('th', { key: label, style: index >= 3 ? { textAlign: 'right' } : undefined },
+                  ['商品档案', '日期', '带过内容', '播放', 'GMV', '转化率'].map((label, index) => h('th', { key: label, style: index >= 3 ? { textAlign: 'right' } : undefined },
                     label,
-                    index < 4 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startRollupResize(index) }) : null))
+                    index < 5 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startRollupResize(index) }) : null))
                 )
               ),
               h('tbody', null,
@@ -7554,14 +7957,16 @@ const STAGE_OF_STATUS = {
                         )
                       ),
                       h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' } }, row.views > 0 ? formatCount(row.views) : '—'),
-                      h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--dsw-alias-link)' } }, row.gmv > 0 ? '¥' + formatCount(row.gmv) : '—')
+                      h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--dsw-alias-link)' } }, row.gmv > 0 ? '¥' + formatCount(row.gmv) : '—'),
+                      h('td', { className: 'dsh-gw-cell-nowrap', style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--dsw-alias-state-success-primary)' } }, row.conv === null || row.conv === undefined ? '—' : String(Number(row.conv).toFixed(2)).replace(/\.0+$/, '') + '%')
                     )
                   )
                 })
               )
             )
           ),
-          h('div', { className: 'dsh-gw-hint' }, 'GMV 累计 ' + formatCount(rolled.reduce((sum, item) => sum + item.gmv, 0)))),
+          h('div', { className: 'dsh-gw-hint' }, 'GMV 累计 ' + formatCount(rolled.reduce((sum, item) => sum + item.gmv, 0))
+            + ' · 转化率均值 ' + (convAvg === null ? '—' : String(Number(convAvg.toFixed(2))).replace(/\.0+$/, '') + '%') + '（按已填内容的条数平均）')),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : records.length === 0
@@ -7673,7 +8078,7 @@ const STAGE_OF_STATUS = {
 
     /* ────────────── 卡片：客户反馈 ────────────── */
 
-    function FeedbackCard({ notify }) {
+    function FeedbackCard({ notify, openCard }) {
       const list = useAsync(() => get('/feedback'), [])
       const sourceTopicList = usePagedList('/topics/list?limit=200')
       const sourceProductList = usePagedList('/products/list?limit=200')
@@ -7706,6 +8111,7 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ channel: '', source: '', sentiment: '负', content: '', tags: '', status: '未处理' })
       const [busy, setBusy] = React.useState(false)
       const [editing, setEditing] = React.useState(null)
+      const [promotingId, setPromotingId] = React.useState('')
       const entries = list.data?.entries ?? []
 
       async function add() {
@@ -7823,6 +8229,26 @@ const STAGE_OF_STATUS = {
           list.reload()
         } catch (error) {
           notify(String(error.message), true)
+        }
+      }
+      async function promoteToTopic(entry) {
+        if (promotingId !== '') return
+        setPromotingId(entry.id)
+        try {
+          const result = await post('/feedback/promote', { id: entry.id })
+          const created = result?.created
+          list.reload()
+          sourceTopicList.reload()
+          if (result?.updated === false) {
+            notify('选题建好了，但反馈状态没更新：' + String(result?.warning ?? '请手动标成跟进中'), true)
+          } else {
+            notify(result?.existing === true ? '已关联已有选题：' + String(created?.path ?? '') : '已转成选题，反馈已标为跟进中')
+          }
+          if (created?.path && typeof openCard === 'function') openCard('studio', { path: created.path, edit: true })
+        } catch (error) {
+          notify(String(error.message), true)
+        } finally {
+          setPromotingId('')
         }
       }
       // 删单条反馈（同灵感箱的按行删：只删表格里这一行）。
@@ -7949,6 +8375,13 @@ const STAGE_OF_STATUS = {
               cell('advice', inline('advice', editingThis ? editing.advice : entry.advice, '怎么处理'), { className: 'dsh-gw-fb-clamp' }),
               cell('resolution', inline('resolution', editingThis ? editing.resolution : entry.resolution, '处理到哪一步'), { className: 'dsh-gw-fb-clamp' }),
               h('td', null, h('div', { className: 'dsh-gw-acts', style: { gap: 4 } },
+                h('button', {
+                  className: 'dsh-gw-row-act',
+                  type: 'button',
+                  disabled: promotingId !== '',
+                  title: '把这条反馈的原话和来源带进一条自己的选题，平台认不出时先记为待定',
+                  onClick: (event) => { event.stopPropagation(); void promoteToTopic(entry) },
+                }, promotingId === entry.id ? '转中…' : '转选题'),
                 h('select', { value: entry.status, onChange: (event) => setStatus(entry, event.target.value), className: 'dsh-gw-fb-state', 'data-state': entry.status },
                   ['未处理', '跟进中', '已处理'].map((status) => h('option', { key: status, value: status }, status))),
                 editingThis
@@ -9040,40 +9473,98 @@ const STAGE_OF_STATUS = {
     }
 
     // 常见视频站尽量转成可内嵌的播放地址；其它站点原样交给 iframe 尝试预览。
-    function embedUrlFor(target) {
+    // fit 决定默认画幅：横屏视频 16:9，竖屏视频 9:16，普通网页沿用固定高度。
+    function embedFor(target) {
       const value = safeLinkTarget(target)
-      if (value === '') return ''
+      if (value === '') return { src: '', fit: 'page' }
       const bili = value.match(/(?:bilibili\.com\/video\/|b23\.tv\/)(BV[0-9A-Za-z]+)/i)
-      if (bili !== null) return 'https://player.bilibili.com/player.html?bvid=' + bili[1] + '&autoplay=1&danmaku=0'
+      if (bili !== null) return { src: 'https://player.bilibili.com/player.html?bvid=' + bili[1] + '&autoplay=1&danmaku=0', fit: 'wide' }
       const youtube = value.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([0-9A-Za-z_-]{6,})/i)
-      if (youtube !== null) return 'https://www.youtube.com/embed/' + youtube[1]
+      if (youtube !== null) return { src: 'https://www.youtube.com/embed/' + youtube[1], fit: 'wide' }
       const douyin = value.match(/douyin\.com\/video\/(\d+)/i)
-      if (douyin !== null) return 'https://open.douyin.com/player/video?vid=' + douyin[1]
-      return value
+      if (douyin !== null) return { src: 'https://open.douyin.com/player/video?vid=' + douyin[1], fit: 'tall' }
+      return { src: value, fit: 'page' }
+    }
+
+    function embedUrlFor(target) {
+      return embedFor(target).src
+    }
+
+    function previewMaxFrameHeight() {
+      if (typeof window === 'undefined') return 760
+      return Math.max(160, Math.min(760, window.innerHeight - 240))
     }
 
     function ChatSourcePreviewDock() {
       const url = useChatPreview()
       const safe = safeLinkTarget(url)
-      const [frameHeight, setFrameHeight] = React.useState(240)
+      const embed = embedFor(safe)
+      const frameRef = React.useRef(null)
+      const dragCleanupRef = React.useRef(null)
+      const [frameHeight, setFrameHeight] = React.useState(0)
+      const [cardLift, setCardLift] = React.useState(0)
+      React.useEffect(() => {
+        if (dragCleanupRef.current !== null) dragCleanupRef.current()
+        setFrameHeight(0)
+        setCardLift(0)
+      }, [embed.src])
+      React.useEffect(() => {
+        if (safe === '' && dragCleanupRef.current !== null) dragCleanupRef.current()
+      }, [safe])
+      React.useEffect(() => () => {
+        if (dragCleanupRef.current !== null) dragCleanupRef.current()
+      }, [])
       // 预览卡悬在输入框上方，上边缘才是「往对话区扩」的自然抓手：向上拖=变高，向下拖=变矮。
+      // 高度只加在 iframe 上时卡片在流里是「顶边钉住、底边往下长」，把手跟着鼠标走但卡片
+      // 却从下方伸出来，会顶到输入框。这里把增量用负 margin-top 抵消：卡片 margin box
+      // 高度不变（下方输入框不受影响），顶边跟随鼠标上移、底边保持锚定，真正往对话区里扩。
       const startResize = (event) => {
         event.preventDefault()
+        if (dragCleanupRef.current !== null) dragCleanupRef.current()
+        const frame = frameRef.current
+        if (frame === null) return
+        const handle = event.currentTarget
+        const pointerId = event.pointerId
+        if (handle !== null && typeof handle.setPointerCapture === 'function') {
+          try { handle.setPointerCapture(pointerId) } catch { /* 合成事件可能没有指针 id */ }
+        }
         const startY = event.clientY
-        const startHeight = frameHeight
+        const startHeight = frame.getBoundingClientRect().height
+        const maxHeight = previewMaxFrameHeight()
+        // 横屏视频的宽被卡片限死：高度超过「宽 ÷ 16:9」只会长黑边，所以拖到等比上限为止。
+        const wideMax = embed.fit === 'wide'
+          ? Math.max(120, Math.min(maxHeight, Math.floor(frame.getBoundingClientRect().width * 9 / 16)))
+          : maxHeight
+        const previousCursor = document.body.style.cursor
+        const previousSelect = document.body.style.userSelect
+        document.body.style.cursor = 'ns-resize'
+        document.body.style.userSelect = 'none'
         const onMove = (moveEvent) => {
-          const next = Math.max(120, Math.min(760, startHeight - (moveEvent.clientY - startY)))
-          setFrameHeight(next)
+          const next = Math.max(120, Math.min(wideMax, startHeight - (moveEvent.clientY - startY)))
+          const rounded = Math.round(next)
+          setFrameHeight(rounded)
+          setCardLift(rounded - startHeight)
         }
         const onUp = () => {
           document.removeEventListener('pointermove', onMove)
           document.removeEventListener('pointerup', onUp)
+          document.removeEventListener('pointercancel', onUp)
+          window.removeEventListener('blur', onUp)
+          document.body.style.cursor = previousCursor
+          document.body.style.userSelect = previousSelect
+          dragCleanupRef.current = null
+          if (handle !== null && typeof handle.releasePointerCapture === 'function') {
+            try { handle.releasePointerCapture(pointerId) } catch { /* 已释放 */ }
+          }
         }
+        dragCleanupRef.current = onUp
         document.addEventListener('pointermove', onMove)
         document.addEventListener('pointerup', onUp)
+        document.addEventListener('pointercancel', onUp)
+        window.addEventListener('blur', onUp)
       }
       if (safe === '') return null
-      return h('div', { className: 'dsh-gw-chat-preview' },
+      return h('div', { className: 'dsh-gw-chat-preview', 'data-fit': embed.fit, style: cardLift !== 0 ? { marginTop: (-cardLift) + 'px' } : undefined },
         h('div', {
           className: 'dsh-gw-chat-preview-resize',
           title: '拖动调整预览高度（向上拖变大）',
@@ -9085,14 +9576,15 @@ const STAGE_OF_STATUS = {
             safe.replace(/^https?:\/\//i, '').slice(0, 90)),
           h('a', { className: 'dsh-gw-chat-preview-open', href: safe, target: '_blank', rel: 'noreferrer' }, '打开原网页 ↗'),
           h('button', { className: 'dsh-gw-btn dsh-gw-btn-quiet', onClick: () => setChatPreview('') }, '收起')),
-        h('iframe', {
-          className: 'dsh-gw-chat-preview-frame',
-          src: embedUrlFor(safe),
-          title: '来源预览',
-          allow: 'autoplay; fullscreen; picture-in-picture',
-          allowFullScreen: true,
-          style: { height: frameHeight + 'px' },
-        }))
+        h('div', { className: 'dsh-gw-chat-preview-body' },
+          h('iframe', {
+            ref: frameRef,
+            className: 'dsh-gw-chat-preview-frame',
+            src: embed.src,
+            title: '来源预览',
+            allow: 'autoplay; fullscreen; picture-in-picture',
+            style: frameHeight > 0 ? { height: frameHeight + 'px' } : undefined,
+          })))
     }
 
     function SourcePreviewDialog({ url, onClose }) {
@@ -9113,7 +9605,6 @@ const STAGE_OF_STATUS = {
             src: embedUrlFor(safe),
             title: '来源预览',
             allow: 'autoplay; fullscreen; picture-in-picture',
-            allowFullScreen: true,
           }),
           h('div', { className: 'dsh-gw-preview-foot' },
             h('span', { title: safe }, safe.length > 80 ? safe.slice(0, 80) + '…' : safe),
@@ -9493,7 +9984,7 @@ const STAGE_OF_STATUS = {
       return total
     }
 
-    function SopCard({ notify, onCrumb, crumb, closeTicket }) {
+    function SopCard({ notify, onCrumb, crumb, closeTicket, preset }) {
       // 目录树宽度用百分比存：换个屏幕、进专注模式都对得上同一比例。
       const [treeWidth, setTreeWidth] = React.useState(readSopTreeWidth)
       const tree = useAsync(() => get('/sop'), [])
@@ -9537,6 +10028,19 @@ const STAGE_OF_STATUS = {
       const nodes = tree.data?.tree ?? []
       const total = countAll(nodes)
       const dirty = note !== null && text !== note.text
+
+      // 从选题详情「打开发布 SOP」进来时，直接定位到清单那一篇，而不是只停在树根。
+      const seenPreset = React.useRef(null)
+      React.useEffect(() => {
+        if (preset === null || preset === undefined) return
+        if (seenPreset.current === preset) return
+        seenPreset.current = preset
+        const target = String(preset.path ?? preset.note ?? '').trim()
+        if (target === '') return
+        if (dirty && !window.confirm('当前 SOP 有未保存的改动，打开指定笔记会丢掉它们，继续吗？')) return
+        setMode('live')
+        setActivePath(target)
+      }, [preset])
 
       React.useEffect(() => {
         if (activePath === null) return
@@ -10516,26 +11020,26 @@ const STAGE_OF_STATUS = {
           h('input', { type: 'checkbox', checked: card.enabled !== false, onChange: () => toggleCard(card) }),
           h('div', { className: 'dsh-gw-row-main' }, h('div', { className: 'dsh-gw-row-title' }, (card.icon ?? '') + ' ' + card.title)),
           h(Pill, null, WORKSPACES.find((item) => item.id === card.workspace)?.label ?? card.workspace))),
-        h(Sect, null, 'v2 数据迁移（老选题补 ID / 建平台版本）'),
-        h('div', { className: 'dsh-gw-actions' },
-          h('button', { className: 'dsh-gw-btn', disabled: migrationBusy, onClick: () => { void previewMigration() } }, migrationBusy ? '检查中…' : '预检'),
-          migration === null ? null : h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: migrationBusy || Number(migration.createVariantCount ?? 0) + Number(migration.missingIdCount ?? 0) === 0, onClick: () => { void applyMigration() } }, '执行迁移')),
-        migration === null ? h('p', { className: 'dsh-gw-row-meta' }, '预检只读，不会改任何笔记；迁移会给老选题补稳定 ID，并给已有平台的选题建一个平台版本空壳。')
-          : h('div', { className: 'dsh-gw-health-out' },
-            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '选题'), h('span', null, String(migration.totalTopics ?? 0) + ' 篇'), h('span', { className: 'dsh-gw-row-meta' }, '跳过测试目录 ' + String(migration.skippedTestCount ?? 0))),
-            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '缺稳定 ID'), h('span', null, String(migration.missingIdCount ?? 0) + ' 篇')),
-            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '待建平台版本'), h('span', null, String(migration.createVariantCount ?? 0) + ' 个'))),
-        h(Sect, null, '体检'),
-        h('div', { className: 'dsh-gw-health' },
-          h('button', { className: 'dsh-gw-btn', disabled: healthBusy, onClick: runHealth }, healthBusy ? '测量中…' : '测一下'),
-          health === null ? h('span', { className: 'dsh-gw-row-meta' }, '觉得卡的时候点一下：量帧间隔、DOM 节点数、JS 堆。') : null),
-        health === null ? null : h('div', { className: 'dsh-gw-health-out' },
-          h('div', { className: 'dsh-gw-health-row' }, h('b', null, '帧间隔'), h('span', null, health.median.toFixed(1) + 'ms'), h('span', { className: 'dsh-gw-row-meta' }, 'p95 ' + health.p95.toFixed(1) + ' · 最长 ' + Math.round(health.worst) + 'ms')),
-          h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'DOM 节点'), h('span', null, String(health.nodes)), h('span', { className: 'dsh-gw-row-meta' }, '其中工作台 ' + health.paneNodes)),
-          h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'JS 堆'), h('span', null, health.heap === null ? '拿不到' : health.heap + ' MB'), h('span', { className: 'dsh-gw-row-meta' }, health.limit === null ? '' : '上限 ' + health.limit + ' MB')),
-          h('div', { className: 'dsh-gw-health-note' }, healthVerdict(health)),
-          h('div', { className: 'dsh-gw-row-meta', style: { marginTop: 4 } }, '测量时间 ' + health.at)),
-        h('p', { className: 'dsh-gw-row-meta', style: { marginTop: 10 } }, '数据目录：' + (state?.dataDir ?? '~/.dsh-growth')),
+        h('details', null,
+          h('summary', null, '维护与诊断'),
+          h(Sect, null, '老数据迁移'),
+          h('div', { className: 'dsh-gw-actions' },
+            h('button', { className: 'dsh-gw-btn', disabled: migrationBusy, onClick: () => { void previewMigration() } }, migrationBusy ? '检查中…' : '预检'),
+            migration === null ? null : h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: migrationBusy || Number(migration.createVariantCount ?? 0) + Number(migration.missingIdCount ?? 0) === 0, onClick: () => { void applyMigration() } }, '执行迁移')),
+          migration === null ? null
+            : h('div', { className: 'dsh-gw-health-out' },
+              h('div', { className: 'dsh-gw-health-row' }, h('b', null, '选题'), h('span', null, String(migration.totalTopics ?? 0) + ' 篇'), h('span', { className: 'dsh-gw-row-meta' }, '跳过测试目录 ' + String(migration.skippedTestCount ?? 0))),
+              h('div', { className: 'dsh-gw-health-row' }, h('b', null, '缺稳定 ID'), h('span', null, String(migration.missingIdCount ?? 0) + ' 篇')),
+              h('div', { className: 'dsh-gw-health-row' }, h('b', null, '待建平台版本'), h('span', null, String(migration.createVariantCount ?? 0) + ' 个'))),
+          h(Sect, null, '性能体检'),
+          h('div', { className: 'dsh-gw-health' },
+            h('button', { className: 'dsh-gw-btn', disabled: healthBusy, onClick: runHealth }, healthBusy ? '测量中…' : '测一下')),
+          health === null ? null : h('div', { className: 'dsh-gw-health-out' },
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '帧间隔'), h('span', null, health.median.toFixed(1) + 'ms'), h('span', { className: 'dsh-gw-row-meta' }, 'p95 ' + health.p95.toFixed(1) + ' · 最长 ' + Math.round(health.worst) + 'ms')),
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'DOM 节点'), h('span', null, String(health.nodes)), h('span', { className: 'dsh-gw-row-meta' }, '其中工作台 ' + health.paneNodes)),
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'JS 堆'), h('span', null, health.heap === null ? '拿不到' : health.heap + ' MB'), h('span', { className: 'dsh-gw-row-meta' }, health.limit === null ? '' : '上限 ' + health.limit + ' MB')),
+            h('div', { className: 'dsh-gw-health-note' }, healthVerdict(health))),
+          h('p', { className: 'dsh-gw-row-meta' }, '数据目录：' + (state?.dataDir ?? '~/.dsh-growth'))),
       )
     }
 
@@ -10558,8 +11062,8 @@ const STAGE_OF_STATUS = {
       // 行内编辑：entryKey 为 null 表示这是一条待新增的空行（最上面那行），否则就是表格里那一行。
       const [editing, setEditing] = React.useState(null)
       const [visibleCount, setVisibleCount] = React.useState(50)
-      const [pendingWidths, setPendingWidths] = React.useState([64, 88, 176, 88, 70, 70, 70, 70, 68, 88])
-      const startPendingResize = pixelColResizeStart(pendingWidths, setPendingWidths, [56, 72, 120, 84, 64, 64, 64, 64, 60, 80])
+      const [pendingWidths, setPendingWidths] = React.useState([64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 88])
+      const startPendingResize = pixelColResizeStart(pendingWidths, setPendingWidths, [56, 72, 120, 84, 68, 64, 64, 64, 64, 60, 80])
       const allowEditingLeave = useDraftGuard(metricDraftChanged(editing), busy !== null)
       // 从我的选题那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
       const [hlId, setHlId] = React.useState('')
@@ -10677,8 +11181,42 @@ const STAGE_OF_STATUS = {
         }
       }
 
+      // 阶段结案冻结所选快照。原始台账仍完整保留，之后也能继续补录；
+      // 需要继续观察时从版本面板开启新一轮，而不是覆盖这次结论。
+      const closeItem = async (item, row) => {
+        const variant = item?.variant
+        if (variant === undefined || variant === null) return
+        if (normalizeStatus(variant.status) !== '待回填') {
+          notify('只有「待回填」的版本可以阶段结案', true)
+          return
+        }
+        if (row === null || row === undefined) { notify('请先至少保存一条数据快照', true); return }
+        const label = String(item.master?.title ?? '') + ' · ' + String(variant.front?.platform ?? '')
+        if (!(await askConfirm('以 ' + String(row.date ?? '') + ' 这条快照结案「' + label + '」？\n\n本轮结论会冻结，历史数据不会删除，结案后仍可追加数据。', '阶段结案', '继续观察'))) return
+        const values = await askForm({
+          title: '填写本轮结论',
+          message: '结论会与所选累计快照一起冻结，之后仍可补录新数据。',
+          submitLabel: '阶段结案',
+          fields: [{ key: 'insight', label: '本轮结论（可选）', type: 'textarea', value: '', placeholder: '写下本轮有效做法、问题或下一步' }],
+        })
+        if (values === null) return
+        setBusy(String(variant.id))
+        try {
+          await post('/v2/variants/' + encodeURIComponent(variant.id) + '/close-review', { metricId: String(row.metricId || row.id), insight: values.insight })
+          notify('已阶段结案：' + label)
+          v2list.reload()
+          ledger.reload()
+        } catch (error) {
+          notify(String(error?.message ?? error), true)
+        } finally {
+          setBusy(null)
+        }
+      }
+
       const plainCell = (value) => h('td', { title: String(value ?? '') }, String(value ?? '') === '' ? '—' : String(value))
       const countCell = (value) => h('td', { title: String(value ?? '') }, String(value ?? '') === '' ? '—' : formatCount(value))
+      const taskCell = (task) => h('td', { title: task?.dueDate ? '观察截止：' + task.dueDate : '缺少实际发布时间，无法计算观察截止日' },
+        h(Pill, { tone: task?.kind === 'overdue' || task?.kind === 'missing_publish_time' ? 'warn' : task?.kind === 'due_today' || task?.kind === 'unrecorded' ? 'brand' : '' }, task?.label || '观察中'))
       const fieldInput = (key, placeholder, inputMode) => h('input', {
         value: String(editing?.draft?.[key] ?? ''),
         placeholder,
@@ -10712,6 +11250,7 @@ const STAGE_OF_STATUS = {
                 plainCell(String(variant.front?.account ?? '')),
                 h('td', { title: String(item.master.path) }, String(item.master.title))),
             h('td', null, h('input', { type: 'date', 'aria-label': '回流数据日期', value: String(editing?.draft?.date ?? todayISO()).slice(0, 10), onChange: (event) => editPatch('date', event.target.value) })),
+            taskCell(item.reviewTask),
             h('td', null, fieldInput('views', '播放/阅读', 'numeric')),
             h('td', null, fieldInput('likes', '赞/收藏', 'numeric')),
             h('td', null, fieldInput('comments', '评论', 'numeric')),
@@ -10721,7 +11260,7 @@ const STAGE_OF_STATUS = {
               h('button', { className: 'dsh-gw-btn', disabled: busy === String(variant.id) || !draftFilled(editing.draft), onClick: () => { void saveEditing() } }, busy === String(variant.id) ? '保存中…' : '保存'),
               h('button', { className: 'dsh-gw-btn dsh-gw-btn-quiet', type: 'button', onClick: stopEdit }, '取消'))),
           h('tr', { className: 'dsh-gw-pending-more-inline' },
-            h('td', { colSpan: 10 },
+            h('td', { colSpan: 11 },
               h('div', { className: 'dsh-gw-pending-more' },
                 fieldInput('completion', '完播率 %', 'decimal'),
                 fieldInput('avgDuration', '平均播放秒数', 'decimal'),
@@ -10754,6 +11293,7 @@ const STAGE_OF_STATUS = {
               }, String(entry.item.master.title))
               : String(entry.item.master.title)),
           plainCell(row === null ? '' : String(row.date ?? '').slice(0, 10)),
+          taskCell(entry.item.reviewTask),
           countCell(row === null ? '' : row.views),
           countCell(row === null ? '' : row.likes),
           countCell(row === null ? '' : row.comments),
@@ -10761,17 +11301,32 @@ const STAGE_OF_STATUS = {
           h('td', null, row === null || String(row.link ?? '') === ''
             ? '—'
             : safeLinkTarget(row.link) === null ? h('span', { title: '链接格式不安全，已阻止打开' }, '无效链接') : h('a', { href: safeLinkTarget(row.link), target: '_blank', rel: 'noreferrer' }, '打开')),
-          h('td', null, row === null
-            ? h('button', { className: 'dsh-gw-btn', type: 'button', disabled: ledger.loading || ledger.error !== null, onClick: () => startNew(entry.item, entry.key) }, '录入')
-            : h('button', { className: 'dsh-gw-btn', type: 'button', disabled: ledger.loading || ledger.error !== null, onClick: () => startEdit(entry.item, row) }, '修改')))
+          h('td', null, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 2 } },
+            row === null
+              ? h('button', { className: 'dsh-gw-btn', type: 'button', style: { padding: '0 6px' }, disabled: ledger.loading || ledger.error !== null, onClick: () => startNew(entry.item, entry.key) }, '录入')
+              : h('button', { className: 'dsh-gw-btn', type: 'button', style: { padding: '0 6px' }, disabled: ledger.loading || ledger.error !== null || busy !== null, onClick: () => startEdit(entry.item, row) }, '修改'),
+            row !== null && normalizeStatus(variant.status) === '待回填'
+              ? h('button', {
+                className: 'dsh-gw-btn dsh-gw-btn-quiet',
+                type: 'button',
+                title: '以这条累计快照结束本轮观察，历史数据仍保留',
+                disabled: ledger.loading || ledger.error !== null || busy !== null,
+                onClick: () => { void closeItem(entry.item, row) },
+              }, busy === String(variant.id) ? '结案中…' : '阶段结案')
+              : null,
+            row !== null && typeof openCard === 'function' && metricsOf(variant.id).length > 1
+              ? h('button', {
+                className: 'dsh-gw-btn dsh-gw-btn-quiet', type: 'button',
+                title: '查看这一版本保留的全部累计快照',
+                onClick: () => openCard('contentdata', { variantId: variant.id, date: String(row.date ?? '') }),
+              }, '历史 ' + metricsOf(variant.id).length + ' 条')
+              : null)))
       }
 
-      // 平铺成一张表：一行一条数据；没有数据的平台版本也占一行，点「录入」就地变成输入行。
-      const flatRows = []
-      shownItems.forEach((item) => {
-        const list = metricsOf(item.variant.id)
-        if (list.length === 0) flatRows.push({ key: String(item.variant.id) + '|none', item, row: null })
-        else list.forEach((row) => flatRows.push({ key: String(item.variant.id) + '|' + String(row.id ?? row.date), item, row }))
+      // 任务页一版本一行，只显示最新累计快照。所有日期历史都留在「数据复盘」。
+      const flatRows = shownItems.map((item) => {
+        const latest = metricsOf(item.variant.id)[0] ?? null
+        return { key: String(item.variant.id) + '|' + String(latest?.id ?? 'none'), item, row: latest }
       })
       const hlIndex = hlId === '' ? -1 : flatRows.findIndex((entry) => String(entry.item.variant.id) === hlId)
       const editingNew = editing !== null && editing.entryKey === null
@@ -10816,16 +11371,15 @@ const STAGE_OF_STATUS = {
             disabled: platformFilters.length === 0 && accountFilters.length === 0,
             onClick: () => { if (stopEdit()) { setPlatformFilters([]); setAccountFilters([]) } },
           }, '清除筛选')),
-        h('p', { className: 'dsh-gw-row-meta' }, '已显示 ' + Math.min(visibleCount, flatRows.length) + '/' + flatRows.length + ' 行；离开未保存草稿会确认。'),
-        visibleCount < flatRows.length ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setVisibleCount((n) => n + 50) }, '再显示 50 行') : null,
+        visibleCount < flatRows.length ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setVisibleCount((n) => n + 50) }, '再显示 50 行（已显示 ' + Math.min(visibleCount, flatRows.length) + '/' + flatRows.length + '）') : null,
         shownItems.length === 0
           ? h(Empty, null, platformFilters.length === 0 && accountFilters.length === 0 ? '还没有已发布的平台版本。' : '没有符合筛选的平台版本。')
           : h('div', { className: 'dsh-gw-tablebox dsh-gw-pending-box', role: 'region', tabIndex: 0, 'aria-label': '待回填数据表：可横向滚动、拖动表头调整列宽，前三列与表头固定', style: pendingTableStyle },
             h('table', { className: 'dsh-gw-table dsh-gw-pending-table' },
               h('colgroup', null, pendingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
-                ['平台', '账号', '选题', '日期', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '操作'].map((label, index) => h('th', { key: label }, label,
-                  index < 9 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startPendingResize(index) }) : null)))),
+                ['平台', '账号', '选题', '日期', '任务', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '操作'].map((label, index) => h('th', { key: label }, label,
+                  index < 10 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startPendingResize(index) }) : null)))),
               h('tbody', null,
                 flatRows.slice(0, visibleCount).map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
                 editingNew ? editRow(null) : null))))
@@ -10862,7 +11416,7 @@ const STAGE_OF_STATUS = {
       const text = String(raw ?? '').trim()
       if (text === '') return ''
       if (PLATFORMS.includes(text)) return text
-      const key = text.toLowerCase().replace(/[\s_\-·/、]+/g, '')
+      const key = text.toLowerCase().replace(/[\s_\-·/、，]+/g, '')
       const hit = PLATFORM_ALIASES[key]
       if (hit !== undefined) return hit
       const direct = PLATFORMS.find((name) => name.toLowerCase() === key)
@@ -10906,7 +11460,7 @@ const STAGE_OF_STATUS = {
     // 平台多选：一条内容可以分发到多个平台，platform 字段存「小红书 / 抖音」。
     // 用「 / 」连接——normalizePlatform 认不出的值原样返回，这个串不会被改写。
     function splitPlatforms(value) {
-      return String(value ?? '').split(/\s*[/、,;；]\s*/).map((part) => part.trim()).filter((part) => part !== '')
+      return String(value ?? '').split(/\s*[/、,;；，]\s*/).map((part) => part.trim()).filter((part) => part !== '')
     }
     function joinPlatforms(list) {
       return (list ?? []).join(' / ')
@@ -10940,6 +11494,7 @@ const STAGE_OF_STATUS = {
       async function create() {
         const title = draft.name.trim()
         if (title === '') { notify('先填账号名', true); return }
+        if (splitPlatforms(String(platform ?? '')).length > 1) { notify('一个账号只属于一个平台：先把平台收敛到一个，再建账号档案', true); return }
         const first = normalizePlatform(splitPlatforms(String(platform ?? ''))[0] ?? '')
         if (first === '') { notify('先在左边选平台，再建账号档案', true); return }
         setBusy(true)
@@ -10987,6 +11542,7 @@ const STAGE_OF_STATUS = {
       async function create() {
         const title = draft.title.trim()
         if (title === '') { notify('先填账号名', true); return }
+        if (splitPlatforms(String(platform ?? '')).length > 1) { notify('一个账号只属于一个平台：先把平台收敛到一个，再建账号档案', true); return }
         if (firstPlatform === '') { notify('先在左边选平台，再建账号档案', true); return }
         setBusy(true)
         try {
@@ -11202,6 +11758,44 @@ const STAGE_OF_STATUS = {
           h('button', { type: 'button', className: 'dsh-gw-btn', 'data-modal-default': true, onClick: () => onDone(false) }, request.cancelLabel ?? '保留'),
           h('button', { type: 'button', className: 'dsh-gw-btn', 'data-tone': 'danger', onClick: () => onDone(true) }, request.okLabel ?? '确定')))
     }
+    function FormDialog({ request, onDone }) {
+      const initial = Object.fromEntries((request.fields ?? []).map((field) => [field.key, String(field.value ?? '')]))
+      const [values, setValues] = React.useState(initial)
+      const [error, setError] = React.useState('')
+      const submit = () => {
+        for (const field of request.fields ?? []) {
+          const value = String(values[field.key] ?? '').trim()
+          if (field.required && value === '') { setError('请填写“' + field.label + '”'); return }
+          if (field.type === 'number' && value !== '') {
+            const number = Number(value)
+            if (!Number.isFinite(number) || (field.min !== undefined && number < field.min) || (field.max !== undefined && number > field.max)) {
+              setError(field.label + '必须在 ' + field.min + '–' + field.max + ' 之间')
+              return
+            }
+          }
+        }
+        onDone(values)
+      }
+      const control = (field) => {
+        const common = {
+          value: String(values[field.key] ?? ''),
+          required: field.required || undefined,
+          onChange: (event) => { setError(''); setValues((current) => ({ ...current, [field.key]: event.target.value })) },
+        }
+        if (field.type === 'select') return h('select', common, (field.options ?? []).map((option) => h('option', { key: option.value, value: option.value }, option.label)))
+        if (field.type === 'textarea') return h('textarea', { ...common, rows: 4, placeholder: field.placeholder })
+        return h('input', { ...common, type: field.type ?? 'text', min: field.min, max: field.max, step: field.type === 'number' ? 1 : undefined, placeholder: field.placeholder })
+      }
+      return h(ModalShell, { label: request.title, panelClass: 'dsh-gw-confirm', zIndex: 9990, onEscape: () => onDone(null) },
+        h('div', { className: 'dsh-gw-head' }, h('div', { className: 'dsh-gw-brand' }, h('b', null, request.title))),
+        h('div', { className: 'dsh-gw-confirm-body' },
+          request.message ? h('p', { style: { margin: '0 0 12px' } }, request.message) : null,
+          (request.fields ?? []).map((field) => h(Field, { key: field.key, label: field.label }, control(field))),
+          error === '' ? null : h('div', { className: 'dsh-gw-err', role: 'alert' }, error)),
+        h('div', { className: 'dsh-gw-confirm-actions' },
+          h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => onDone(null) }, request.cancelLabel ?? '取消'),
+          h('button', { type: 'button', className: 'dsh-gw-btn', 'data-modal-default': true, onClick: submit }, request.submitLabel ?? '保存')))
+    }
     function Panel({ onClose }) {
       const [state, setState] = React.useState({ loading: true, data: null, error: null })
       const [workspace, setWorkspaceState] = React.useState(readWorkspace)
@@ -11270,6 +11864,8 @@ const STAGE_OF_STATUS = {
       const draftRegistry = registryRef.current
       const [confirmState, setConfirmState] = React.useState(null)
       const confirmRef = React.useRef(null)
+      const [formState, setFormState] = React.useState(null)
+      const formRef = React.useRef(null)
       React.useEffect(() => {
         const bridge = (message, okLabel, cancelLabel) => new Promise((resolve) => {
           if (confirmRef.current !== null) confirmRef.current(false)
@@ -11277,10 +11873,19 @@ const STAGE_OF_STATUS = {
           setConfirmState({ message, okLabel, cancelLabel })
         })
         confirmBridge = bridge
+        const form = (request) => new Promise((resolve) => {
+          if (formRef.current !== null) formRef.current(null)
+          formRef.current = resolve
+          setFormState(request)
+        })
+        formBridge = form
         return () => {
           if (confirmBridge === bridge) confirmBridge = null
+          if (formBridge === form) formBridge = null
           if (confirmRef.current !== null) confirmRef.current(false)
           confirmRef.current = null
+          if (formRef.current !== null) formRef.current(null)
+          formRef.current = null
           stateReads.current.invalidate()
           summaryReads.current.invalidate()
           if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
@@ -11291,6 +11896,12 @@ const STAGE_OF_STATUS = {
         confirmRef.current = null
         setConfirmState(null)
         if (resolve !== null) resolve(yes === true)
+      }
+      const finishForm = (values) => {
+        const resolve = formRef.current
+        formRef.current = null
+        setFormState(null)
+        if (resolve !== null) resolve(values)
       }
 
       const setWorkspace = (id) => {
@@ -11304,6 +11915,8 @@ const STAGE_OF_STATUS = {
 
       const openCard = (id, nextPreset) => {
         if (!draftRegistry.allow()) return false
+        const target = (state.data?.cards ?? []).find((card) => card.id === id)
+        if (target !== undefined && target.workspace !== workspace) setWorkspace(target.workspace)
         setDetailCrumb(null)
         setCardId(id)
         setPreset(nextPreset === undefined ? null : nextPreset)
@@ -11534,19 +12147,12 @@ const STAGE_OF_STATUS = {
             h('div', { className: 'dsh-gw-row-meta' }, row.meta)),
           h('div', { className: 'dsh-gw-row-num' }, String(row.num),
             row.unit === undefined || row.unit === null || row.unit === '' ? null : h('span', { className: 'dsh-gw-row-unit' }, row.unit)))
-        const nodes = []
-        STAGE_ORDER.forEach((stage) => {
-          const inStage = rows.filter((row) => row.stage === stage)
-          if (inStage.length === 0) return
-          nodes.push(h(Sect, { key: 'stage-' + stage }, stage))
-          inStage.filter((row) => row.tone === 'warn').forEach((row) => nodes.push(rowNode(row)))
-          inStage.filter((row) => row.tone !== 'warn').forEach((row) => nodes.push(rowNode(row)))
-        })
-        const unmapped = rows.filter((row) => STAGE_ORDER.indexOf(row.stage) === -1)
-        if (unmapped.length > 0) {
-          nodes.push(h(Sect, { key: 'stage-other' }, '其他'))
-          unmapped.forEach((row) => nodes.push(rowNode(row)))
-        }
+        const stageRank = new Map(STAGE_ORDER.map((stage, index) => [stage, index]))
+        const orderedRows = rows.slice().sort((left, right) => (
+          (left.tone === 'warn' ? 0 : 1) - (right.tone === 'warn' ? 0 : 1)
+          || (stageRank.get(left.stage) ?? 99) - (stageRank.get(right.stage) ?? 99)
+        ))
+        const nodes = orderedRows.map(rowNode)
         if (rows.length === 0) nodes.push(h(Empty, { key: 'empty' }, '这个工作区的卡片都被关掉了，去设置里打开。'))
         return h('div', null, nodes)
       }
@@ -11564,8 +12170,8 @@ const STAGE_OF_STATUS = {
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { if (!draftRegistry.allow('还有没保存的改动。保留草稿并重新读取磁盘数据吗？')) return; loadState(); loadSummary(); setRefreshVersion((n) => n + 1) } }, h(Icon, { name: 'refresh' }))),
           h('div', { className: 'dsh-gw-tabs' },
-            h('div', { className: 'dsh-gw-tablist' },
-              WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
+            h('div', { className: 'dsh-gw-tablist', role: 'tablist', 'aria-label': '工作区' },
+              WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', role: 'tab', 'aria-selected': workspace === item.id, 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
             h('div', { className: 'dsh-gw-search' + (query === '' ? '' : ' has-value') },
               h('input', { ref: searchRef, value: query, placeholder: t('search'), 'aria-label': t('search'), onChange: (event) => setQuery(event.target.value) }),
               query === '' ? null : h('button', {
@@ -11588,6 +12194,9 @@ const STAGE_OF_STATUS = {
         confirmState === null ? null : (createPortal === null
           ? h(ConfirmDialog, { request: confirmState, onDone: finishConfirm })
           : createPortal(h(ConfirmDialog, { request: confirmState, onDone: finishConfirm }), document.body)),
+        formState === null ? null : (createPortal === null
+          ? h(FormDialog, { request: formState, onDone: finishForm })
+          : createPortal(h(FormDialog, { request: formState, onDone: finishForm }), document.body)),
       )
     }
 

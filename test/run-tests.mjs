@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 const repository = fileURLToPath(new URL('../', import.meta.url))
 const suites = [
   'test/lib.test.js',
+  'test/checklist.test.mjs',
   'test/data-safety.test.js',
   'test/rules.test.js',
   'test/security.test.mjs',
@@ -17,6 +18,8 @@ const suites = [
   'test/e2e.mjs',
   'test/p0a.test.mjs',
   'test/v2.test.mjs',
+  'test/calendar-integrity.test.mjs',
+  'test/feedback-promote.test.mjs',
   'test/migration.test.mjs',
   'test/push.test.mjs',
   'test/links.test.mjs',

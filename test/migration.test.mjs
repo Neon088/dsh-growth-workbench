@@ -61,5 +61,21 @@ check('migration variant created', { json: variantPath }, () => variantPath.incl
 const again = await request('POST', '/api/dsh-growth/v2/migration/apply', { dryRun: false })
 check('migration is idempotent', again, (r) => r.status === 200 && r.json.migration?.assignedIds === 0 && r.json.migration?.createdCount === 0)
 
+// 待发可以安全保留；待回填不能凭旧标签伪造发布事实和观察周期，迁成在写并标记待确认。
+// 一格多平台仍必须拆成多个平台版本。
+fs.writeFileSync(path.join(vault, 'Topics', '待发老选题.md'), '---\nplatform: 抖音\nstatus: 待发\ndate: 2026-10-02\n---\n\n正文\n', 'utf8')
+fs.writeFileSync(path.join(vault, 'Topics', '多平台老选题.md'), '---\nplatform: 抖音 / 知乎\nstatus: 待回填\ndate: 2026-10-03\n---\n\n正文\n', 'utf8')
+const preview2 = await request('GET', '/api/dsh-growth/v2/migration/preview')
+check('migration recognizes current statuses and platform lists', preview2, (r) => r.status === 200
+  && r.json.migration?.missingIdCount === 2 && r.json.migration?.createVariantCount === 3)
+const applied2 = await request('POST', '/api/dsh-growth/v2/migration/apply', { dryRun: false })
+check('migration applies status and platform variants', applied2, (r) => r.status === 200 && r.json.migration?.createdCount === 3)
+const migrated = (applied2.json?.migration?.created ?? []).map((item) => splitNote(fs.readFileSync(path.join(vault, item.path), 'utf8')).front)
+check('migration preserves 待发, safely downgrades unproven publish facts, and splits platforms', { json: migrated }, () => migrated.some((front) => front.platform === '抖音' && front.status === '待发')
+  && migrated.some((front) => front.platform === '知乎' && front.status === '在写')
+  && (applied2.json?.migration?.created ?? []).some((item) => item.needsPublishConfirmation === true))
+const again2 = await request('POST', '/api/dsh-growth/v2/migration/apply', { dryRun: false })
+check('migration stays idempotent after multi-platform import', again2, (r) => r.status === 200 && r.json.migration?.createdCount === 0)
+
 console.log('\n' + (failures === 0 ? 'ALL PASSED' : failures + ' FAILED'))
 process.exitCode = failures === 0 ? 0 : 1

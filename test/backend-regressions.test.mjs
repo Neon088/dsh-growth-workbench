@@ -143,7 +143,7 @@ test('backend: legacy fallback ID is unchanged and body-only does not insert a Y
   assert.equal(body.status, 200)
   assert.ok(fs.readFileSync(file, 'utf8').startsWith(prefix))
   assert.equal(splitNote(fs.readFileSync(file, 'utf8')).front.id, undefined)
-  const created = await request('POST', '/v2/masters/' + id + '/variants', { platform: 'douyin', account: 'legacy account' })
+  const created = await request('POST', '/v2/masters/' + id + '/variants', { platform: 'douyin', account: '' })
   assert.equal(created.status, 200, JSON.stringify(created.json))
   const saved = await request('PUT', '/topics/record?path=' + encodeURIComponent(relative), { front: { status: '待发' } })
   assert.equal(saved.status, 200)
@@ -162,9 +162,11 @@ test('backend: actual legacy migration persists exposed ID and keeps alias-versi
   const before = await request('GET', '/topics/record?path=' + encodeURIComponent(relative))
   const masterId = before.json.record.id
   assert.ok(masterId && !before.json.record.front.id)
-  const created = await request('POST', '/v2/masters/' + masterId + '/variants', { platform: '抖音', account: 'fixture', riskLevel: '低' })
+  const created = await request('POST', '/v2/masters/' + masterId + '/variants', { platform: '抖音', account: '', riskLevel: '低' })
   assert.equal(created.status, 200, JSON.stringify(created.json))
   const variant = created.json.variant
+  await request('POST', '/v2/variants/' + variant.id + '/transition', { to: '待发' })
+  await request('POST', '/v2/variants/' + variant.id + '/transition', { to: '已发', at: '2020-11-01T10:00:00+08:00', reviewDays: 7 })
   const metric = await request('POST', '/v2/variants/' + variant.id + '/metrics', { date: '2026-11-10', views: '9', likes: '1' })
   assert.equal(metric.status, 200, JSON.stringify(metric.json))
   const calendar = await request('POST', '/calendar', { month: '2026-11', date: '2026-11-10', platform: '抖音', topic: 'Legacy', topicPath: relative, topicId: masterId, variantId: variant.id, status: '待发' })
@@ -196,7 +198,7 @@ test('backend: actual legacy migration persists exposed ID and keeps alias-versi
 test('backend: variant body/property patch preserves YAML and DELETE honors caller stale sha1', async (t) => {
   const { root, request } = await fixture(t)
   const master = await request('POST', '/v2/masters', { title: 'Delete master', platform: '抖音', date: '2026-11-10', type: '选题', status: '在写' })
-  const created = await request('POST', '/v2/masters/' + master.json.master.id + '/variants', { platform: '抖音', account: 'main' })
+  const created = await request('POST', '/v2/masters/' + master.json.master.id + '/variants', { platform: '抖音', account: '' })
   assert.equal(created.status, 200, JSON.stringify(created.json))
   const variant = created.json.variant
   const file = path.join(root, variant.path)

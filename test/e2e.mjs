@@ -106,20 +106,20 @@ check('calendar returns platform options', platCal, (r) => {
   return list.includes('B站') && list.includes('小红书') && !list.includes('bilibili')
 })
 
-// P0-3 待回流：跨月合并「已发」，填完数据回写选题笔记的 frontmatter。
-// 先造一个新月份 + 两条已发（一条挂选题、一条不挂），确认都出现在待回流里。
-await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-03', platform: '抖音', topic: '十二月已发', status: '已发', note: '', link: '', topicPath: 'Topics/羽绒服.md', productPath: '' })
-await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-01', platform: '小红书', topic: '没挂选题的已发', status: '已发', note: '', link: '', topicPath: '', productPath: '' })
+// 已发布只能由绑定平台版本的“确认已发布”动作产生，不能在新建日历时直接伪造。
+const directPublished = await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-03', platform: '抖音', topic: '十二月已发', status: '已发', note: '', link: '', topicPath: 'Topics/羽绒服.md', productPath: '' })
+check('calendar cannot create 已发 directly', directPublished, (r) => r.status === 400 && r.json.code === 'bad_request')
+const unboundPublished = await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-01', platform: '小红书', topic: '没挂选题的已发', status: '已发', note: '', link: '', topicPath: '', productPath: '' })
+check('unbound calendar cannot create publish fact', unboundPublished, (r) => r.status === 400 && r.json.code === 'bad_request')
 await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-05', platform: '抖音', topic: '还没发', status: '创作中', note: '', link: '', topicPath: '', productPath: '' })
 const pending = await request('GET', '/api/dsh-growth/pending')
-check('pending lists only 已发 across months', pending, (r) => {
-  const rows = r.json.rows ?? []
-  return r.status === 200 && rows.some((row) => row.topic === '十二月已发') && !rows.some((row) => row.topic === '还没发') && !rows.some((row) => row.topic === '挂货那条')
-})
+check('rejected publish creates no pending gap', pending, (r) => r.status === 200 && (r.json.rows ?? []).length === 0)
 check('pending sorted by date desc', pending, (r) => {
   const dates = (r.json.rows ?? []).map((row) => String(row.date))
   return dates.every((value, index) => index === 0 || dates[index - 1] >= value)
 })
+check('pending total counts the gap rows it actually returns', pending, (r) =>
+  Number(r.json.total ?? -1) === (r.json.rows ?? []).length)
 const topicsList = await request('GET', '/api/dsh-growth/topics/list?limit=50')
 const realTopicPath = (topicsList.json.records ?? []).map((r) => r.path).find((p) => p.includes('羽绒服')) ?? 'Topics/羽绒服.md'
 const pendingRow = (pending.json.rows ?? []).find((row) => row.topic === '十二月已发')
@@ -129,14 +129,7 @@ const pendingRow = (pending.json.rows ?? []).find((row) => row.topic === '十二
 const goneWriteback = await request('POST', '/api/dsh-growth/pending/writeback', { items: [] })
 check('legacy writeback route is gone', goneWriteback, (r) => r.status === 404 && r.json.ok === false)
 const pendingReadOnly = await request('GET', '/api/dsh-growth/pending')
-check('pending is read-only: rows keep 已发', pendingReadOnly, (r) => {
-  const rows = r.json.rows ?? []
-  return rows.length > 0 && rows.every((row) => String(row.status) === '已发')
-})
-check('pending keeps 未挂选题 row visible (gap list, not a dead input)', pendingReadOnly, (r) => {
-  const row = (r.json.rows ?? []).find((item) => item.topic === '没挂选题的已发')
-  return row !== undefined && String(row.topicPath ?? '') === ''
-})
+check('pending remains read-only and empty', pendingReadOnly, (r) => r.status === 200 && (r.json.rows ?? []).length === 0)
 
 // ── 回归：挂了选题笔记的日历行，改主题不换 id（P0-a 断点 B 已修）──
 const renameNew = await request('POST', '/api/dsh-growth/calendar', { month: '2026-12', date: '2026-12-20', platform: '小红书', topic: '改名前', status: '选题', note: '', link: '', topicPath: 'Topics/爆款拆解-羽绒服.md', productPath: '' })

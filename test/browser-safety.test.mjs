@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto'
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const calendarOnly = process.argv.includes('--calendar-warning-only')
 const traceCalendar = process.argv.includes('--trace-calendar-height')
+const previewDiag = process.argv.includes('--preview-diag')
 if (calendarOnly && process.argv.includes('--smoke')) throw new Error('Choose smoke or the single calendar diagnostic, not both')
 if (traceCalendar && !calendarOnly) throw new Error('Height instrumentation is diagnostic-only; use --calendar-warning-only')
 const outputBase = join(repo, 'test', '.artifacts', 'browser')
@@ -207,6 +208,12 @@ function inBrowser(fixture) {
     if (path === '/v2/pending') return { ok: true, items: copy(fixture.pendingItems) }
     if (path === '/calendar') {
       const requestedMonth = query.get('month') || fixture.month
+      if (method === 'PUT') {
+        const updated = body
+        const index = fixture.calendarEntries.findIndex((entry) => entry.id === updated.id)
+        if (index !== -1) fixture.calendarEntries[index] = { ...fixture.calendarEntries[index], ...updated }
+        return { ok: true, entries: copy(fixture.calendarEntries.filter((entry) => entry.date.startsWith(requestedMonth))), month: requestedMonth, path: 'Calendar/' + requestedMonth + '.md', sha1: 'calendar-' + (++writes) }
+      }
       return { ok: true, rows: [], entries: copy(fixture.calendarEntries.filter((entry) => entry.date.startsWith(requestedMonth))), schema: [], month: requestedMonth, path: 'Calendar/' + requestedMonth + '.md', sha1: 'calendar-0' }
     }
     if (path === '/ideas') return { ok: true, entries: copy(fixture.ideas), rows: [], schema: [], path: 'Workbench/isolated.md', sha1: 'table-0' }
@@ -266,7 +273,7 @@ function inBrowser(fixture) {
 const escapeScript = (text) => text.replace(/<\/script/gi, '<\\/script')
 // Only expose private components in this test HTML. The plugin file and component
 // implementations stay untouched; the regular Panel/card tour uses public exports.
-let browserClient = clientSource.replace('const exports_ = {', 'const exports_ = { __test: { TopicDetail, PlatformVariantsPanel, NoteDetail, CalendarCard, GlossaryCard, CampaignsCard, ConfirmDialog, DraftContext, RefreshContext, createDraftRegistry },')
+let browserClient = clientSource.replace('const exports_ = {', 'const exports_ = { __test: { TopicDetail, PlatformVariantsPanel, NoteDetail, CalendarCard, GlossaryCard, CampaignsCard, ConfirmDialog, DraftContext, RefreshContext, createDraftRegistry, setChatPreview },')
 assert.notEqual(browserClient, clientSource, 'Private test export anchor changed; update the fixture explicitly')
 if (traceCalendar) {
   const marker = 'if (el !== null) setCalHeadH(Math.round(el.getBoundingClientRect().height))'
@@ -387,6 +394,7 @@ function layoutAudit() {
   }
 }
 async function check(name, fn) {
+  if (previewDiag && name !== '诊断：来源预览拖拽几何（page/wide/tall）') return
   try { const evidence = await fn(); outcomes.push({ name, status: 'passed', ...(evidence && typeof evidence === 'object' ? { evidence } : {}) }); console.log('✓ ' + name) }
   catch (error) {
     const evidence = { name, status: 'failed', error: String(error.stack || error) }
@@ -416,7 +424,7 @@ try {
   const port = Number(readFileSync(portFile, 'utf8').split(/\r?\n/)[0])
   browser = await playwright.chromium.connectOverCDP('http://127.0.0.1:' + port)
   context = await browser.newContext({ viewport: { width: 900, height: 900 }, timezoneId: 'Asia/Shanghai' })
-  if (!calendarOnly) {
+  if (!calendarOnly && !previewDiag) {
   await check('真实 React 挂载首页；Esc 不调用空 onClose', async () => {
     const page = await newPage()
     await page.getByText('账号档案', { exact: true }).waitFor()
@@ -651,7 +659,7 @@ try {
     await page.screenshot({ path: join(runDir, 'ui-600-light-topic-card-clean.png') })
     await page.close()
   })
-  await check('第五批：排期表能随窄侧栏收缩，平台下拉贴近底部时向上展开', async () => {
+  await check('第五批：排期表能随窄侧栏收缩；排期平台一行一个，多平台被拒绝', async () => {
     const page = await newPage('calendar', { width: 600, filled: true })
     await page.evaluate(() => window.__mountCalendar({ height: 420 }))
     const upcomingSummary = page.locator('.dsh-gw-fold > summary').filter({ hasText: '排期列表' }).first()
@@ -677,19 +685,14 @@ try {
     }))
     assert.ok(linkSelectBoxes.length > 0 && linkSelectBoxes.every((box) => box.width >= 120 && box.height >= 26), 'Calendar row selects must keep readable size: ' + JSON.stringify(linkSelectBoxes))
     await row.locator('.dsh-gw-cal-row-links button').first().click()
-    const platform = row.locator('.dsh-gw-platmulti').first()
+    const platform = row.getByPlaceholder('一个平台')
     await platform.waitFor()
-    await platform.scrollIntoViewIfNeeded()
-    await page.evaluate(() => { const body = document.querySelector('.dsh-gw-body'); body.scrollTop = body.scrollHeight })
-    await page.waitForTimeout(100)
-    await platform.locator('input').click()
-    await page.locator('.dsh-gw-platmulti-drop').waitFor()
-    const drop = await page.locator('.dsh-gw-platmulti-drop').first().boundingBox()
-    const bodyBox = await page.locator('.dsh-gw-body').first().boundingBox()
-    assert.ok(drop !== null && bodyBox !== null && drop.y >= bodyBox.y - 1 && drop.y + drop.height <= bodyBox.y + bodyBox.height + 1, 'Platform dropdown must stay inside the scroll viewport')
-    const option = page.locator('.dsh-gw-platmulti-drop').getByRole('button', { name: '快手', exact: true })
-    await option.click()
-    assert.match(await platform.locator('input').inputValue(), /快手/, 'Platform option must be selectable from the open menu')
+    await platform.fill('抖音，快手')
+    await row.getByRole('button', { name: '保存', exact: true }).click()
+    assert.ok((await page.evaluate(() => window.__notices)).some((message) => message.includes('一行只能放一个平台')), 'Multi-platform edit must be rejected with an explanation')
+    await platform.fill('快手')
+    await row.getByRole('button', { name: '保存', exact: true }).click()
+    await row.getByRole('button', { name: '快手', exact: true }).waitFor()
     await page.screenshot({ path: join(runDir, 'ui-600-light-calendar-platform-picker.png') })
     await page.close()
   })
@@ -808,7 +811,7 @@ try {
       if (traceCalendar) writeFileSync(join(runDir, 'calendar-measurements.json'), JSON.stringify(await page.evaluate(() => window.__calendarMeasurements), null, 2) + '\n')
       await page.close()
     })
-    if (!calendarOnly) {
+    if (!calendarOnly && !previewDiag) {
     await check('超过首批上限可继续载入；过滤重新向服务端搜索全库', async () => {
       const page = await newPage('topics')
       await page.evaluate(() => { window.__fixture.fixture.topics = Array.from({length:401}, (_, index) => ({path:'Topics/案例' + index + '.md', title:'案例' + index, sha1:'case-' + index, body:'CASE_' + index, front:{id:'case-' + index, title:'案例' + index, type:'拆解', platform:'抖音'}})) })
@@ -1020,6 +1023,39 @@ try {
       await page.screenshot({ path: join(runDir, 'ui-sticky-square.png') })
       await page.close()
     })
+    await check('来源预览：拖动手柄时顶边跟随鼠标、底边锚定，横屏保持 16:9', async () => {
+      const page = await newPage('ideas', { width: 600, filled: true })
+      await page.evaluate(() => {
+        const host = document.createElement('div')
+        host.id = 'preview-dock-host'
+        document.body.appendChild(host)
+        window.__previewRoot = ReactDOM.createRoot(host)
+        window.__previewRoot.render(React.createElement(window.__registered['growth-workbench-preview']))
+      })
+      await page.evaluate(() => window.__exports.__test.setChatPreview('https://example.invalid/page'))
+      const card = page.locator('.dsh-gw-chat-preview')
+      await card.waitFor()
+      const before = await card.boundingBox()
+      const handle = card.locator('.dsh-gw-chat-preview-resize')
+      const hb = await handle.boundingBox()
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2 - 120, { steps: 6 })
+      await page.mouse.up()
+      await page.waitForTimeout(80)
+      const after = await card.boundingBox()
+      assert.ok(after.y <= before.y - 100, '拖高后顶边必须跟着鼠标上移（而不是顶边钉住、从下方长出来）')
+      assert.ok(Math.abs(after.y + after.height - (before.y + before.height)) <= 2, '拖高后底边必须保持锚定，不能往输入框方向顶')
+      assert.ok(Math.abs(after.height - before.height - 120) <= 2, '高度增量应等于拖动距离')
+      await page.evaluate(() => window.__exports.__test.setChatPreview('https://www.bilibili.com/video/BV1GJ411x7h7'))
+      await page.waitForFunction(() => document.querySelector('.dsh-gw-chat-preview')?.getAttribute('data-fit') === 'wide')
+      const wide = await page.locator('.dsh-gw-chat-preview-frame').boundingBox()
+      assert.ok(Math.abs(wide.width / wide.height - 16 / 9) <= 0.03, '横屏视频必须保持 16:9 比例（不拖出黑边）')
+      await page.evaluate(() => window.__exports.__test.setChatPreview(''))
+      await page.waitForFunction(() => document.querySelector('.dsh-gw-chat-preview') === null)
+      await page.screenshot({ path: join(runDir, 'ui-preview-dock.png') })
+      await page.close()
+    })
     for (const width of [440, 520, 600]) for (const theme of ['light', 'dark']) {
       await check('UI 浅深主题与真实内容密度：' + width + 'px / ' + theme, async () => {
         const options = { width, theme, filled: true }, evidence = { width, theme, simulatedHostAliases: true, pages: {} }
@@ -1077,12 +1113,83 @@ try {
     }
     }
   }
+  if (previewDiag) {
+    await check('诊断：来源预览拖拽几何（page/wide/tall）', async () => {
+      const urls = [
+        ['page', 'https://example.invalid/page'],
+        ['wide', 'https://www.bilibili.com/video/BV1GJ411x7h7'],
+        ['tall', 'https://www.douyin.com/video/7123456789012345678'],
+      ]
+      const measurements = []
+      for (const [fit, url] of urls) {
+        const page = await newPage('ideas', { width: 600, filled: true })
+        await page.evaluate(() => {
+          let host = document.getElementById('preview-dock-host')
+          if (!host) {
+            host = document.createElement('div')
+            host.id = 'preview-dock-host'
+            document.body.appendChild(host)
+          }
+          if (!window.__previewRoot) window.__previewRoot = ReactDOM.createRoot(host)
+          window.__previewRoot.render(React.createElement(window.__registered['growth-workbench-preview']))
+        })
+        await page.evaluate((previewUrl) => window.__exports.__test.setChatPreview(previewUrl), url)
+        const card = page.locator('.dsh-gw-chat-preview')
+        await card.waitFor()
+        await page.waitForTimeout(120)
+        const before = await card.boundingBox()
+        const frameBefore = await card.locator('.dsh-gw-chat-preview-frame').boundingBox()
+        const styleBefore = await card.locator('.dsh-gw-chat-preview-frame').getAttribute('style')
+        const fitBefore = await card.getAttribute('data-fit')
+        const handle = card.locator('.dsh-gw-chat-preview-resize')
+        const hb = await handle.boundingBox()
+        await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2 - 120, { steps: 6 })
+        await page.mouse.up()
+        await page.waitForTimeout(120)
+        const after = await card.boundingBox()
+        const frameAfter = await card.locator('.dsh-gw-chat-preview-frame').boundingBox()
+        const styleAfter = await card.locator('.dsh-gw-chat-preview-frame').getAttribute('style')
+        measurements.push({ fit, fitBefore, url, card: { before, after }, frame: { before: frameBefore, after: frameAfter }, styleBefore, styleAfter })
+        await page.close()
+      }
+      const page = await newPage('ideas', { width: 600, filled: true })
+      await page.evaluate(() => {
+        let host = document.getElementById('preview-dock-host')
+        if (!host) {
+          host = document.createElement('div')
+          host.id = 'preview-dock-host'
+          document.body.appendChild(host)
+        }
+        if (!window.__previewRoot) window.__previewRoot = ReactDOM.createRoot(host)
+        window.__previewRoot.render(React.createElement(window.__registered['growth-workbench-preview']))
+      })
+      await page.evaluate(() => window.__exports.__test.setChatPreview('https://example.invalid/page'))
+      await page.locator('.dsh-gw-chat-preview').waitFor()
+      const firstStyle = await page.locator('.dsh-gw-chat-preview-frame').getAttribute('style')
+      await page.evaluate(() => window.__exports.__test.setChatPreview('https://www.douyin.com/video/7123456789012345678'))
+      await page.waitForTimeout(400)
+      const crossState = await page.evaluate(() => {
+        const card = document.querySelector('.dsh-gw-chat-preview')
+        return {
+          fit: card?.getAttribute('data-fit') ?? null,
+          urlText: card?.querySelector('.dsh-gw-chat-preview-url')?.textContent ?? null,
+          frameStyle: card?.querySelector('.dsh-gw-chat-preview-frame')?.getAttribute('style') ?? null,
+        }
+      })
+      measurements.push({ fit: 'cross-url-reset', firstStyle, crossState })
+      await page.close()
+      writeFileSync(join(runDir, 'preview-diag.json'), JSON.stringify(measurements, null, 2) + '\n')
+      return { measurements }
+    })
+  }
   assert.deepEqual(pageErrors, [], 'Uncaught browser error')
   assert.deepEqual(warnings, [], 'Browser console warning/error')
   assert.equal(outcomes.filter((item) => item.status === 'failed').length, 0, 'One or more browser scenarios failed; inspect report.json')
   assert.equal(hash(readFileSync(clientPath, 'utf8')), clientHash, 'Client changed while this browser snapshot was being tested; rerun the final version')
 } finally {
-  writeFileSync(reportPath, JSON.stringify({ clientPath, clientHash, clientUnchanged: hash(readFileSync(clientPath, 'utf8')) === clientHash, scenarios: outcomes, pageErrors, warnings, fixturePath, mode: calendarOnly ? 'calendar-diagnostic' : process.argv.includes('--smoke') ? 'smoke' : 'full', measurementInstrumented: traceCalendar, isolated: true, liveApiUsed: false }, null, 2) + '\n')
+  writeFileSync(reportPath, JSON.stringify({ clientPath, clientHash, clientUnchanged: hash(readFileSync(clientPath, 'utf8')) === clientHash, scenarios: outcomes, pageErrors, warnings, fixturePath, mode: calendarOnly ? 'calendar-diagnostic' : previewDiag ? 'preview-diagnostic' : process.argv.includes('--smoke') ? 'smoke' : 'full', measurementInstrumented: traceCalendar, isolated: true, liveApiUsed: false }, null, 2) + '\n')
   if (context) await context.close().catch(() => {})
   if (browser) await browser.close().catch(() => {})
   if (processHandle.exitCode === null) processHandle.kill()
