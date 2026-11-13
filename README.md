@@ -1,133 +1,179 @@
-# dsh-growth-workbench
+# DSH Growth Workbench
 
-DeepSeek Harness 的新媒体运营工作台插件，给做新媒体、电商、营销的人用。
+DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回填和复盘集中在一个侧边栏中，业务数据直接保存在自己的 Obsidian vault 里。
 
-做运营的日常就是这些事：记选题、拆爆款、排日历、发完录数据、定期翻复盘。这些我原来都记在 Obsidian 里，这个插件把它们搬进了 DSH 的侧边栏——工作台和 Obsidian 读写的是同一批 md 文件，没有第二份副本，也不存在同步这回事。
+当前版本为 `0.2.0`，仍在迭代测试。项目主要面向个人创作者和小型内容运营团队，目前只支持 DSH，不是 Codex、Claude Code 等 Agent 的通用插件。
 
-装完是空的，只建目录骨架和几张空模板，数据自己填。
+## 能做什么
 
-## 有什么
+- 管理平台账号、账号定位和目标人群。
+- 收集灵感，拆解案例，建立自己的内容选题。
+- 为同一选题创建不同平台、不同账号的独立版本。
+- 按月排期，也可以一次为多个平台创建版本和日历记录。
+- 记录实际发布时间、观察天数和累计数据快照。
+- 保存阶段复盘；结案后仍可补录数据或开启新一轮观察。
+- 管理商品、客户反馈、营销方案、SOP、术语和文案规则。
 
-会话头部有个「工作台」按钮，点开是右侧栏（右侧栏打不开时会退回浮层）。顶栏有全局搜索、设置和刷新。四个页签对应四类工作，每张卡都能在设置里单独关掉：
+## 内容流程
 
-| 页签 | 卡片 | 存在哪 | 说明 |
-| --- | --- | --- | --- |
-| 运营 | 账号档案 | `Accounts/` | 平台、账号名、定位、目标人群；选题和平台版本按 id 引用账号 |
-| 运营 | 灵感箱 | `Workbench/灵感箱.md` | 一行一条灵感，状态 新/已用/已废弃，用掉的填去向 |
-| 运营 | 爆款拆解（别人的） | `Topics/` | 别人的爆款，一篇一个 md，frontmatter 记平台、日期、播放、点赞 |
-| 运营 | 我的选题 | 选题详情面板 | 自己的选题：脚本进度、平台版本、风险自检、回流数据；可直接按规则审稿或打开对应发布 SOP |
-| 运营 | 内容日历 | `Calendar/YYYY-MM.md` | 一张月表，状态 在写/待发/已发/待回填；每行可记 GMV 和转化率 |
-| 运营 | 待回填数据 | — | 发了的版本逐天录数据，数据录入只有这一个入口 |
-| 运营 | 数据复盘 | `Data/回流台账/YYYY-MM.md` | 按平台版本看播放、赞藏、评论、转发 |
-| 电商 | 商品 / 竞品库 | `Products/` | frontmatter 档案，勾 2–4 个并排对比 |
-| 电商 | 电商数据复盘 | `Data/*.md` | GMV、流量、转化率、ROI、环比 |
-| 电商 | 客户反馈库 | `Feedback/客户反馈.md` | 渠道、来源（平台 / 文章视频笔记 / 自家或竞品商品）、情感、标签、状态，负面未处理亮红条；单条反馈可直接转成自己的选题 |
-| 营销 | 营销方案库 | `Campaigns/` | 平台、状态、起止、预算、目标 |
-| 通用 | SOP 树 | `SOP/` | 目录树直接读写；vault 根下没有 SOP/ 时以整个 vault 为根 |
-| 通用 | 术语表 | `Workbench/指标与黑话.md` | 中英名、领域、标签、备注 |
-| 通用 | 文案规则 / 语调库 | `CopyRules/rules.md` | 硬规则 / 软规则 / 待观察，计数表自动重算 |
+每个平台版本独立流转：
 
-导入的 CSV 原文存档在 `Data/csv/`；每次写回之前在 `Workbench/.backups/` 留一份 `.bak`。所有目录名都能改（首次引导页或 `~/.dsh-growth/config.json`），不存在的目录会自动建。导入行也会写入对应周期的 Data 复盘，并保留「数据来源 / 统计口径」。
-
-## 一篇选题拆几个平台发
-
-这是 v2 的主要场景。一篇主选题可以拆出多个平台版本，每个版本自己走 在写 → 待发 → 已发 → 待回填 → 已结案 的流程，也可以在发布前取消。确认发布时填写实际发布时间与本轮观察天数；阶段结案会冻结所选快照，但不阻止继续补录，之后还能开启独立的新观察周期。收纳只负责从日常视图隐藏，不改变生命周期状态。每个版本有自己的风险等级和发布前自检。自检条目不在插件里写死，直接读 SOP 目录里的《发布前检查清单.md》：改 SOP 就是改门槛，高风险版本要把清单全部勾完才能发，标了「禁发」的不允许发布。
-
-文件这么放：主选题在 `Topics/<标题>.md`（frontmatter 带稳定 id 和来源链接），平台版本在 `Workbench/平台版本/<masterId>/<平台>-<账号>.md`，指标记在 `Data/回流台账/YYYY-MM.md`，阶段结案快照放在 `Workbench/复盘结案/<variantId>/`。不同日期的累计快照全部保留；同一天再次保存会合并更新该日记录，未提交字段保持原值。榜单按每个版本的最新累计快照计算，不会把多天累计值重复相加。同一选题的抖音版本和小红书版本各存各的，互不干扰。
-
-日历的新建排期可以一次多选平台：系统按「一行 = 一个平台 = 一个版本」一次扇出 N 行，同平台同账号已有版本会复用，不会重复建版；单平台照旧走普通排期。同一选题的多个版本在版本面板里并排对照，完播率、平均时长、播放、赞、来源和口径一屏看完。
-
-日历里的 GMV / 转化率是结构化列，商品库汇总直接读这两列，不再从备注里猜数字；老月份表会按原列位置补空列，旧数据不串位。客户反馈转选题时会保留反馈原话、渠道和来源，并把原反馈标成「跟进中」，处理意见与结果都留下新选题路径。
-
-老数据不用手工搬：设置页有「v2 数据迁移」，先预检再执行，给老选题补稳定 id、给已有平台的选题建一个平台版本空壳。只增不删，跑几遍结果都一样。
-
-## 装
-
-需要 Node 22+（或 24），DSH 0.2.0-rc.1 以上。
-
-```powershell
-# clone 下来后用 DSH 的插件命令装（路径换成你的）
-dsh plugin --profile desktop add <仓库路径>
-
-# 没有 dsh 命令时，先看脚本准备改什么
-node install.mjs
-
-# 同一次运行中展示计划，输入 Y 后才应用这份计划
-node install.mjs --confirm
-
-# 不用 desktop profile 的话，明确指定目录
-node install.mjs --profile "D:\DSH\profiles\my-profile" --confirm
-
-# 跨两次调用：预览输出 fingerprint，再绑定该指纹执行
-node install.mjs --profile "D:\DSH\profiles\my-profile" --json
-node install.mjs --profile "D:\DSH\profiles\my-profile" --apply --expected-plan <预览中的64位指纹>
+```text
+在写 → 待发 → 已发 → 待回填 → 已结案
 ```
 
-脚本默认纯预览，不会隐式安装依赖或重启应用。`--confirm` 在同一进程中展示计划并等待确认，直接回车取消；跨两次调用必须带预览输出的 `--expected-plan` 指纹，单独 `--apply` 会拒绝。指纹绑定操作、profile、配置输入（含未改动或原不存在的 YAML）、插件入口及安装源码文件集合；任一输入变化都要重新预览。执行时先暂存新版、备份改动的配置和旧目录。开发环境已经连到当前源码的目录链接会保留，但仍会检查 profile 里的注册。
+发布前可以取消版本。已经发布的内容不会退回“在写”，避免把发布事实和编辑状态混在一起。
 
-装完重启 DSH、刷新页面，会话头部出现「工作台」按钮。第一次点开会引导填 vault 根目录，填完各板块目录骨架自动建好。改源码不等于已经更新了运行中的宿主：客户端热重载还取决于对应构建 watcher，Host 侧代码要重新加载后才生效。
+“已结案”只表示本轮观察结束，不会锁死数据。之后补录的数据会进入待复核状态，也可以另开一轮观察。“收纳”仅将版本移出日常列表，不改变状态，也不删除文件。
 
-## 出问题了
+## 数据保存在哪里
 
-插件加载失败可能让 DSH 无法正常打开。用 `node rollback.mjs --confirm` 在同一次运行内预览并确认；双击 `run-rollback.bat` 也只启动这一份计划，取消不会回滚。需要跨两次调用时，先跑 `node rollback.mjs --json`，再用相同 `--profile` 参数执行 `node rollback.mjs --apply --expected-plan <预览中的64位指纹>`。其它 profile 用 `--profile` 指定。
+工作台没有独立数据库，Markdown 文件就是数据源。默认目录如下：
 
-回滚只移除增长工作台的精确注册项，不重置其它插件。改动的配置和旧插件入口留在所选 profile 的 `.dsh-growth-backups/`，开发目录链接只隔离链接本身。vault 笔记和增长工作台的用户配置都保留。复杂 YAML 无法安全定位时会整次拒写，不会先改一半再报成功。安装中途失败会尝试恢复；若插件入口已被第三方替换或改动，会保留该入口和旧备份，并明确报告自动恢复未完成，不强行覆盖。这个脚本不是通用的 DSH 修复器，回滚后是否能启动仍要实际检查。
+| 内容 | 目录 |
+| --- | --- |
+| 账号档案 | `Accounts/` |
+| 主选题与案例拆解 | `Topics/` |
+| 平台版本 | `Workbench/平台版本/<masterId>/` |
+| 内容日历 | `Calendar/YYYY-MM.md` |
+| 数据台账 | `Data/回流台账/YYYY-MM.md` |
+| 阶段复盘 | `Workbench/复盘结案/<variantId>/` |
+| 商品与竞品 | `Products/` |
+| 客户反馈 | `Feedback/客户反馈.md` |
+| 营销方案 | `Campaigns/` |
+| SOP | `SOP/` |
+| 文案规则 | `CopyRules/rules.md` |
 
-## 数据这块
+首次打开工作台时需要填写 vault 根目录。各业务目录可以在设置中修改，插件只管理这个 vault 内的文件。
 
-- 编辑器保存和版本删除用读取时的 sha1 检查冲突，不自动拿新指纹强行重试
-- 只改正文时保留原来的 YAML；策划字段只发字段补丁，不把平台脚本写进主选题
-- 同一文件的写入排队；备份失败就停下，创建新笔记不覆盖已有文件
-- Markdown 台账只读写对应的主表，副表保留；主表有歧义会拒绝修改
-- 删除先备份再删，备份在 `Workbench/.backups/`
-- 所有路径限制在 vault 里面，绝对路径和 `..` 一律拒绝，也只碰 `.md` 和 `.csv`
-- 事件推送只发文件指纹不发内容，客户端收到后自己重读；未保存草稿不会被旧读取结果覆盖
-- 外链只有 http/https/mailto 会渲染成可点击
+不同日期的累计数据会分别保留。同一天再次保存时只更新当天记录，不会丢失之前日期的快照。排行榜使用每个版本的最新累计快照，不会把多日累计值重复相加。
 
-列表接口会返回筛选后的总数、分页位置和是否还有后续；关联旧记录也可以按完整路径或稳定 ID 读取。刷新时编辑器保持挂载，保存失败会留下草稿和重试入口。
+## 环境要求
 
-## 开发
+- Windows
+- Node.js `22.19+` 或 `24+`
+- DeepSeek Harness `0.2.0-rc.1+`
+- 一个可读写的 Obsidian vault
+
+其他操作系统尚未经过完整验证。
+
+## 安装
+
+克隆仓库并进入项目目录：
 
 ```powershell
-# 一次全查：语法检查 + 未定义引用扫描（client/index/lib）+ 18 个测试文件
-npm run verify
+git clone https://github.com/Neon088/dsh-growth-workbench.git
+cd dsh-growth-workbench
+```
 
-# 另跑真实 React / Chrome 的隔离页面验证
+先查看安装计划。此命令不会修改文件：
+
+```powershell
+node install.mjs
+```
+
+确认路径和改动无误后执行安装：
+
+```powershell
+node install.mjs --confirm
+```
+
+如果使用的不是默认 `desktop` profile，请明确指定 profile 目录：
+
+```powershell
+node install.mjs --profile "D:\DSH\profiles\my-profile" --confirm
+```
+
+在自动化环境中，可以先输出安装计划和指纹，再执行这份已确认的计划：
+
+```powershell
+node install.mjs --json
+node install.mjs --apply --expected-plan <上一步输出的指纹>
+```
+
+两次执行之间如果源码或 DSH 配置发生变化，原指纹会失效，需要重新预览。
+
+安装脚本会注册插件并备份受影响的 DSH 配置，不会安装依赖，也不会自动重启 DSH。完成后重新加载或重启 DSH，在会话头部打开“增长工作台”，再按引导填写 vault 路径。
+
+## 更新与回滚
+
+更新源码后重新运行安装脚本：
+
+```powershell
+git pull
+node install.mjs --confirm
+```
+
+需要撤回插件注册时，先查看回滚计划，再确认执行：
+
+```powershell
+node rollback.mjs
+node rollback.mjs --confirm
+```
+
+回滚不会删除 Obsidian 笔记和工作台用户配置。安装和回滚产生的配置备份保存在所选 profile 的 `.dsh-growth-backups/`。
+
+## 数据保护
+
+- 修改或删除现有文件前，在 `Workbench/.backups/` 留存备份。
+- 保存时检查文件是否已被其他程序修改，发生冲突时拒绝覆盖。
+- 写入过程中使用临时文件替换，避免留下不完整文件。
+- 拒绝绝对路径、父目录跳转和指向 vault 外部的链接路径。
+
+这些保护用于降低误写风险，不能替代 vault 自身的版本控制或定期备份。Markdown 表格也不适合多人同时编辑同一份数据。
+
+## 旧数据迁移
+
+设置页中的“v2 数据迁移”可以为旧选题补充稳定 ID，并按平台建立版本。迁移会先预检，只新增所需结构，不删除原笔记，也可以重复运行。
+
+旧状态无法证明内容已经实际发布时，迁移不会擅自创建发布记录。执行前仍建议备份 vault 或提交一次版本控制快照。
+
+## Agent 工具
+
+在 DSH 提供 `tools` 服务时，插件会注册 `growth_vault`。Agent 可以查看板块和笔记、修改 frontmatter、替换章节或追加内容。
+
+该工具使用与工作台相同的路径限制、冲突检查和备份机制。发布、结案和观察周期仍在工作台界面中完成。
+
+## 开发与测试
+
+运行离线验证：
+
+```powershell
+npm run verify
+```
+
+该命令执行语法检查、未定义引用扫描和 18 套隔离测试。测试使用临时目录，不会读写真实 vault。
+
+浏览器界面测试需要本机已有 React、Playwright 和 Chrome：
+
+```powershell
 npm run test:browser
 ```
 
-默认逐个跑 18 个测试文件。每个子进程的 home 和临时目录都独立放在 `test/.artifacts/unit/`，避免启动日志落到真实用户目录；运行前后还会核对源码指纹。每个文件的 stdout、stderr 都会单独留存，报告附日志指纹和退出码。用例摘要和跳过原因保留原样，不靠退出码猜数量。lib、data-safety、rules、security、static 检查库和静态约束；e2e、p0a 用临时 vault 和模拟 Host 请求，不是浏览器端到端测试。v2、migration 检查平台版本和迁移，push、links 验证离线行为。backend-regressions、backend-pagination 补数据安全和列表边界，client-behavior 检查延迟响应、事件和保存队列，profile-maintenance 用临时 profile 检查安装回滚；checklist 检查 SOP 清单解析，calendar-integrity 检查日历写入原子性（预检不过不动笔记）、SOP 清单门禁、结构化 GMV/转化率和多平台扇出，feedback-promote 检查反馈转选题的完整 HTTP 闭环。跳过的个别用例会明说，不当成已验证。
+测试脚本不会自动下载依赖，也不会连接正在运行的 DSH。隔离浏览器测试通过后，仍需在实际 DSH 主题和窗口尺寸下做一次人工检查。
 
-浏览器测试另跑，因为需要机器上已有的 Playwright、React 和 Chrome。它只使用内存中的模拟 API 和独立浏览器目录，不访问运行中的 DSH、不读写真实 vault，也不自动下载依赖。已有工具不在 desktop profile 时，可用 `GROWTH_TEST_PROFILE` 和 `GROWTH_TEST_CHROME` 指定；证据保存在 `test/.artifacts/browser/`。默认检查入口、保存与异步行为，并以 440、520、600px × 模拟浅深主题检查有内容的首页、创作、日历和回填表。截图和排版、对比度检查只代表隔离组件，不代表实际宿主主题。`--smoke` 只跑入口；`--calendar-warning-only` 是单场景诊断，不能当作全套通过。缺少工具或某个场景失败不能算浏览器通过，最终还要在实际宿主里验收。
+## 主要文件
 
-Windows 受限环境可能不允许 `node --test` 的进程管道，测试脚本因此顺序执行各文件。客户端仍是单个入口：宿主加载器不能解析客户端相对模块，不要直接把卡片拆成相对 import。
-
-## 目录
-
-| 文件 | 干嘛的 |
+| 文件 | 用途 |
 | --- | --- |
-| `index.js` | Host 侧入口：注册 `/api/dsh-growth/*` 路由、14 张卡、配置引导 |
-| `client.js` | 浏览器侧入口：头部按钮、右侧栏页签、各卡片界面 |
-| `lib/vault.js` | vault 直连：路径校验、sha1 冲突检测、备份、Obsidian URI 跳转 |
-| `lib/table.js` | Markdown 表格的解析、校验、原子写 |
-| `lib/checklist.js` | 从 SOP 的《发布前检查清单》解析条目与勾选状态 |
-| `lib/frontmatter.js` | frontmatter 笔记集合引擎，Topics/Campaigns/Products/Accounts 共用 |
-| `lib/domain.js` | v2 领域层：主选题 × 平台版本 × 指标台账，不碰 HTTP 和界面；发布门禁按 SOP 清单算并先只读预检 |
-| `lib/migrate.js` | 老数据迁移，只增不删可重跑 |
-| `lib/csv.js` | CSV 导入与存档 |
-| `lib/rules.js` | 文案规则库的解析和渲染 |
-| `lib/platforms.js` | 平台名归一，别名收敛成规范名；多平台串（`/`、`、`、逗号等）拆分与归并 |
-| `lib/agent-tool.js` | 把写回暴露成 agent 能调用的对话侧工具 |
-| `lib/client-shared.js`、`lib/coreutil-promise.js` | 旧拆包实验的保留文件，当前客户端不调用 |
-| `lib/profile-maintenance.js` | 安装回滚计划、精确配置修改、备份和并发检查 |
-| `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 先预览再确认的安装与回滚入口 |
-| `test/run-tests.mjs` | 隔离 home、临时目录和源码指纹的顺序回归入口（18 个套件） |
-| `test/calendar-integrity.test.mjs` | 日历写入原子性（预检不过不动笔记）、SOP 清单门禁、多平台扇出、CSV 落库 |
-| `test/feedback-promote.test.mjs` | 客户反馈转选题、状态同步与重复操作复用 |
-| `test/browser-safety.test.mjs` | 真实 React / Chrome 隔离页面验证 |
-| `cordis.patch.yml` | 默认配置（vault 根、各板块目录名） |
-| `tools/asar.mjs` | 开发辅助：查看和提取 app.asar 里的文件 |
+| `index.js` | DSH 入口、HTTP API、配置和业务编排 |
+| `client.js` | 侧边栏界面与交互 |
+| `lib/domain.js` | 平台版本、发布、指标和观察周期规则 |
+| `lib/vault.js` | 路径限制、冲突检查、备份和文件写入 |
+| `lib/table.js` | Markdown 表格读写 |
+| `lib/frontmatter.js` | frontmatter 读写 |
+| `lib/migrate.js` | 旧数据迁移 |
+| `lib/agent-tool.js` | `growth_vault` Agent 工具 |
+| `lib/profile-maintenance.js` | 安装与回滚 |
+| `test/` | 离线测试与浏览器界面测试 |
 
-## 协议
+## 已知限制
 
-MIT
+- 仅针对 DeepSeek Harness 开发。
+- 目前主要在 Windows 上测试。
+- 项目仍在快速迭代，更新前请查看提交记录并保留备份。
+- 浏览器隔离测试不能代替 DSH 内的实际使用验收。
+
+## License
+
+[MIT](LICENSE)
