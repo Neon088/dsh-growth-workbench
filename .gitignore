@@ -11,3 +11,6 @@ __pycache__/
 # Local browser verification artifacts and temporary test fixtures
 test/.artifacts/
 test/.tmp/
+
+# 本地临时审计脚本
+.tmp-css-audit.cjs
