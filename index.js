@@ -475,15 +475,33 @@ export function apply(ctx, config) {
     }
   }
 
-  async function saveUserConfig() {
+  async function saveUserConfig(nextUserConfig = userConfig) {
     await mkdir(dataDir(), { recursive: true })
-    await atomicWrite(join(dataDir(), 'config.json'), JSON.stringify(userConfig, null, 2) + '\n')
+    await atomicWrite(join(dataDir(), 'config.json'), JSON.stringify(nextUserConfig, null, 2) + '\n')
   }
 
-  async function saveCards() {
+  async function saveCards(nextCards = cards) {
     await mkdir(dataDir(), { recursive: true })
-    const minimal = cards.map((card) => ({ id: card.id, enabled: card.enabled !== false }))
+    const minimal = nextCards.map((card) => ({ id: card.id, enabled: card.enabled !== false }))
     await atomicWrite(join(dataDir(), 'cards.json'), JSON.stringify(minimal, null, 2) + '\n')
+  }
+
+  function publicConfig() {
+    const visible = { vaultRoot: vaultRoot() }
+    for (const key of Object.keys(DEFAULT_DIRS)) visible[key] = key === 'sopDir' ? sopDirValue() : cfg(key)
+    return visible
+  }
+
+  // 配置和卡片都是“整份快照”写入；把准备、持久化、提交串起来，避免两个并发 PUT
+  // 以相反顺序完成后，内存与磁盘各自停在不同版本。
+  let configCommitQueue = Promise.resolve()
+  let cardsCommitQueue = Promise.resolve()
+  function queueCommit(queueName, operation) {
+    const previous = queueName === 'config' ? configCommitQueue : cardsCommitQueue
+    const next = previous.catch(() => undefined).then(operation)
+    if (queueName === 'config') configCommitQueue = next
+    else cardsCommitQueue = next
+    return next
   }
 
   function dirNameOf(kind) {
@@ -1878,48 +1896,74 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
 
     if (route === 'state' && method === 'GET') {
-      const config = { vaultRoot: vaultRoot() }
-      for (const key of Object.keys(DEFAULT_DIRS)) config[key] = key === 'sopDir' ? sopDirValue() : cfg(key)
-      return { config, dataDir: dataDir(), configured: vaultRoot() !== '', cards }
+      return { config: publicConfig(), dataDir: dataDir(), configured: vaultRoot() !== '', cards }
+    }
+
+    if (route === 'health' && method === 'GET') {
+      const startedAt = Date.now()
+      const root = vaultRoot()
+      let vaultReadable = false
+      let vaultMessage = root === '' ? '尚未连接 vault' : ''
+      if (root !== '') {
+        try {
+          const info = await stat(root)
+          vaultReadable = info.isDirectory()
+          if (!vaultReadable) vaultMessage = 'vault 路径不是文件夹'
+        } catch (error) {
+          vaultMessage = 'vault 目录不可读：' + describe(error)
+        }
+      }
+      return {
+        version: PKG_VERSION,
+        configured: root !== '',
+        vaultReadable,
+        vaultMessage,
+        watcher: root !== '' && existsSync(root) && ensureVaultWatcher() !== null ? 'active' : 'fallback',
+        elapsedMs: Date.now() - startedAt,
+      }
     }
 
     if (route === 'config' && method === 'PUT') {
-      const root = await assertVaultRoot(body?.vaultRoot)
-      const nextDataDir = String(body?.pluginDataDir ?? '').trim()
-      if (nextDataDir !== '' && nextDataDir !== dataDir()) {
-        throw new VaultError('数据目录只能由 DSH 启动配置指定，不能在运行中修改', 'bad_request')
-      }
-      const nextDirs = {}
-      const resetSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
-      // 全部校验完再改内存/落盘；子目录不能利用 ../ 或链接绕过 vault 边界。
-      for (const key of Object.keys(DEFAULT_DIRS)) {
-        if (key === 'vaultRoot' || key === 'pluginDataDir') continue
-        const supplied = typeof body?.[key] === 'string' ? body[key].trim() : ''
-        const raw = supplied || (key === 'sopDir' && resetSop ? DEFAULT_DIRS.sopDir : String(cfg(key) ?? ''))
-        const dir = raw === '' ? '' : normalizeVaultSubdir(raw, { allowEmpty: false })
-        if (supplied !== '') nextDirs[key] = dir
-        if ((root || vaultRoot()) !== '') await assertPathInsideRoot(root || vaultRoot(), join(root || vaultRoot(), dir))
-      }
-      if (root !== '') userConfig.vaultRoot = root
-      Object.assign(userConfig, nextDirs)
-      if (resetSop) delete userConfig.sopDir
-      await saveUserConfig()
-      build()
-      vault?.invalidate()
-      await ensureSeeds()
-      return { saved: true, configured: vaultRoot() !== '', dataDir: dataDir(), cards }
+      return queueCommit('config', async () => {
+        const root = await assertVaultRoot(body?.vaultRoot)
+        const nextDataDir = String(body?.pluginDataDir ?? '').trim()
+        if (nextDataDir !== '' && nextDataDir !== dataDir()) {
+          throw new VaultError('数据目录只能由 DSH 启动配置指定，不能在运行中修改', 'bad_request')
+        }
+        const nextDirs = {}
+        const resetSop = typeof body?.sopDir === 'string' && body.sopDir.trim() === ''
+        // 全部校验完再改内存/落盘；子目录不能利用 ../ 或链接绕过 vault 边界。
+        for (const key of Object.keys(DEFAULT_DIRS)) {
+          if (key === 'vaultRoot' || key === 'pluginDataDir') continue
+          const supplied = typeof body?.[key] === 'string' ? body[key].trim() : ''
+          const raw = supplied || (key === 'sopDir' && resetSop ? DEFAULT_DIRS.sopDir : String(cfg(key) ?? ''))
+          const dir = raw === '' ? '' : normalizeVaultSubdir(raw, { allowEmpty: false })
+          if (supplied !== '') nextDirs[key] = dir
+          if ((root || vaultRoot()) !== '') await assertPathInsideRoot(root || vaultRoot(), join(root || vaultRoot(), dir))
+        }
+        const nextUserConfig = { ...userConfig, ...nextDirs }
+        if (root !== '') nextUserConfig.vaultRoot = root
+        if (resetSop) delete nextUserConfig.sopDir
+        await saveUserConfig(nextUserConfig)
+        userConfig = nextUserConfig
+        build()
+        vault?.invalidate()
+        await ensureSeeds()
+        return { saved: true, configured: vaultRoot() !== '', dataDir: dataDir(), config: publicConfig(), cards }
+      })
     }
 
     if (route === 'cards' && method === 'PUT') {
-      if (Array.isArray(body?.cards)) {
-        const byId = new Map(cards.map((card) => [card.id, card]))
-        for (const entry of body.cards) {
-          const existing = byId.get(String(entry?.id ?? ''))
-          if (existing !== undefined) existing.enabled = entry.enabled !== false
+      return queueCommit('cards', async () => {
+        let nextCards = cards
+        if (Array.isArray(body?.cards)) {
+          const requested = new Map(body.cards.map((entry) => [String(entry?.id ?? ''), entry.enabled !== false]))
+          nextCards = cards.map((card) => requested.has(card.id) ? { ...card, enabled: requested.get(card.id) } : { ...card })
+          await saveCards(nextCards)
+          cards = nextCards
         }
-        await saveCards()
-      }
-      return { cards }
+        return { cards }
+      })
     }
 
     if (route === 'overview' && method === 'GET') return { summary: await summary() }
@@ -3132,7 +3176,19 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
   }
 
-  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler }))
+  ctx.effect(() => {
+    const dispose = ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler })
+    return () => {
+      if (typeof dispose === 'function') dispose()
+      for (const entry of changeListeners) if (entry.timer !== null) clearTimeout(entry.timer)
+      changeListeners.clear()
+      if (vaultWatcher !== null) {
+        try { vaultWatcher.close() } catch { /* 已经关了就算了 */ }
+        vaultWatcher = null
+        vaultWatcherRoot = ''
+      }
+    }
+  })
 
   /**
    * 对话侧工具 growth_vault：让 agent 真的能把结果写回 vault。

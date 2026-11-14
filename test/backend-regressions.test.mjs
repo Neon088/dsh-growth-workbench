@@ -303,6 +303,31 @@ test('backend: mirrored backups do not collide and vault backup failures prevent
   assert.equal(fs.readFileSync(path.join(root, 'Topics', 'refuse.md'), 'utf8'), 'keep\n')
 })
 
+test('backend: state health and settings writes return canonical read-only contracts', async (t) => {
+  const { request } = await fixture(t)
+  const before = await request('GET', '/state')
+  assert.equal(before.status, 200)
+  const health = await request('GET', '/health')
+  assert.equal(health.status, 200)
+  assert.equal(health.json.configured, true)
+  assert.equal(health.json.vaultReadable, true)
+  assert.ok(['active', 'fallback'].includes(health.json.watcher))
+  assert.equal(typeof health.json.elapsedMs, 'number')
+  assert.equal(health.json.version.length > 0, true)
+
+  const updatedCards = before.json.cards.map((card, index) => ({ id: card.id, enabled: index !== 0 }))
+  const cardResult = await request('PUT', '/cards', { cards: updatedCards })
+  assert.equal(cardResult.status, 200)
+  assert.deepEqual(cardResult.json.cards.map(({ id, enabled }) => ({ id, enabled })), updatedCards)
+  assert.deepEqual((await request('GET', '/state')).json.cards.map(({ id, enabled }) => ({ id, enabled })), updatedCards)
+
+  const configResult = await request('PUT', '/config', { vaultRoot: before.json.config.vaultRoot, sopDir: 'SOP-Canonical' })
+  assert.equal(configResult.status, 200)
+  assert.equal(configResult.json.config.sopDir, 'SOP-Canonical')
+  assert.deepEqual(configResult.json.cards, cardResult.json.cards)
+  assert.equal((await request('GET', '/state')).json.config.sopDir, 'SOP-Canonical')
+})
+
 test('backend: relative directory/config validation rejects escape before state is changed', async (t) => {
   for (const input of ['../outside', 'Topics/../outside', 'C:\\outside', '//server/share', 'Topics/.. /outside']) assert.throws(() => normalizeVaultSubdir(input), (error) => error.code === 'bad_path')
   const { root, request } = await fixture(t)

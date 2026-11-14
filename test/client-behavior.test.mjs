@@ -13,15 +13,15 @@ function bodyOf(name) {
   return source.slice(start, end + 6)
 }
 const names = [
-  'createReadEpoch', 'documentSnapshot', 'sameDocumentSnapshot', 'createCoalescedReader',
+  'createApiClient', 'createReadEpoch', 'documentSnapshot', 'sameDocumentSnapshot', 'createCoalescedReader',
   'createDraftRegistry', 'useDraftGuard', 'useObjectDraftGuard', 'createFieldPatchQueue',
   'pageQuery', 'mergeRecordPage', 'usePagedList', 'useLinkedRecords', 'useAsync', 'responseWarning',
-  'metricDraftChanged', 'resolveCalendarTopic', 'chooseCalendarVariant', 'moveCalendarEntry',
-  'deleteVariantWithBaseline', 'variantPathTo', 'advanceVariant', 'indexBy',
+  'metricDraftChanged', 'resolveCalendarTopic', 'chooseCalendarVariant', 'moveCalendarEntry', 'fanoutPartialReceipt',
+  'deleteVariantWithBaseline', 'variantPathTo', 'advanceVariant', 'indexBy', 'homeActions', 'workspaceTabTarget', 'columnResizeDelta',
   'keyboardActivate', 'shiftedColumnWidths', 'installColumnDrag', 'shiftedPixelColumnWidths', 'installPixelColumnDrag', 'installModalFocus',
   'useStableFieldId', 'associateField', 'Field', 'ErrorBar', 'PlatformInput', 'AccountPicker',
   'PlatformMultiInput', 'splitPlatforms', 'MultiSelect', 'SourceSelect', 'ComboField', 'splitCombo', 'joinCombo',
-  'useRecordFilter', 'matchRecord', 'splitTags', 'TopicsCard', 'StudioCard', 'colResizeStart',
+  'useRecordFilter', 'matchRecord', 'splitTags', 'detailCrumbOf', 'useDetailCrumb', 'TopicsCard', 'StudioCard', 'colResizeStart',
   'collectionSortValue', 'sortCollectionRows', 'toggledCollectionSort', 'CollectionSortHead',
   'createMeasuredHeightTracker', 'useMeasuredBlockHeight', 'ListPager',
   'parseSurfaceColor', 'surfaceLuminance', 'surfaceContrast', 'hostAccent', 'installHostAccent',
@@ -95,7 +95,7 @@ function mount(fn, props = {}) {
 }
 const context = vm.createContext({
   React, h: React.createElement, console, Promise, Map, Set, Symbol, Object, Array, JSON, Number, String,
-  Boolean, Math, Error, URLSearchParams,
+  Boolean, Math, Error, URLSearchParams, AbortController,
   setTimeout: timer, clearTimeout: (id) => timers.delete(id),
   window: { confirm: () => false }, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
   get: () => { throw new Error('unmocked get') }, post: () => { throw new Error('unmocked post') },
@@ -116,6 +116,83 @@ context.t = (key) => key
 context.formatCount = (value) => String(value)
 const tests = []
 const test = (name, run) => tests.push({ name, run })
+
+function jsonResponse(status, payload) {
+  return { status, async json() { return payload } }
+}
+
+// API request reliability: one shared token refresh, one retry, and method-aware timeouts.
+test('API client coalesces initial token requests', async () => {
+  const tokenWait = deferred(); let tokenCalls = 0
+  const client = api.createApiClient(async (url) => {
+    if (url.endsWith('/token')) { tokenCalls++; await tokenWait.promise; return jsonResponse(200, { token: 'shared' }) }
+    return jsonResponse(200, { ok: true })
+  }, '/api', { readTimeoutMs: 1000 })
+  const first = client.call('/one'), second = client.call('/two'); await tick(); assert.equal(tokenCalls, 1)
+  tokenWait.resolve(); await Promise.all([first, second]); assert.equal(tokenCalls, 1)
+})
+test('API client refreshes a rejected token once and retries the original request', async () => {
+  let tokenCalls = 0; const businessTokens = []
+  const client = api.createApiClient(async (url, init) => {
+    if (url.endsWith('/token')) return jsonResponse(200, { token: ++tokenCalls === 1 ? 'old' : 'fresh' })
+    businessTokens.push(init.headers['x-dsh-growth-token'])
+    return businessTokens.length === 1 ? jsonResponse(401, { ok: false, code: 'unauthorized', message: 'expired' }) : jsonResponse(200, { ok: true, value: 7 })
+  }, '/api', { readTimeoutMs: 1000 })
+  const result = await client.call('/data')
+  assert.equal(result.value, 7); assert.deepEqual(businessTokens, ['old', 'fresh']); assert.equal(tokenCalls, 2)
+})
+test('concurrent 401 responses share one refresh and each request retries once', async () => {
+  const oldResponses = [deferred(), deferred()]; let oldIndex = 0, tokenCalls = 0, freshCalls = 0
+  const client = api.createApiClient(async (url, init) => {
+    if (url.endsWith('/token')) return jsonResponse(200, { token: ++tokenCalls === 1 ? 'old' : 'fresh' })
+    if (init.headers['x-dsh-growth-token'] === 'old') return oldResponses[oldIndex++].promise
+    freshCalls++; return jsonResponse(200, { ok: true })
+  }, '/api', { readTimeoutMs: 1000 })
+  const first = client.call('/one'), second = client.call('/two'); await tick(); assert.equal(oldIndex, 2)
+  oldResponses[0].resolve(jsonResponse(401, { ok: false })); oldResponses[1].resolve(jsonResponse(401, { ok: false })); await Promise.all([first, second])
+  assert.equal(tokenCalls, 2); assert.equal(freshCalls, 2)
+})
+test('API client stops after the second 401', async () => {
+  let tokenCalls = 0, businessCalls = 0
+  const client = api.createApiClient(async (url) => {
+    if (url.endsWith('/token')) return jsonResponse(200, { token: 'token-' + ++tokenCalls })
+    businessCalls++; return jsonResponse(401, { ok: false, code: 'unauthorized', message: 'still expired' })
+  }, '/api', { readTimeoutMs: 1000 })
+  await assert.rejects(client.call('/data'), (error) => error.code === 'unauthorized' && /still expired/.test(error.message))
+  assert.equal(tokenCalls, 2); assert.equal(businessCalls, 2)
+})
+test('caller cancellation stops a business read but does not cancel shared token refresh', async () => {
+  const tokenWait = deferred(); let tokenCalls = 0, businessCalls = 0
+  const client = api.createApiClient(async (url, init) => {
+    if (url.endsWith('/token')) { tokenCalls++; await tokenWait.promise; return jsonResponse(200, { token: 'shared' }) }
+    businessCalls++
+    return new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }))
+  }, '/api', { readTimeoutMs: 1000 })
+  const firstAbort = new AbortController(), secondAbort = new AbortController()
+  const first = client.call('/one', { signal: firstAbort.signal })
+  const second = client.call('/two', { signal: secondAbort.signal })
+  await tick(); firstAbort.abort(); tokenWait.resolve();
+  await assert.rejects(first, (error) => error.name === 'AbortError')
+  await tick(); assert.equal(tokenCalls, 1); assert.equal(businessCalls, 1)
+  secondAbort.abort(); await assert.rejects(second, (error) => error.name === 'AbortError')
+})
+
+test('API client times out reads and flags write outcomes as unknown', async () => {
+  const scheduled = new Map(); let nextTimer = 0
+  const config = {
+    readTimeoutMs: 1000, writeTimeoutMs: 2000,
+    setTimer(fn) { const id = ++nextTimer; scheduled.set(id, fn); return id }, clearTimer(id) { scheduled.delete(id) },
+  }
+  const fireTimer = () => { const entry = [...scheduled.entries()].at(-1); assert.ok(entry); scheduled.delete(entry[0]); entry[1]() }
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith('/token')) return jsonResponse(200, { token: 'ok' })
+    return new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }))
+  }
+  const readClient = api.createApiClient(fetchImpl, '/api', config)
+  const read = readClient.call('/slow'); await tick(); fireTimer(); await assert.rejects(read, (error) => error.code === 'timeout' && error.method === 'GET' && error.timeoutMs === 1000 && error.unknownOutcome === false)
+  const writeClient = api.createApiClient(fetchImpl, '/api', config)
+  const write = writeClient.call('/slow', { method: 'POST', body: { value: 1 } }); await tick(); fireTimer(); await assert.rejects(write, (error) => error.code === 'timeout' && error.method === 'POST' && error.timeoutMs === 2000 && error.unknownOutcome === true && /刷新确认/.test(error.message))
+})
 
 // Request identity / refresh / self-save contracts.
 test('read epoch rejects old identity, old request, and pre-self-save tickets', () => {
@@ -159,12 +236,12 @@ test('useAsync preserves current data while reloading and setData revokes old re
   view.value.setData({ record: 'own-save' }); await view.flush(); second.resolve({ record: 'old disk' }); await view.flush(); assert.equal(view.value.data.record, 'own-save')
   view.unmount()
 })
-test('useAsync refresh and unmount invalidate older loader generations', async () => {
-  refresh = 0; const waits = [deferred(), deferred()]; let calls = 0
-  const view = mount(() => api.useAsync(() => waits[calls++].promise, []))
-  await view.flush(); refresh = 1; view.dirty = true; await view.flush(); assert.equal(calls, 2)
+test('useAsync refresh and unmount abort older loader generations', async () => {
+  refresh = 0; const waits = [deferred(), deferred()]; const signals = []; let calls = 0
+  const view = mount(() => api.useAsync((signal) => { signals.push(signal); return waits[calls++].promise }, []))
+  await view.flush(); refresh = 1; view.dirty = true; await view.flush(); assert.equal(calls, 2); assert.equal(signals[0].aborted, true); assert.equal(signals[1].aborted, false)
   waits[0].resolve('stale'); await view.flush(); assert.equal(view.value.data, null)
-  view.unmount(); waits[1].resolve('late'); await tick(); assert.equal(view.lateSets, 0); refresh = 0
+  view.unmount(); assert.equal(signals[1].aborted, true); waits[1].resolve('late'); await tick(); assert.equal(view.lateSets, 0); refresh = 0
 })
 test('useAsync catches synchronous loader failure and provides a recoverable error', async () => {
   const view = mount(() => api.useAsync(() => { throw new Error('sync loader broke') }, []))
@@ -179,6 +256,15 @@ test('soft table warning is not a normal empty table; legitimate missing table s
   await view.flush(); result = { entries: [], warning: '无法读取' }; view.value.reload(); await view.flush()
   assert.equal(view.value.error.code, 'read_warning'); assert.equal(view.value.data.entries[0].id, 'saved')
   result = { exists: false, entries: [] }; view.value.reload(); await view.flush(); assert.equal(view.value.error, null); assert.equal(view.value.data.exists, false); view.unmount()
+})
+
+test('usePagedList aborts superseded and unmounted page reads', async () => {
+  refresh = 0; const waits = [deferred(), deferred()]; const signals = []; let calls = 0
+  const loader = (_uri, options) => { signals.push(options.signal); return waits[calls++].promise }
+  const view = mount(() => api.usePagedList('/topics/list?limit=2', loader))
+  await view.flush(); view.value.reload(); await view.flush(); assert.equal(calls, 2); assert.equal(signals[0].aborted, true); assert.equal(signals[1].aborted, false)
+  waits[0].resolve({ records: [{ path: 'old' }], truncated: false }); await view.flush(); assert.equal(view.value.data, null)
+  view.unmount(); assert.equal(signals[1].aborted, true); waits[1].resolve({ records: [{ path: 'late' }], truncated: false }); await tick(); assert.equal(view.lateSets, 0)
 })
 
 // Dirty registries are per Panel and read current values, not registration-time snapshots.
@@ -292,6 +378,31 @@ test('cross-month move creates before deleting; delete failure reports preserved
 test('same-month move uses the observed sha1 and does not create/delete another row', async () => {
   let payload; await api.moveCalendarEntry({ id: 'e' }, '2026-11', '2026-11-12', 'observed', { put: async (_, value) => { payload = value }, post: () => assert.fail(), del: () => assert.fail() }); assert.equal(payload.expectedSha1, 'observed')
 })
+test('fanout partial receipt preserves committed counts and unique failed platforms', () => {
+  const receipt = plain(api.fanoutPartialReceipt({
+    month: '2026-11', partial: true,
+    results: [
+      { platform: '抖音', variantCreated: true, rowCreated: false },
+      { platform: '知乎', variantCreated: false, rowCreated: true },
+    ],
+    failed: [
+      { platform: '抖音', error: '日历冲突' },
+      { platform: '抖音', error: '重复明细' },
+      { platform: 'B站', error: '版本未建成' },
+    ],
+  }))
+  assert.deepEqual(receipt, {
+    month: '2026-11', createdVariants: 1, writtenRows: 1,
+    failed: [
+      { platform: '抖音', error: '日历冲突' },
+      { platform: '抖音', error: '重复明细' },
+      { platform: 'B站', error: '版本未建成' },
+    ],
+    failedPlatforms: ['抖音', 'B站'],
+  })
+  assert.equal(api.fanoutPartialReceipt({ partial: false }), null)
+  assert.equal(api.fanoutPartialReceipt(null), null)
+})
 test('shared transition helper reports each commit and exposes a partial failure status', async () => {
   const commits = []; let calls = 0; context.post = async () => { if (++calls === 2) throw new Error('发布 gate blocked'); return { variant: { id: 'v', status: '待发' } } }
   await assert.rejects(api.advanceVariant({ id: 'v', status: '在写' }, '已发', (variant) => commits.push(variant.status)), (error) => { assert.equal(error.variantProgress.status, '待发'); assert.equal(error.variantProgress.committed, 1); return true }); assert.deepEqual(commits, ['待发'])
@@ -305,6 +416,37 @@ test('missing deletion baseline is obtained before confirmation and cancel sends
   const order = []
   await api.deleteVariantWithBaseline({ id: 'v' }, () => { order.push('confirm'); return false }, { get: async () => { order.push('get'); return { variant: { id: 'v', sha1: 'baseline' } } }, del: async () => { order.push('delete') } })
   assert.deepEqual(order, ['get', 'confirm'])
+})
+
+test('home actions rank real pending work and fall back to an enabled creation path', () => {
+  const cards = ['ideas', 'studio', 'calendar', 'pending'].map((id) => ({ id, enabled: true }))
+  assert.deepEqual(plain(api.homeActions(cards, { pendingCount: 2, calendarPending: 4, topicsDoing: 1, ideasNew: 9 })), [
+    { cardId: 'pending', count: 2, label: '回填已发数据', meta: '2 条等你回写' },
+    { cardId: 'calendar', count: 4, label: '推进待创作排期', meta: '4 条待创作' },
+    { cardId: 'studio', count: 1, label: '继续内容创作', meta: '1 条创作中' },
+  ])
+  assert.deepEqual(plain(api.homeActions([{ id: 'studio', enabled: true }], {})), [
+    { cardId: 'studio', label: '新建自己的选题', meta: '从选题到平台版本开始推进' },
+  ])
+  assert.deepEqual(plain(api.homeActions([{ id: 'pending', enabled: false }], { pendingCount: 3 })), [])
+})
+test('workspace tabs wrap arrows and honor Home and End', () => {
+  const workspaces = [{ id: 'ops' }, { id: 'ecom' }, { id: 'mkt' }, { id: 'common' }]
+  assert.equal(api.workspaceTabTarget(workspaces, 'ops', 'ArrowLeft'), 'common')
+  assert.equal(api.workspaceTabTarget(workspaces, 'common', 'ArrowRight'), 'ops')
+  assert.equal(api.workspaceTabTarget(workspaces, 'ecom', 'ArrowDown'), 'mkt')
+  assert.equal(api.workspaceTabTarget(workspaces, 'mkt', 'ArrowUp'), 'ecom')
+  assert.equal(api.workspaceTabTarget(workspaces, 'mkt', 'Home'), 'ops')
+  assert.equal(api.workspaceTabTarget(workspaces, 'ecom', 'End'), 'common')
+  assert.equal(api.workspaceTabTarget(workspaces, 'ops', 'Enter'), null)
+})
+test('column resize keyboard steps are predictable and ignore unrelated keys', () => {
+  assert.equal(api.columnResizeDelta({ key: 'ArrowRight', shiftKey: false, defaultPrevented: false }), 1)
+  assert.equal(api.columnResizeDelta({ key: 'ArrowLeft', shiftKey: true, defaultPrevented: false }), -5)
+  assert.equal(api.columnResizeDelta({ key: 'ArrowRight', shiftKey: false, defaultPrevented: false }, true), 16)
+  assert.equal(api.columnResizeDelta({ key: 'ArrowLeft', shiftKey: true, defaultPrevented: false }, true), -48)
+  assert.equal(api.columnResizeDelta({ key: 'Enter', defaultPrevented: false }), 0)
+  assert.equal(api.columnResizeDelta({ key: 'ArrowRight', defaultPrevented: true }), 0)
 })
 
 // Handler contracts use actual functions and a bounded synthetic DOM event target.
@@ -418,7 +560,14 @@ for (const [card, ownType] of [[api.TopicsCard, '拆解'], [api.StudioCard, '选
     filter.props.setFilter('ONLY_BODY_NEEDLE'); await actor.flush()
     assert.ok(requests.some(({ path, query }) => path === '/topics/list' && new URLSearchParams(query).get('q') === 'ONLY_BODY_NEEDLE'))
     const pager = find(actor.value, (node) => node.type === context.ListPager && node.props.list.data?.records?.some((record) => record.id === 'id400'))
-    assert.ok(pager); assert.equal(pager.props.list.data.total, 1); assert.match(nodeText(actor.value), /记录400/)
+    if (card === api.TopicsCard) {
+      assert.ok(pager); assert.equal(pager.props.list.data.total, 1)
+    } else {
+      assert.equal(pager, undefined, 'Studio intentionally hides the loaded-count row')
+      const liveFilter = find(actor.value, (node) => node.type === context.ListFilter)
+      assert.equal(liveFilter.props.shown, 1); assert.equal(liveFilter.props.total, 1)
+    }
+    assert.match(nodeText(actor.value), /记录400/)
     assert.equal(api.matchRecord(records[400], 'only_body_needle'), false, 'a local metadata matcher would wrongly discard this result')
     actor.unmount(); assert.equal(actor.lateSets, 0)
   })
@@ -500,7 +649,7 @@ test('palette picks actual host light/dark surfaces even when OS disagrees, and 
     const tinted = base.map((part, index) => part * 0.84 + tone[index] * 0.16)
     assert.ok(api.surfaceContrast(tone, base) >= 4.5, background + ' plain'); assert.ok(api.surfaceContrast(tone, tinted) >= 4.5, background + ' hover')
   }
-  assert.equal(api.hostAccent('', '', 'dark').color, '#ddb781'); assert.equal(api.hostAccent('', '', 'light').color, '#98672d')
+  assert.equal(api.hostAccent('', '', 'dark').color, '#f0a07e'); assert.equal(api.hostAccent('', '', 'light').color, '#b95f42')
 })
 test('palette observes only actual host ancestors, deduplicates own writes, and cleans observers/probe', () => {
   const media = new EventBus(), observations = []; let callback, disconnected = 0, removed = 0, writes = 0, background = 'rgb(255, 255, 255)', label = 'rgb(20, 20, 20)'
@@ -512,6 +661,11 @@ test('palette observes only actual host ancestors, deduplicates own writes, and 
   callback(); media.emit('change', {}); assert.equal(writes, 1)
   background = '#1b1d20'; label = '#f4f4f4'; callback(); assert.equal(node.style.colorScheme, 'dark'); assert.equal(writes, 2)
   cleanup(); callback(); media.emit('change', {}); assert.equal(writes, 2); assert.equal(disconnected, 1); assert.equal(removed, 1); assert.equal(media.count(), 0)
+
+  const darkValues = new Map(), darkNode = { isConnected: true, parentElement: parent, appendChild() {}, dataset: {}, style: { colorScheme: '', getPropertyValue: (key) => darkValues.get(key), setProperty(key, value) { darkValues.set(key, value) } } }
+  const cleanupDark = api.installHostAccent(darkNode, host, { createElement: () => ({ style: {}, remove() {} }) }, 'dark')
+  assert.equal(darkNode.dataset.gwScheme, 'dark'); assert.equal(darkNode.style.colorScheme, 'dark'); assert.equal(darkValues.get('--gw-warm'), '#f0a07e')
+  cleanupDark()
 })
 test('real action menu supports arrow/home/end, one Escape, nontrapped Tab, outside dismissal and cleanup', () => {
   const { doc, root, opener } = focusDOM(), menu = new EventBus(), group = root('menu'); let dismissed = 0
@@ -569,6 +723,35 @@ test('actual CalendarCard is stable for 57 equal-height commits, real resize, wa
   warning = false; error.props.onRetry(); await actor.flush(); assert.ok(header()); assert.equal(header().props.ref, ref)
   const retried = { isConnected: true, getBoundingClientRect: () => ({ height: 52 }) }; ref(retried); await actor.flush(); assert.equal(watched, 2); oldCallback(); await actor.flush(); assert.equal(actor.dirty, false)
   assert.equal(find(actor.value, (node) => node.props.className === 'dsh-gw-cal').props.style['--dsh-gw-cal-head-h'], '52px'); actor.unmount(); assert.equal(observations.size, 0); oldCallback(); assert.equal(actor.lateSets, 0)
+})
+
+test('detail breadcrumb normalizes labels, removes duplicates and preserves an active fallback', () => {
+  const calls = []
+  const descriptor = api.detailCrumbOf('Archive/missing.md', [
+    { path: 'Topics/a.md', front: { name: '命名优先' }, title: '标题' },
+    { path: 'Topics/a.md', title: '重复项' },
+    { path: 'Topics/b.md', title: '标题优先' },
+    { path: 'Topics/c.md' },
+  ], (value) => calls.push(value))
+  assert.deepEqual(plain(descriptor.options), [
+    { value: '', label: '选择当前项目' },
+    { value: 'Topics/a.md', label: '命名优先' },
+    { value: 'Topics/b.md', label: '标题优先' },
+    { value: 'Topics/c.md', label: 'c' },
+    { value: 'Archive/missing.md', label: 'missing' },
+  ])
+  descriptor.onChange(''); descriptor.onChange('Topics/b.md')
+  assert.deepEqual(calls, [null, 'Topics/b.md'])
+})
+test('detail breadcrumb hook reports a stable descriptor and clears it on unmount', async () => {
+  const reports = [], chosen = []
+  const records = [{ path: 'Topics/a.md', title: 'A' }]
+  const actor = mount((props) => { api.useDetailCrumb(props.report, props.value, props.records, props.choose); return null }, { report: (value) => reports.push(value), value: 'Topics/a.md', records, choose: (value) => chosen.push(value) })
+  await actor.flush(); assert.equal(reports.length, 1)
+  actor.update({ report: actor.props.report, value: 'Topics/a.md', records, choose: (value) => chosen.push('new:' + value) }); await actor.flush()
+  assert.equal(reports.length, 1, 'callback identity alone does not republish descriptor')
+  reports[0].onChange('Topics/a.md'); assert.deepEqual(chosen, ['new:Topics/a.md'])
+  actor.unmount(); assert.equal(reports.at(-1), null)
 })
 
 let failed = 0

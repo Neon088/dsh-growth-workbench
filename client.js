@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
     const NS = 'growth-workbench'
     const LS_WORKSPACE = 'dsh-growth:workspace'
     const LS_CARD = 'dsh-growth:card'
+    const LS_THEME = 'dsh-growth:theme'
     // 统一确认框：把 React 状态桥给深层组件里的 async 删除动作。
     // window.confirm 只留给「未保存离开」这类必须浏览器级阻断的场景。
     let confirmBridge = null
@@ -110,50 +111,141 @@ window.__ModuleLoader__.load({
 
     /* ────────────── 取数 ────────────── */
 
-    // 后端只认带凭证的页面请求；凭证在页面加载后向 /token 领一次
-    // （跨站页面领不到，因为后端看 sec-fetch-site）。
-    let AUTH_TOKEN = ''
+    // 后端只认带凭证的页面请求；凭证在页面加载后向 /token 领取。
+    // 同时过期的请求共用一次刷新；每个业务请求遇到 401 最多重试一次。
+    function createApiClient(fetchImpl, apiBase, config = {}) {
+      const readTimeoutMs = Number.isFinite(config.readTimeoutMs) ? config.readTimeoutMs : 15000
+      const writeTimeoutMs = Number.isFinite(config.writeTimeoutMs) ? config.writeTimeoutMs : 30000
+      const setTimer = config.setTimer ?? setTimeout
+      const clearTimer = config.clearTimer ?? clearTimeout
+      const AbortControllerImpl = config.AbortController ?? AbortController
+      let token = ''
+      let tokenRequest = null
 
-    async function authToken() {
-      if (AUTH_TOKEN !== '') return AUTH_TOKEN
-      try {
-        const response = await fetch(API + '/token', { headers: { 'content-type': 'application/json' } })
-        const payload = await response.json()
-        AUTH_TOKEN = typeof payload?.token === 'string' ? payload.token : ''
-      } catch {
-        AUTH_TOKEN = ''
+      function timeoutFailure(method, timeoutMs) {
+        const reading = method === 'GET' || method === 'HEAD'
+        const seconds = Math.ceil(timeoutMs / 1000)
+        const failure = new Error(reading
+          ? '读取请求超时（' + seconds + ' 秒），请重试。'
+          : '写入请求超时（' + seconds + ' 秒），结果可能已经提交，请刷新确认后再操作。')
+        failure.code = 'timeout'
+        failure.method = method
+        failure.timeoutMs = timeoutMs
+        failure.unknownOutcome = !reading
+        return failure
       }
-      return AUTH_TOKEN
+
+      async function timedFetch(url, init, timeoutMs, method) {
+        const controller = new AbortControllerImpl()
+        const upstream = init?.signal
+        let timedOut = false
+        let detachAbort = null
+        if (upstream !== undefined && upstream !== null) {
+          if (upstream.aborted) controller.abort(upstream.reason)
+          else {
+            const forwardAbort = () => controller.abort(upstream.reason)
+            upstream.addEventListener('abort', forwardAbort, { once: true })
+            detachAbort = () => upstream.removeEventListener('abort', forwardAbort)
+          }
+        }
+        const timer = setTimer(() => { timedOut = true; controller.abort() }, timeoutMs)
+        try {
+          return await fetchImpl(url, { ...init, signal: controller.signal })
+        } catch (error) {
+          if (timedOut) throw timeoutFailure(method, timeoutMs)
+          throw error
+        } finally {
+          clearTimer(timer)
+          if (detachAbort !== null) detachAbort()
+        }
+      }
+
+      async function authToken() {
+        if (token !== '') return token
+        if (tokenRequest !== null) return tokenRequest
+        tokenRequest = (async () => {
+          try {
+            // 令牌刷新是所有并发请求共享的；不能把某个调用方的 signal 传进来，
+            // 否则取消一张卡片的读取会把其它正在等令牌的请求一起取消。
+            const response = await timedFetch(apiBase + '/token', { headers: { 'content-type': 'application/json' } }, readTimeoutMs, 'GET')
+            const payload = await response.json()
+            token = typeof payload?.token === 'string' ? payload.token : ''
+          } catch {
+            token = ''
+          }
+          return token
+        })()
+        try {
+          return await tokenRequest
+        } finally {
+          tokenRequest = null
+        }
+      }
+
+      function callerAbort(signal) {
+        if (signal?.aborted !== true) return null
+        if (signal.reason instanceof Error) return signal.reason
+        const failure = new Error('读取已取消')
+        failure.name = 'AbortError'
+        failure.code = 'aborted'
+        return failure
+      }
+
+      async function call(path, options = {}) {
+        const method = String(options.method ?? 'GET').toUpperCase()
+        const timeoutMs = method === 'GET' || method === 'HEAD' ? readTimeoutMs : writeTimeoutMs
+        const body = options.body === undefined ? undefined : JSON.stringify(options.body)
+        const extraHeaders = options.headers ?? {}
+        const requestOptions = { ...options, method, body }
+        delete requestOptions.headers
+
+        async function attempt(allowAuthRetry, suppliedToken) {
+          const beforeToken = callerAbort(options.signal)
+          if (beforeToken !== null) throw beforeToken
+          const usedToken = suppliedToken === undefined ? await authToken() : suppliedToken
+          const afterToken = callerAbort(options.signal)
+          if (afterToken !== null) throw afterToken
+          const headers = { 'content-type': 'application/json', ...extraHeaders }
+          if (usedToken !== '') headers['x-dsh-growth-token'] = usedToken
+          const response = await timedFetch(apiBase + path, { ...requestOptions, headers }, timeoutMs, method)
+          if (response.status === 401) {
+            // 只让仍持有这个旧令牌的响应失效缓存；较晚返回的旧 401 不能清掉刚刷新的令牌。
+            if (token === usedToken) token = ''
+            if (allowAuthRetry) {
+              const refreshedToken = await authToken()
+              const afterRefresh = callerAbort(options.signal)
+              if (afterRefresh !== null) throw afterRefresh
+              return attempt(false, refreshedToken)
+            }
+          }
+          let payload
+          try {
+            payload = await response.json()
+          } catch {
+            throw new Error('接口返回的不是 JSON（' + response.status + '）')
+          }
+          if (payload?.ok !== true) {
+            const failure = new Error(payload?.message ?? '请求失败（' + response.status + '）')
+            // 把后端的 code 和附加证据挂到 error 上：冲突时 currentText/currentSha1
+            // 就在里面，调用处要靠它弹出「用我的 / 用他的」。
+            failure.code = payload?.code
+            failure.payload = payload
+            throw failure
+          }
+          return payload
+        }
+
+        return attempt(true)
+      }
+
+      return { authToken, call }
     }
 
-    async function call(path, options = {}) {
-      const token = await authToken()
-      const headers = { 'content-type': 'application/json' }
-      if (token !== '') headers['x-dsh-growth-token'] = token
-      const response = await fetch(API + path, {
-        headers,
-        ...options,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      })
-      if (response.status === 401) AUTH_TOKEN = ''
-      let payload
-      try {
-        payload = await response.json()
-      } catch {
-        throw new Error('接口返回的不是 JSON（' + response.status + '）')
-      }
-      if (payload?.ok !== true) {
-        const failure = new Error(payload?.message ?? '请求失败（' + response.status + '）')
-        // 把后端的 code 和附加证据挂到 error 上：冲突时 currentText/currentSha1
-        // 就在里面，调用处要靠它弹出「用我的 / 用他的」。
-        failure.code = payload?.code
-        failure.payload = payload
-        throw failure
-      }
-      return payload
-    }
+    const apiClient = createApiClient(fetch, API)
+    const authToken = apiClient.authToken
+    const call = apiClient.call
 
-    const get = (path) => call(path)
+    const get = (path, options = {}) => call(path, options)
     const post = (path, body) => call(path, { method: 'POST', body })
     const put = (path, body) => call(path, { method: 'PUT', body })
     const del = (path, body) => call(path, { method: 'DELETE', ...(body === undefined ? {} : { body }) })
@@ -174,7 +266,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-pane{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-4,13px)}
 /* 轻量编辑台：中性表面沿用宿主；铜金只标创作，与真正的 warning 分开。
    installHostAccent 从实际宿主 alias / color-scheme 取色并校验文字对比度，不只跟随 OS。 */
-.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:light-dark(#98672D,#DDB781);--gw-glass:var(--dsw-alias-bg-overlay);--gw-glass-panel:var(--dsw-alias-bg-layer-1);--gw-fz-1:12px;--gw-fz-2:12px;--gw-fz-3:13px;--gw-fz-4:14px;--gw-fz-5:16px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--dsw-alias-state-warn-primary);--tone-done:var(--dsw-alias-state-success-primary)}
+.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:light-dark(#B95F42,#F0A07E);--gw-glass:var(--dsw-alias-bg-overlay);--gw-glass-panel:var(--dsw-alias-bg-layer-1);--gw-fz-1:12px;--gw-fz-2:12px;--gw-fz-3:13px;--gw-fz-4:14px;--gw-fz-5:16px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--dsw-alias-state-warn-primary);--tone-done:var(--dsw-alias-state-success-primary)}
 /* 高度一路传下去，专注模式才有满栏的参照系 */
 .dsh-gw-pane > .dsh-gw-panel,.dsh-gw-pane > .dsh-gw-veil > .dsh-gw-panel{flex:1;min-height:0}
 .dsh-gw-pane > .dsh-gw-veil{position:absolute;inset:0;padding:0;background:transparent;backdrop-filter:none;justify-content:stretch;align-items:stretch}
@@ -191,12 +283,19 @@ window.__ModuleLoader__.load({
 .dsh-gw-confirm-body{padding:14px 16px 2px;font-size:var(--gw-fz-3,12.5px);line-height:1.7;color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere}
 .dsh-gw-confirm-body .dsh-gw-field textarea{min-height:84px;max-height:180px;font-family:inherit}
 .dsh-gw-confirm-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 16px}
-.dsh-gw-search{position:relative;flex:1;min-width:160px;display:flex;align-items:center;gap:6px}
-.dsh-gw-search input{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
-.dsh-gw-tabs{display:flex;gap:8px;padding:8px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;min-width:0}
-.dsh-gw-tablist{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:thin}
-.dsh-gw-tabs .dsh-gw-search{flex:none;min-width:0;width:180px;margin-left:auto}
-.dsh-gw-tabs .dsh-gw-search input{height:26px}
+.dsh-gw-search{position:relative;flex:1;min-width:160px;max-width:100%;display:flex;align-items:center;gap:6px}
+.dsh-gw-search input{flex:1;width:100%;min-width:0;height:28px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-3,12.5px)}
+.dsh-gw-tabs{display:flex;align-items:flex-end;gap:8px;padding:9px 14px 0;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:nowrap;min-width:0}
+.dsh-gw-tablist{display:flex;align-items:flex-end;gap:2px;flex:1 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.dsh-gw-tabs .dsh-gw-search{flex:0 1 184px;min-width:116px;width:clamp(116px,22vw,184px);margin:0 0 6px auto}
+.dsh-gw-tabs .dsh-gw-search input{height:28px}
+/* 二级导航以细竖线为索引：选中项只增加克制的纸面与浅影，保持简洁。 */
+.dsh-gw-card-tabs{display:flex;align-items:center;align-content:center;flex-wrap:wrap;gap:5px 8px;min-width:0;overflow:visible;padding:8px 14px 9px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,#fff)}
+.dsh-gw-card-tab{position:relative;flex:none;white-space:nowrap;border:1px solid transparent;border-radius:5px;padding:5px 9px 5px 14px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:var(--gw-fz-2,11.5px);transition:color .12s,border-color .12s,background-color .12s,box-shadow .12s}
+.dsh-gw-card-tab::before{content:'';position:absolute;left:7px;top:7px;bottom:7px;width:2px;border-radius:2px;background:var(--dsw-alias-border-l2);transition:background-color .12s,box-shadow .12s}
+.dsh-gw-card-tab:hover{border-color:var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
+.dsh-gw-card-tab[data-on=true]{border-color:color-mix(in srgb,var(--dsw-alias-link) 24%,var(--dsw-alias-border-l1));background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 7px color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 45%,transparent);color:var(--dsw-alias-label-primary);font-weight:650}
+.dsh-gw-card-tab[data-on=true]::before{background:var(--dsw-alias-link);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-link) 15%,transparent)}
 .dsh-gw-search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);z-index:1}
 .dsh-gw-search.has-value input{padding-right:26px}
 .dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
@@ -218,6 +317,17 @@ window.__ModuleLoader__.load({
 .dsh-gw-crash-title{font-size:var(--gw-fz-4,13px);font-weight:600;color:var(--dsw-alias-label-primary)}
 .dsh-gw-crash-msg{font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-state-error-primary,#e5484d);font-family:ui-monospace,monospace;word-break:break-word}
 .dsh-gw-crash-hint{font-size:var(--gw-fz-3,12.5px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-next{margin:0 0 12px;padding:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 82%,var(--gw-warm) 4%)}
+.dsh-gw-next-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px}
+.dsh-gw-next-title{font-size:var(--gw-fz-4,13px);font-weight:650;color:var(--dsw-alias-label-primary)}
+.dsh-gw-next-hint{font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
+.dsh-gw-next-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.dsh-gw-next-action{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:42px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}
+.dsh-gw-next-action:hover{border-color:color-mix(in srgb,var(--dsw-alias-link) 55%,var(--dsw-alias-border-l2));background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-gw-next-copy{display:flex;flex-direction:column;min-width:0;gap:2px}
+.dsh-gw-next-label{font-size:var(--gw-fz-3,12.5px);font-weight:600;overflow-wrap:anywhere}
+.dsh-gw-next-meta{font-size:var(--gw-fz-1,11px);line-height:1.35;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dsh-gw-next-arrow{flex:none;color:var(--dsw-alias-link);font-size:15px}
 .dsh-gw-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);cursor:pointer}
 .dsh-gw-row:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-row.dsh-gw-row-archived{opacity:.65;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 65%,var(--dsw-alias-bg-layer-2))}
@@ -255,13 +365,6 @@ window.__ModuleLoader__.load({
 .dsh-gw-ledger-table{min-width:1080px}
 .dsh-gw-ledger-table td:not(.dsh-gw-ledger-content){white-space:nowrap}
 .dsh-gw-ledger-miss{color:var(--dsw-alias-state-warn-primary,#b45309);font-weight:600;white-space:nowrap}
-/* 同题多版对照：一屏横向排开，数字列右对齐；版本再多也不挤掉主列表。 */
-.dsh-gw-vcompare{margin:6px 0 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;overflow:auto;max-height:240px}
-.dsh-gw-vcompare table{width:100%;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);white-space:nowrap}
-.dsh-gw-vcompare th,.dsh-gw-vcompare td{padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:top}
-.dsh-gw-vcompare th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:500}
-.dsh-gw-vcompare td.is-num{text-align:right;font-variant-numeric:tabular-nums}
-.dsh-gw-vcompare tr:last-child td{border-bottom:none}
 /* 行内小垃圾桶：平时低调，指针移上去才变红，免得一屏都是红按钮。 */
 .dsh-gw-row .dsh-gw-row-del{flex:none;opacity:0;transition:opacity .12s}
 .dsh-gw-row:hover .dsh-gw-row-del{opacity:.72}
@@ -311,7 +414,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-status-select[data-tone=warn]{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent);color:var(--dsw-alias-state-warn-primary);background-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent)}
 .dsh-gw-status-select[data-tone=brand]{border-color:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 45%,transparent);color:var(--tone-progress,var(--dsw-alias-link));background-color:color-mix(in srgb,var(--tone-progress,var(--dsw-alias-link)) 14%,transparent)}
 .dsh-gw-row[data-static=true]{cursor:default}
-/* 详情页靠 flex order 摆位：新建(1) → 拆解笔记(2) → 拆解脚本(3) → 平台版本(4) → 版本脚本(5)。
+/* 详情页靠 flex order 摆位：拆解笔记(2) → 拆解脚本(3) → 平台版本(4) → 版本脚本(5)。
    拆解脚本和版本脚本共用同一块编辑器，只是它在两处出现的位置不同。 */
 .dsh-gw-note-page{display:flex;flex-direction:column;min-height:0;flex:1}
 .dsh-gw-fold.dsh-gw-note-pick{order:2;margin-top:8px}
@@ -425,7 +528,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-pending-linkrow{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
 .dsh-gw-pending-linknew{display:flex;align-items:center;gap:5px;flex:1 1 100%;min-width:0}
 /* 标题 / 路径可点：跳到那篇选题。做成链接手感（下划虚线 + 悬停变品牌色），不额外占位。 */
-.dsh-gw-pending-jump{color:inherit;text-decoration:none;border-bottom:1px dotted color-mix(in srgb,currentColor 45%,transparent);cursor:pointer;transition:all .15s ease}
+.dsh-gw-pending-jump{color:inherit;text-decoration:none;border-bottom:1px dotted color-mix(in srgb,currentColor 45%,transparent);cursor:pointer;transition:color .15s ease,border-color .15s ease,background-color .15s ease}
 .dsh-gw-pending-jump:hover{color:var(--dsw-alias-link);border-bottom-color:currentColor;border-bottom-style:solid;background:color-mix(in srgb,var(--dsw-alias-link) 10%,transparent)}
 .dsh-gw-pending-inputs{display:flex;gap:5px;flex-wrap:wrap}
 .dsh-gw-pending-inputs input{flex:1 1 76px;min-width:0;height:24px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-2,11.5px);box-sizing:border-box}
@@ -493,6 +596,8 @@ window.__ModuleLoader__.load({
 .dsh-gw-card-top .dsh-gw-sect{margin:0;flex-wrap:wrap;row-gap:4px}
 .dsh-gw-card-top .dsh-gw-sect-t{flex:0 0 auto;min-width:0;max-width:100%}
 .dsh-gw-card-top .dsh-gw-sect+.dsh-gw-sect{margin-top:6px}
+.dsh-gw-studio-filters{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.dsh-gw-studio-filters>.dsh-gw-ms{min-width:0;flex:0 1 auto}
 /* 规则库：计数条吸顶，滚到 H13 也还看得见分组数 */
 .dsh-gw-rules-sticky{position:sticky;top:var(--dsh-gw-crumb-h,34px);z-index:7;margin:0 -14px 4px;padding:6px 14px 5px;background:var(--gw-glass);border-bottom:1px solid var(--dsw-alias-border-l1)}
 .dsh-gw-rules-sticky .dsh-gw-sect{margin:0}
@@ -538,10 +643,10 @@ window.__ModuleLoader__.load({
 .dsh-gw-rules-form{display:grid;grid-template-columns:80px 136px minmax(0,1fr);gap:6px 8px;align-items:end}
 .dsh-gw-rules-form-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
 .dsh-gw-rules-add .dsh-gw-actions{margin-top:6px}
-/* 列宽拖拽把手：贴在表头右缘的一条细线，悬停亮起 */
-.dsh-gw-col-grip{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:2}
-.dsh-gw-col-grip::after{content:'';position:absolute;top:3px;right:3px;bottom:3px;width:2px;background:var(--dsw-alias-border-l1);border-radius:1px}
-.dsh-gw-col-grip:hover::after,.dsh-gw-col-grip:active::after{background:var(--dsw-alias-link)}
+/* 列宽拖拽把手：细线贴住表头右缘，命中区向列内展开，避免 table 边界裁掉指针事件。 */
+.dsh-gw-col-grip{position:absolute;top:0;right:-1px;width:13px;height:100%;cursor:col-resize;z-index:2;touch-action:none;border-radius:4px}
+.dsh-gw-col-grip::after{content:'';position:absolute;top:3px;right:0;bottom:3px;width:2px;background:var(--dsw-alias-border-l1);border-radius:1px}
+.dsh-gw-col-grip:hover::after,.dsh-gw-col-grip:active::after,.dsh-gw-col-grip:focus-visible::after{background:var(--dsw-alias-link)}
 .dsh-gw-rollup-table tbody tr:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-gw-gloss-scroll{max-height:calc(100vh - 340px);overflow:auto;padding-right:2px}
 .dsh-gw-gloss-table thead th{position:sticky;top:0!important;z-index:2;background:var(--dsw-alias-bg-layer-2)}
@@ -591,7 +696,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
    以前让它参与换行，列一窄就掉到下一行，同一张表里行高还跟着变。 */
 .dsh-gw-idea-acts>.dsh-gw-acts{flex:0 0 auto;margin-left:auto}
 .dsh-gw-source-cell{display:flex;align-items:center;gap:3px;min-width:0}
-.dsh-gw-source-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;font-size:var(--gw-fz-2,11.5px);transition:all .15s ease}
+.dsh-gw-source-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-link);text-decoration:none;border-bottom:1px dotted currentColor;font-size:var(--gw-fz-2,11.5px);transition:color .15s ease,border-color .15s ease,background-color .15s ease}
 .dsh-gw-source-link:hover{border-bottom-style:solid;background:color-mix(in srgb,var(--dsw-alias-link) 10%,transparent)}
 .dsh-gw-source-open{flex:0 0 auto;color:var(--dsw-alias-label-secondary);text-decoration:none;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-source-open:hover{color:var(--dsw-alias-link)}
@@ -635,7 +740,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-idea-filters{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap;max-width:100%}
 .dsh-gw-idea-filters .dsh-gw-catselect{height:22px;font-size:var(--gw-fz-1,11px);border-radius:6px;padding:0 2px;max-width:104px;box-sizing:border-box}
 .dsh-gw-idea-search{height:22px;width:118px;font-size:var(--gw-fz-1,11px);border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;box-sizing:border-box}
-.dsh-gw-tablebox{width:100%;max-width:100%;box-sizing:border-box;overflow:visible;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-tablebox{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-topiclist td{vertical-align:middle;padding:5px 8px}
 .dsh-gw-topiclist td:first-child{padding-left:9px}
 .dsh-gw-topiclist-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -643,6 +748,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-topiclist-acts{display:flex;align-items:center;gap:4px;justify-content:flex-end}
 .dsh-gw-topiclist .dsh-gw-row-act{height:24px;padding:0 8px;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-table thead th,.dsh-gw-matrix thead th,.dsh-gw-rules thead th{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-card-top-h,0px));z-index:6;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+/* 表格盒自身就是滚动容器；表头要贴住盒顶，不能叠加页面吸顶行高度。 */
+.dsh-gw-tablebox>.dsh-gw-table>thead>tr>th,.dsh-gw-tablebox>.dsh-gw-matrix>thead>tr>th{top:0}
 .dsh-gw-rules thead th{top:0;z-index:2}
 .dsh-gw-matrixbox>.dsh-gw-matrix th:first-child,.dsh-gw-matrixbox>.dsh-gw-matrix td:first-child{border-left:none}
 .dsh-gw-matrixbox>.dsh-gw-matrix th:last-child,.dsh-gw-matrixbox>.dsh-gw-matrix td:last-child{border-right:none}
@@ -762,7 +869,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 /* 风险旗（S5）：「风险 高/禁发」最重的状态用最显眼的信号，不再藏在灰色 meta 里。 */
 .dsh-gw-risk-flag{flex:none;display:inline-flex;align-items:center;font-size:var(--gw-fz-1,11px);font-weight:600;color:var(--dsw-alias-state-error-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);border-radius:5px;padding:0 6px;line-height:1.6}
 .dsh-gw-pill[data-tone=brand]{border-color:color-mix(in srgb,var(--dsw-alias-link) 45%,transparent);color:var(--dsw-alias-link);background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent)}
-.dsh-gw-pill-btn{cursor:pointer;font-family:inherit;line-height:1.5;transition:all .15s ease}
+.dsh-gw-pill-btn{cursor:pointer;font-family:inherit;line-height:1.5;transition:color .15s ease,border-color .15s ease,background-color .15s ease}
 .dsh-gw-pill-btn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);transform:translateY(-1px)}
 .dsh-gw-matrix{width:100%;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);table-layout:fixed}
 .dsh-gw-matrix th,.dsh-gw-matrix td{border:1px solid var(--dsw-alias-border-l1);padding:5px 6px;vertical-align:top;word-break:break-word}
@@ -780,6 +887,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-ibtn[disabled]{opacity:.35;cursor:default}
 .dsh-gw-icon-btn{background:none;border:none;cursor:pointer;font-size:var(--gw-fz-3,12.5px);line-height:1;padding:4px 6px;border-radius:6px;color:var(--dsw-alias-label-secondary);opacity:.72;font-weight:500}
 .dsh-gw-icon-btn:hover{background:var(--dsw-alias-bg-layer-2);opacity:1}
+.dsh-gw-panel :is(button,[role=button],[role=tab],[role=separator],input,select,textarea,a):focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
 .dsh-gw-icon-btn[data-tone=danger]:hover{color:var(--dsw-alias-state-error-primary,#e5484d)}
 /* 面包屑：以前「← 运营 选题 / 爆款拆解」和「← 返回 Topics/333.md」各占一行、样式还不一样，
    现在合成一行：最左边一个返回箭头，后面是可点的路径段。 */
@@ -829,7 +937,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-listfilter{display:inline-flex;align-items:center;gap:2px}
 .dsh-gw-listfilter-btn{flex:none}
 .dsh-gw-listfilter-btn[data-on=true]{color:var(--dsw-alias-link);opacity:1}
-.dsh-gw-listfilter-input{width:150px;max-width:42vw;height:24px;box-sizing:border-box;padding:0 8px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-2,11.5px);font-family:inherit}
+.dsh-gw-listfilter-input{width:150px;max-width:100%;min-width:0;height:24px;box-sizing:border-box;padding:0 8px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;font-size:var(--gw-fz-2,11.5px);font-family:inherit}
 .dsh-gw-crumb-back{background:none;border:none;color:var(--dsw-alias-link);cursor:pointer;font-size:var(--gw-fz-4,13px);padding:2px 6px 2px 0;flex:none}
 .dsh-gw-crumb-back:hover{text-decoration:underline}
 .dsh-gw-crumb-seg{background:none;border:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px);padding:2px 5px;border-radius:5px;font:inherit;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
@@ -839,6 +947,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-crumb-sep{color:var(--dsw-alias-label-secondary);opacity:.5;flex:none;user-select:none}
 .dsh-gw-crumb-seg[data-context=true]{cursor:pointer;padding-left:5px;opacity:1}
 .dsh-gw-crumb-seg[data-context=true]:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-link)}
+.dsh-gw-crumb-select{appearance:auto;min-width:0;max-width:min(190px,38vw);height:26px;padding:1px 4px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-weight:600;cursor:pointer;text-overflow:ellipsis}
+.dsh-gw-crumb-select:hover,.dsh-gw-crumb-select:focus-visible{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);outline:none}
+.dsh-gw-crumb-select[data-level=detail]{font-weight:500;color:var(--dsw-alias-label-secondary);max-width:min(240px,46vw)}
 .dsh-gw-tree{font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tree-dir{display:flex;align-items:center;gap:6px;width:100%;text-align:left;padding:3px 0;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px);font-weight:500}
 .dsh-gw-tree-dir:hover{color:var(--dsw-alias-label-primary)}
@@ -1027,7 +1138,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-live-empty{color:var(--dsw-alias-label-secondary);padding:12px 4px}
 .dsh-gw-note-dirty{color:var(--dsw-alias-state-warn-primary,#d97706);margin-left:4px;font-size:var(--gw-fz-1,11px);vertical-align:middle}
 /* 带历史候选的多选输入框（术语表的领域 / 标签） */
-.dsh-gw-chip{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:6px;padding:2px 9px;font-size:var(--gw-fz-2,11.5px);cursor:pointer;white-space:nowrap;transition:all .15s ease}
+.dsh-gw-chip{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);border-radius:6px;padding:2px 9px;font-size:var(--gw-fz-2,11.5px);cursor:pointer;white-space:nowrap;transition:color .15s ease,border-color .15s ease,background-color .15s ease}
 .dsh-gw-chip:hover{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);background:var(--dsw-alias-bg-layer-2);box-shadow:0 2px 6px color-mix(in srgb,var(--dsw-alias-link) 18%,transparent);transform:translateY(-1px)}
 .dsh-gw-chip.is-on{background:color-mix(in srgb,var(--dsw-alias-link) 14%,transparent);border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);font-weight:500}
 /* 平台多选框：复刻 .dsh-gw-field select（对应商品那个原生下拉）的观感。 */
@@ -1231,7 +1342,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-note-sectionhead.dsh-gw-note-boxhead{margin-top:8px;padding:4px 8px;border-radius:6px 6px 0 0;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-annot-wrap.dsh-gw-note-boxbody{border-radius:0 0 6px 6px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-note-page .dsh-gw-note-acts{gap:4px}
-.dsh-gw-tablebox{min-width:0;max-width:100%;overscroll-behavior-inline:contain}
+.dsh-gw-tablebox{min-width:0;max-width:100%;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-tablebox>table{max-width:none}
 .dsh-gw-matrixbox,.dsh-gw-fb-box,.dsh-gw-gloss-box{overflow:auto;max-width:100%;scrollbar-gutter:stable;overscroll-behavior:contain}
 .dsh-gw-matrixbox>.dsh-gw-matrix{min-width:520px}
 .dsh-gw-fb-box>.dsh-gw-fb-compact{min-width:560px;table-layout:fixed}
@@ -1304,9 +1416,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-pending-table thead th:nth-child(-n+3){z-index:4}
 .dsh-gw-pending-table td:nth-child(n+6):nth-child(-n+9){text-align:right}
 .dsh-gw-more-trigger:focus-visible,.dsh-gw-th-sort:focus-visible,.dsh-gw-account-candidates>summary:focus-visible,.dsh-gw-cal-row-links>summary:focus-visible,.dsh-gw-pending-box:focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
-/* Editorial worktable: cool paper in light mode, blue-violet ink layers in dark mode. */
-.dsh-gw-panel[data-gw-scheme=light]{--gw-canvas:#f3f4fa;--gw-paper:#fbfbfe;--gw-paper-raised:#ffffff;--gw-paper-soft:#eceef7;--gw-ink:#242438;--gw-muted:#64687d;--gw-faint:#85899e;--gw-rule:#d8dbea;--gw-rule-strong:#c2c7dc;--gw-accent:#6448ab;--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#aeb5d0;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#e6e4f3;--gw-glass-panel:var(--gw-canvas)}
-.dsh-gw-panel[data-gw-scheme=dark]{--gw-canvas:#151826;--gw-paper:#1d2133;--gw-paper-raised:#292e45;--gw-paper-soft:#24293e;--gw-ink:#f3f2fa;--gw-muted:#b6b8cb;--gw-faint:#9296ad;--gw-rule:#343a55;--gw-rule-strong:#48506f;--gw-accent:#c1b2ff;--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#5d668c;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#303650;--gw-glass-panel:var(--gw-canvas)}
+/* Sunlit editorial desk: warm-white paper and one soft orange accent, even inside a dark host. */
+.dsh-gw-panel[data-gw-scheme=light]{--gw-canvas:#f8f3ea;--gw-paper:#fffaf2;--gw-paper-raised:#fffdf8;--gw-paper-soft:#f3e9dc;--gw-ink:#352d28;--gw-muted:#766a62;--gw-faint:#9a8e85;--gw-rule:#e7d9ca;--gw-rule-strong:#d8c4b3;--gw-accent:var(--gw-warm,#b95f42);--gw-accent-soft:#d97757;--gw-shadow-pop:0 8px 24px rgba(117,78,57,.10);--gw-shadow-modal:0 18px 52px rgba(117,78,57,.15);--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#c7ad99;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#f2e4d6;--gw-glass-panel:var(--gw-canvas)}
+.dsh-gw-panel[data-gw-scheme=dark]{--gw-canvas:#241c18;--gw-paper:#2c231e;--gw-paper-raised:#352a24;--gw-paper-soft:#3a2e27;--gw-ink:#f7eee8;--gw-muted:#c7b8ad;--gw-faint:#9f8d82;--gw-rule:#493a32;--gw-rule-strong:#5c493e;--gw-accent:var(--gw-warm,#f0a07e);--gw-accent-soft:#d98260;--gw-shadow-pop:0 10px 28px rgba(10,6,4,.28);--gw-shadow-modal:0 22px 60px rgba(10,6,4,.38);--dsw-alias-bg-base:var(--gw-canvas);--dsw-alias-bg-layer-1:var(--gw-paper);--dsw-alias-bg-layer-2:var(--gw-paper-soft);--dsw-alias-bg-overlay:var(--gw-paper-raised);--dsw-alias-label-primary:var(--gw-ink);--dsw-alias-label-secondary:var(--gw-muted);--dsw-alias-label-tertiary:var(--gw-faint);--dsw-alias-border-l1:var(--gw-rule);--dsw-alias-border-l2:var(--gw-rule-strong);--dsw-alias-border-l3:#765e50;--dsw-alias-link:var(--gw-accent);--dsw-alias-interactive-bg-hover:#403229;--gw-glass-panel:var(--gw-canvas)}
 .dsh-gw-panel[data-gw-scheme]{background:var(--gw-canvas);color:var(--gw-ink);box-shadow:none}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-head,.dsh-gw-panel[data-gw-scheme] .dsh-gw-tabs{background:var(--gw-paper)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-body{background:var(--gw-canvas)}
@@ -1365,21 +1477,88 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-body[data-narrow=true] .dsh-gw-product-split{flex-direction:column;gap:8px}
 .dsh-gw-body[data-narrow=true] .dsh-gw-product-split>.dsh-gw-product-pane{width:100%!important}
 .dsh-gw-body[data-narrow=true] .dsh-gw-product-split>.dsh-gw-product-divider{display:none!important}
+.dsh-gw-body[data-narrow=true] .dsh-gw-next-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.dsh-gw-body[data-narrow=true] .dsh-gw-account-row{grid-template-columns:minmax(0,1fr);row-gap:8px}
+.dsh-gw-body[data-narrow=true] .dsh-gw-account-row .dsh-gw-account-acts{justify-self:start;max-width:100%;flex-wrap:wrap}
+.dsh-gw-body[data-narrow=true] .dsh-gw-sop-head{flex-wrap:wrap;align-items:flex-start}
+.dsh-gw-body[data-narrow=true] .dsh-gw-sop-title{min-width:0}
+.dsh-gw-body[data-narrow=true] .dsh-gw-sop-tools{margin-left:0;max-width:100%;flex-wrap:wrap}
 .dsh-gw-body[data-tight=true] .dsh-gw-pending-more{grid-template-columns:minmax(0,1fr)}
+.dsh-gw-body[data-tight=true] .dsh-gw-next{padding:9px}
+.dsh-gw-body[data-tight=true] .dsh-gw-next-head{align-items:flex-start;flex-direction:column;gap:2px}
+.dsh-gw-body[data-tight=true] .dsh-gw-next-grid{grid-template-columns:minmax(0,1fr)}
 .dsh-gw-body[data-tight=true] .dsh-gw-row:not(.dsh-gw-cal-row):not(.dsh-gw-account-row){flex-wrap:wrap;align-items:flex-start}
 .dsh-gw-body[data-tight=true] .dsh-gw-row:not(.dsh-gw-cal-row):not(.dsh-gw-account-row)>.dsh-gw-row-main{flex:1 1 calc(100% - 46px)}
 .dsh-gw-body[data-tight=true] .dsh-gw-row-num{margin-left:auto}
 .dsh-gw-body[data-tight=true] .dsh-gw-row-side,.dsh-gw-body[data-tight=true] .dsh-gw-topiclist-acts{max-width:100%;flex-wrap:wrap;justify-content:flex-start}
 .dsh-gw-body[data-tight=true] .dsh-gw-rank-tabs{display:flex;max-width:100%;overflow-x:auto;padding-bottom:2px}
-.dsh-gw-panel[data-tight=true] .dsh-gw-tabs{flex-wrap:wrap;padding-bottom:6px}
-.dsh-gw-panel[data-tight=true] .dsh-gw-tablist{flex:1 1 100%}
-.dsh-gw-panel[data-tight=true] .dsh-gw-tabs .dsh-gw-search{flex:1 1 100%;width:100%;margin-left:0}
-.dsh-gw-body[data-tight=true] .dsh-gw-ms-pop{max-width:calc(100vw - 48px)}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tabs{gap:4px;padding-left:8px;padding-right:8px}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tablist{flex:1 1 auto;gap:0;overflow:hidden}
+.dsh-gw-panel[data-tight=true] .dsh-gw-tabs .dsh-gw-search{flex:0 1 126px;width:clamp(104px,28vw,126px);min-width:104px;margin:0 0 6px auto}
+.dsh-gw-panel[data-tight=true] .dsh-gw-card-tabs{gap:3px 6px;padding-top:7px;padding-bottom:8px}
+.dsh-gw-panel[data-tight=true] .dsh-gw-card-tab{padding-left:13px;padding-right:7px}
+/* Claude-inspired restraint: one warm accent, paper hierarchy, hairline rules, no ornamental lift. */
+.dsh-gw-panel[data-gw-scheme]{--gw-control-h:28px;--gw-radius:5px;--gw-radius-panel:8px;--gw-reading:70ch;font-family:inherit;letter-spacing:0}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-head,.dsh-gw-tabs,.dsh-gw-card-tabs){background:var(--gw-paper);background-image:none}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-head{padding:13px 16px 11px;border-bottom-color:var(--gw-rule)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-tabs{padding:8px 16px 0;border-bottom-color:var(--gw-rule)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tabs{gap:2px 8px;padding:5px 16px 6px;border-bottom-color:var(--gw-rule);box-shadow:0 1px 0 color-mix(in srgb,var(--gw-ink) 3%,transparent)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-tab{padding:7px 10px 8px;border:0;border-radius:0;color:var(--gw-muted);font-weight:500}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-tab[data-on=true]{background:transparent;color:var(--gw-ink);box-shadow:inset 0 -2px 0 var(--gw-accent);font-weight:650}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tab{border:0;border-radius:0;padding:4px 6px 4px 13px;color:var(--gw-muted);box-shadow:none}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tab::before{left:5px;top:6px;bottom:6px;width:1px;border-radius:0;background:var(--gw-rule-strong);box-shadow:none}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tab:hover{border:0;background:var(--gw-paper-soft);color:var(--gw-ink)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tab[data-on=true]{border:0;background:color-mix(in srgb,var(--gw-accent) 8%,var(--gw-paper));box-shadow:none;color:var(--gw-ink);font-weight:650}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-card-tab[data-on=true]::before{width:2px;background:var(--gw-accent);box-shadow:none}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-body{padding-left:16px;padding-right:16px;padding-bottom:22px}
+.dsh-gw-theme-toggle{border-color:var(--gw-rule-strong);background:var(--gw-paper-raised);color:var(--gw-muted)}
+.dsh-gw-theme-toggle:hover{border-color:var(--gw-rule);background:var(--gw-paper-soft);color:var(--gw-accent)}
+.dsh-gw-theme-toggle[data-mode=dark]{color:var(--gw-accent)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-body>.dsh-gw-card-crumb,.dsh-gw-card-top,.dsh-gw-rules-sticky,.dsh-gw-note-sectionhead,.dsh-gw-table thead th,.dsh-gw-matrix thead th,.dsh-gw-rules thead th){background-color:var(--gw-canvas);background-image:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-body>.dsh-gw-card-crumb,.dsh-gw-card-top,.dsh-gw-rules-sticky){margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px;border-bottom-color:var(--gw-rule)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-sect{margin-top:20px;margin-bottom:9px;letter-spacing:0}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-sect-t{font-size:14px;font-weight:650;color:var(--gw-ink)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-title,.dsh-gw-note-page-title){font-size:18px;line-height:1.35;font-weight:650;letter-spacing:-.01em}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-row-meta,.dsh-gw-next-meta,.dsh-gw-field label){color:var(--gw-muted)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-note-preview,.dsh-gw-note-editor)>.dsh-gw-md,.dsh-gw-panel[data-gw-scheme] .dsh-gw-note-preview>.dsh-gw-md{max-width:var(--gw-reading)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-ms-btn,.dsh-gw-catselect,.dsh-gw-field input,.dsh-gw-field select,.dsh-gw-field textarea,.dsh-gw-search input,.dsh-gw-listfilter-input){border-radius:var(--gw-radius);border-color:var(--gw-rule-strong);box-shadow:none}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-ms-btn,.dsh-gw-catselect){min-height:var(--gw-control-h)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-chip,.dsh-gw-pill,.dsh-gw-pill-btn){transition:color .15s ease,border-color .15s ease,background-color .15s ease;transform:none}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-chip:hover,.dsh-gw-pill-btn:hover){transform:none;box-shadow:none;background:var(--gw-paper-soft);border-color:var(--gw-rule-strong);color:var(--gw-ink)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-row-act,.dsh-gw-btn[data-tone=primary]){background:transparent;border-color:var(--gw-rule-strong);color:var(--gw-ink)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-row-act[data-tone=primary],.dsh-gw-btn[data-tone=primary]){border-color:color-mix(in srgb,var(--gw-accent) 52%,var(--gw-rule));background:color-mix(in srgb,var(--gw-accent) 8%,var(--gw-paper));color:var(--gw-accent)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row{padding:10px 4px;border:0;border-bottom:1px solid var(--gw-rule);border-radius:0;background:transparent}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row+.dsh-gw-row{margin-top:0}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row:hover{background:color-mix(in srgb,var(--gw-paper) 72%,transparent)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row[data-current=true]{border-color:var(--gw-rule);background:color-mix(in srgb,var(--gw-accent) 6%,var(--gw-canvas));box-shadow:inset 2px 0 0 var(--gw-accent)}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-next{padding:12px 0 14px;border:0;border-bottom:1px solid var(--gw-rule);border-radius:0;background:transparent}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-next-action{min-height:46px;border-radius:var(--gw-radius);border-color:var(--gw-rule);background:var(--gw-paper)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-tablebox,.dsh-gw-rules-frame,.dsh-gw-create-card,.dsh-gw-fold.dsh-gw-create-card){border-color:var(--gw-rule);border-radius:var(--gw-radius-panel);box-shadow:none;background:var(--gw-paper)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-table thead th,.dsh-gw-matrix thead th,.dsh-gw-rules thead th){background-color:var(--gw-paper-soft);color:var(--gw-muted);font-weight:600}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-table th,.dsh-gw-table td,.dsh-gw-rules th,.dsh-gw-rules td){border-color:var(--gw-rule)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-ms-pop,.dsh-gw-more-menu,.dsh-gw-platmulti-drop,.dsh-gw-combo-list){background:var(--gw-paper-raised);background-image:none;-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--gw-rule-strong);box-shadow:var(--gw-shadow-pop);border-radius:var(--gw-radius-panel)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-confirm,.dsh-gw-preview-box){background:var(--gw-paper-raised);border-color:var(--gw-rule-strong);box-shadow:var(--gw-shadow-modal)}
+.dsh-gw-panel[data-gw-scheme] :focus-visible{outline-color:var(--gw-accent);outline-offset:2px}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-pill,.dsh-gw-chip,.dsh-gw-row-tag){border-radius:4px}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-account-row .dsh-gw-row-name{background:transparent;padding-left:0}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-fold>summary{padding-top:7px;padding-bottom:7px}
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-empty{padding:34px 12px;color:var(--gw-muted)}
+.dsh-gw-panel[data-tight=true][data-gw-scheme] .dsh-gw-tabs{padding-left:10px;padding-right:10px}
+.dsh-gw-panel[data-tight=true][data-gw-scheme] .dsh-gw-card-tabs{padding:4px 10px 5px;gap:2px 6px}
+.dsh-gw-body[data-tight=true] .dsh-gw-ms-pop{max-width:calc(100% - 8px)}
+@media (hover:none),(pointer:coarse){
+  .dsh-gw-panel :is(.dsh-gw-btn,.dsh-gw-tab,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-row-sched,.dsh-gw-ms-btn,.dsh-gw-catselect){min-height:40px}
+  .dsh-gw-panel :is(.dsh-gw-ibtn,.dsh-gw-icon-btn,.dsh-gw-gloss-del){min-width:40px;min-height:40px;width:40px;height:40px}
+  .dsh-gw-panel :is(input:not([type=checkbox]):not([type=radio]),select){min-height:40px}
+  .dsh-gw-col-grip{right:-1px;width:23px}
+  .dsh-gw-col-grip::after{right:0}
+  .dsh-gw-row .dsh-gw-row-del,.dsh-gw-rules .dsh-gw-row-del,.dsh-gw-sched-cell .dsh-gw-row-del,.dsh-gw-gloss-table .dsh-gw-gloss-del,.dsh-gw-acts{opacity:1;pointer-events:auto}
+}
 @media(max-width:520px){.dsh-gw-account-row{grid-template-columns:minmax(0,1fr);row-gap:8px}.dsh-gw-account-row .dsh-gw-account-acts{justify-self:start}}
 @media (prefers-reduced-motion:reduce){.dsh-gw-panel *{scroll-behavior:auto;transition:none!important}}
 `
 
-    const BUILD = '2026-11-04b'
+    const BUILD = '2026-11-14i'
 
     function ensureStyle() {
       const id = 'dsh-growth-workbench-style'
@@ -1410,6 +1589,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         // localStorage 不可用时退回默认。
       }
       return 'ops'
+    }
+
+    function readTheme() {
+      try { return localStorage.getItem(LS_THEME) === 'dark' ? 'dark' : 'light' } catch { return 'light' }
+    }
+
+    function writeTheme(theme) {
+      try { localStorage.setItem(LS_THEME, theme) } catch { /* 隐私模式写不进去时只维持当前会话。 */ }
+      return theme
     }
 
     function Pill({ children, tone, onClick, title }) {
@@ -1484,7 +1672,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     function hostAccent(background, label, scheme = 'light') {
       const base = parseSurfaceColor(background)
       const actualScheme = base ? (surfaceLuminance(base) < 0.3 ? 'dark' : 'light') : scheme === 'dark' ? 'dark' : 'light'
-      const candidate = parseSurfaceColor(actualScheme === 'dark' ? '#DDB781' : '#98672D')
+      const candidate = parseSurfaceColor(actualScheme === 'dark' ? '#F0A07E' : '#B95F42')
       const fallbackInk = parseSurfaceColor(actualScheme === 'dark' ? '#FFFFFF' : '#000000')
       const labelInk = parseSurfaceColor(label)
       // A host can briefly expose mismatched aliases while switching themes. Never steer
@@ -1503,7 +1691,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const color = '#' + tone.map((part) => Math.round(part * 255).toString(16).padStart(2, '0')).join('')
       return { scheme: actualScheme, color, contrast }
     }
-    function installHostAccent(node, host = window, doc = document) {
+    function installHostAccent(node, host = window, doc = document, preferredScheme) {
       if (!node || typeof host.getComputedStyle !== 'function') return () => {}
       // Resolve aliases via computed colour, including nested var()/color-mix() values.
       const probe = doc.createElement('span')
@@ -1518,12 +1706,14 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         const label = host.getComputedStyle(probe).color
         const colorScheme = host.getComputedStyle(node.parentElement ?? node).colorScheme
         const result = hostAccent(background, label, colorScheme)
-        // Scope the workbench palette to the surface the host is actually rendering.
-        // This avoids inheriting a flat grey host canvas while still following light/dark changes.
-        if (node.dataset !== undefined) { if (node.dataset.gwScheme !== result.scheme) node.dataset.gwScheme = result.scheme }
-        else if (typeof node.setAttribute === 'function') node.setAttribute('data-gw-scheme', result.scheme)
-        if (node.style.colorScheme !== result.scheme) node.style.colorScheme = result.scheme
-        const localAccent = hostAccent(result.scheme === 'dark' ? '#1D2133' : '#FBFBFE', result.scheme === 'dark' ? '#F3F2FA' : '#242438', result.scheme)
+        const scheme = preferredScheme === 'dark' ? 'dark' : preferredScheme === 'light' ? 'light' : result.scheme
+        // Scope the workbench palette to the surface the user selected; host detection is only the fallback.
+        if (node.dataset !== undefined) { if (node.dataset.gwScheme !== scheme) node.dataset.gwScheme = scheme }
+        else if (typeof node.setAttribute === 'function') node.setAttribute('data-gw-scheme', scheme)
+        const localAccent = scheme === 'dark'
+          ? hostAccent('#241C18', '#F7EEE8', 'dark')
+          : hostAccent('#FFFAF2', '#352D28', 'light')
+        if (node.style.colorScheme !== scheme) node.style.colorScheme = scheme
         if (node.style.getPropertyValue('--gw-warm') !== localAccent.color) node.style.setProperty('--gw-warm', localAccent.color)
       }
       apply()
@@ -1977,10 +2167,12 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       chevron: ['M9.5 6l6 6-6 6'],
       chevronDown: ['M6 9.5l6 6 6-6'],
       refresh: ['M20 12a8 8 0 1 1-2.4-5.7', 'M20 4.2v4.6h-4.6'],
+      sun: ['M12 3v2.2', 'M12 18.8V21', 'M3 12h2.2', 'M18.8 12H21', 'M5.64 5.64l1.56 1.56', 'M16.8 16.8l1.56 1.56', 'M18.36 5.64L16.8 7.2', 'M7.2 16.8l-1.56 1.56', 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'],
+      moon: ['M20 15.1A8.4 8.4 0 0 1 8.9 4a8.5 8.5 0 1 0 11.1 11.1z'],
       external: ['M14.5 4.5H20V10', 'M20 4.5l-8.2 8.2', 'M18 14.2v4.3a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 18.5V7.5A1.5 1.5 0 0 1 5.5 6H10'],
       locate: ['M12 3.6v2.6', 'M12 17.8v2.6', 'M3.6 12h2.6', 'M17.8 12h2.6', 'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z'],
       search: ['M10.8 17.6a6.8 6.8 0 1 1 0-13.6 6.8 6.8 0 0 1 0 13.6z', 'M15.8 15.8L20 20'],
-      settings: ['M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8z', 'M12 2.8v2.1', 'M12 19.1v2.1', 'M4.7 4.7l1.5 1.5', 'M17.8 17.8l1.5 1.5', 'M2.8 12h2.1', 'M19.1 12h2.1', 'M4.7 19.3l1.5-1.5', 'M17.8 6.2l1.5-1.5'],
+      settings: ['M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
     }
 
     function Icon({ name, size }) {
@@ -2050,6 +2242,35 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         tone: (value.pendingCount ?? 0) > 0 ? 'warn' : '',
       })
       return cards.map((card) => ({ card, ...(map[card.id]?.() ?? { num: 0, unit: '', meta: '' }) }))
+    }
+
+    function homeActions(cards, summary) {
+      const enabled = new Set((cards ?? []).filter((card) => card?.enabled !== false).map((card) => card.id))
+      const value = summary ?? {}
+      const candidates = [
+        { cardId: 'pending', count: Number(value.pendingCount ?? 0), label: '回填已发数据', meta: (value.pendingCount ?? 0) + ' 条等你回写', priority: 100 },
+        { cardId: 'feedback', count: Number(value.feedbackNegativeOpen ?? 0), label: '处理负面反馈', meta: (value.feedbackNegativeOpen ?? 0) + ' 条未处理', priority: 90 },
+        { cardId: 'calendar', count: Number(value.calendarPending ?? 0), label: '推进待创作排期', meta: (value.calendarPending ?? 0) + ' 条待创作', priority: 80 },
+        { cardId: 'studio', count: Number(value.topicsDoing ?? 0), label: '继续内容创作', meta: (value.topicsDoing ?? 0) + ' 条创作中', priority: 70 },
+        { cardId: 'ideas', count: Number(value.ideasNew ?? 0), label: '整理新灵感', meta: (value.ideasNew ?? 0) + ' 条未使用', priority: 60 },
+        { cardId: 'campaigns', count: Number(value.campaignsActive ?? 0), label: '跟进营销活动', meta: (value.campaignsActive ?? 0) + ' 个进行中', priority: 50 },
+      ]
+      const actions = candidates
+        .filter((item) => enabled.has(item.cardId) && Number.isFinite(item.count) && item.count > 0)
+        .sort((left, right) => right.priority - left.priority)
+        .slice(0, 3)
+        .map(({ priority, ...item }) => item)
+      if (actions.length > 0) return actions
+      const fallbacks = [
+        { cardId: 'studio', label: '新建自己的选题', meta: '从选题到平台版本开始推进' },
+        { cardId: 'ideas', label: '记下一条灵感', meta: '先收集，再转成选题或拆解' },
+        { cardId: 'calendar', label: '查看内容日历', meta: '检查接下来的发布节奏' },
+        { cardId: 'feedback', label: '查看用户反馈', meta: '确认有没有需要跟进的问题' },
+        { cardId: 'campaigns', label: '新建营销活动', meta: '从目标与效果口径开始' },
+        { cardId: 'accounts', label: '完善账号档案', meta: '补齐平台、定位和目标人群' },
+      ]
+      const fallback = fallbacks.find((item) => enabled.has(item.cardId))
+      return fallback === undefined ? [] : [fallback]
     }
 
     /* ────────────── 各卡片的取数 hook ────────────── */
@@ -2192,17 +2413,19 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         const offset = changedRefresh ? 0 : state.offset
         const ticket = reads.current.begin(scope)
         const previous = state.data?._listScope === scope ? state.data : null
+        const controller = new AbortController()
         setState((prev) => ({ ...prev, loading: true, error: null }))
         const timer = setTimeout(() => {
-        Promise.resolve().then(() => loaderRef.current(pageQuery(path, offset, query))).then((page) => {
+        Promise.resolve().then(() => loaderRef.current(pageQuery(path, offset, query), { signal: controller.signal })).then((page) => {
           if (!reads.current.current(ticket, scopeRef.current)) return
           const data = { ...mergeRecordPage(previous, page, offset), _listScope: scope }
           setState((prev) => ({ ...prev, data, loading: false, error: null }))
         }).catch((error) => {
+          if (controller.signal.aborted || error?.name === 'AbortError') return
           if (reads.current.current(ticket, scopeRef.current)) setState((prev) => ({ ...prev, loading: false, error }))
         })
         }, query.trim() === '' ? 0 : 220)
-        return () => { clearTimeout(timer); reads.current.invalidate() }
+        return () => { clearTimeout(timer); controller.abort(); reads.current.invalidate() }
       }, [path, query, state.request, refresh])
       const pageData = state.data?._listScope === scope ? state.data : null
       return {
@@ -2227,7 +2450,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     }
     function useLinkedRecords(kind, records, links) {
       const key = JSON.stringify(Array.from(new Set((links ?? []).map((link) => link?.path ? 'path=' + encodeURIComponent(link.path) : link?.id ? 'id=' + encodeURIComponent(link.id) : '').filter(Boolean))))
-      const linked = useAsync(async () => {
+      const linked = useAsync(async (signal) => {
         const lookups = JSON.parse(key).filter((lookup) => {
           const [type, encoded] = lookup.split('=')
           const value = decodeURIComponent(encoded)
@@ -2238,8 +2461,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         await Promise.all(Array.from({ length: Math.min(4, lookups.length) }, async () => {
           while (index < lookups.length) {
             const lookup = lookups[index++]
-            try { const payload = await get('/' + kind + '/record?' + lookup); if (payload?.record) result.push(payload.record) }
-            catch (error) { errors.push(error) }
+            try { const payload = await get('/' + kind + '/record?' + lookup, { signal }); if (payload?.record) result.push(payload.record) }
+            catch (error) { if (signal.aborted || error?.name === 'AbortError') return; errors.push(error) }
           }
         }))
         return { records: result, errors, _linkScope: kind + '|' + key }
@@ -2300,11 +2523,12 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       }, [])
       React.useEffect(() => {
         const ticket = reads.current.begin('loader')
+        const controller = new AbortController()
         setState((prev) => ({ ...prev, loading: true, error: null }))
-        Promise.resolve().then(loader)
+        Promise.resolve().then(() => loader(controller.signal))
           .then((data) => { if (reads.current.current(ticket, 'loader')) { const warning = responseWarning(data); setState((prev) => ({ ...prev, loading: false, data: warning !== null && prev.data !== null ? prev.data : data, error: warning })) } })
-          .catch((error) => { if (reads.current.current(ticket, 'loader')) setState((prev) => ({ ...prev, loading: false, error })) })
-        return () => reads.current.invalidate()
+          .catch((error) => { if (!controller.signal.aborted && error?.name !== 'AbortError' && reads.current.current(ticket, 'loader')) setState((prev) => ({ ...prev, loading: false, error })) })
+        return () => { controller.abort(); reads.current.invalidate() }
       }, [state.version, refresh, ...deps])
       return { ...state, reload, setData, invalidate }
     }
@@ -2839,8 +3063,33 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
      * 每一段都可以点（onNav(索引)，索引 -1 表示返回箭头），
      * 所以「返回」永远只回上一层，点中间某一段就直接跳回那一层。
      */
-    function Breadcrumb({ trail, onNav, context, onContext }) {
+    function BreadcrumbSelect({ level, value, options, onChange, label }) {
+      const items = Array.isArray(options) ? options : []
+      return h('select', {
+        className: 'dsh-gw-crumb-select',
+        'data-level': level,
+        value,
+        title: '切换' + label,
+        'aria-label': label,
+        onChange: (event) => {
+          const next = event.target.value
+          if (typeof onChange === 'function') onChange(next)
+          window.setTimeout(() => { event.target.value = String(value ?? '') }, 0)
+        },
+      }, items.map((item) => h('option', { key: item.value, value: item.value }, item.label)))
+    }
+
+    function Breadcrumb({ trail, onNav, context, onContext, selectors }) {
       const lead = Array.isArray(context) ? context : []
+      const picks = Array.isArray(selectors) ? selectors : []
+      if (picks.length > 0) {
+        return h('div', { className: 'dsh-gw-crumb' },
+          h('button', { className: 'dsh-gw-crumb-back', title: '返回上一层', 'aria-label': '返回上一层', onClick: () => onNav(-1) }, '←'),
+          picks.map((picker, index) => [
+            index === 0 ? null : h('span', { key: 'pick-sep' + index, className: 'dsh-gw-crumb-sep' }, '/'),
+            h(BreadcrumbSelect, { key: 'pick' + index, ...picker }),
+          ]))
+      }
       const nodes = []
       lead.forEach((label, index) => {
         if (index > 0) nodes.push(h('span', { key: 'lead-sep' + index, className: 'dsh-gw-crumb-sep' }, '/'))
@@ -2876,6 +3125,42 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           ]
         }),
       )
+    }
+
+    function detailCrumbOf(value, records, onSelect, emptyLabel = '选择当前项目') {
+      const items = Array.isArray(records) ? records : []
+      const path = value === null || value === undefined ? '' : String(value)
+      const options = [{ value: '', label: emptyLabel }]
+      const seen = new Set()
+      for (const record of items) {
+        const itemPath = String(record?.path ?? '')
+        if (itemPath === '' || seen.has(itemPath)) continue
+        seen.add(itemPath)
+        const leaf = itemPath.split('/').pop().replace(/\.md$/i, '')
+        options.push({ value: itemPath, label: String(record?.front?.name ?? record?.title ?? leaf) })
+      }
+      if (path !== '' && !seen.has(path)) {
+        options.push({ value: path, label: path.split('/').pop().replace(/\.md$/i, '') })
+      }
+      return { value: path, label: emptyLabel, options, onChange: (next) => onSelect(next === '' ? null : next) }
+    }
+
+    function useDetailCrumb(onCrumb, value, records, onSelect, emptyLabel) {
+      const selectRef = React.useRef(onSelect)
+      selectRef.current = onSelect
+      const descriptor = React.useMemo(() => detailCrumbOf(value, records, (next) => selectRef.current(next), emptyLabel), [value, records, emptyLabel])
+      React.useEffect(() => {
+        if (typeof onCrumb === 'function') onCrumb(descriptor)
+      }, [onCrumb, descriptor])
+      React.useEffect(() => () => { if (typeof onCrumb === 'function') onCrumb(null) }, [onCrumb])
+    }
+
+    function flattenNoteRecords(nodes, out = []) {
+      for (const node of (Array.isArray(nodes) ? nodes : [])) {
+        if (node?.type === 'note') out.push({ path: node.path, title: node.name ?? node.title })
+        else flattenNoteRecords(node?.children, out)
+      }
+      return out
     }
 
     /**
@@ -3135,6 +3420,34 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       if (event.defaultPrevented || !['Enter', ' '].includes(event.key) || event.target !== event.currentTarget) return false
       event.preventDefault(); event.stopPropagation(); action(); return true
     }
+    function workspaceTabTarget(workspaces, current, key) {
+      const ids = (workspaces ?? []).map((item) => typeof item === 'string' ? item : item?.id).filter(Boolean)
+      if (ids.length === 0) return null
+      const index = Math.max(0, ids.indexOf(current))
+      if (key === 'Home') return ids[0]
+      if (key === 'End') return ids[ids.length - 1]
+      if (key === 'ArrowRight' || key === 'ArrowDown') return ids[(index + 1) % ids.length]
+      if (key === 'ArrowLeft' || key === 'ArrowUp') return ids[(index - 1 + ids.length) % ids.length]
+      return null
+    }
+    function columnResizeDelta(event, pixel = false) {
+      if (event.defaultPrevented) return 0
+      const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+      if (direction === 0) return 0
+      return direction * (pixel ? (event.shiftKey ? 48 : 16) : (event.shiftKey ? 5 : 1))
+    }
+    function ColumnGrip({ label, onPointerDown, onResize, pixel = false }) {
+      return h('span', {
+        className: 'dsh-gw-col-grip', role: 'separator', tabIndex: 0, 'aria-orientation': 'vertical',
+        'aria-label': '调整' + label + '列宽', title: '拖动或用左右方向键调整列宽', onPointerDown,
+        onClick: (event) => event.stopPropagation(),
+        onKeyDown: (event) => {
+          const delta = columnResizeDelta(event, pixel)
+          if (delta === 0) return
+          event.preventDefault(); event.stopPropagation(); onResize(delta)
+        },
+      })
+    }
     function shiftedColumnWidths(widths, index, delta) {
       const next = [...widths], min = 4
       if (index < 0 || index + 1 >= next.length) return next
@@ -3296,7 +3609,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           onKeyDown: sortable ? (event) => keyboardActivate(event, () => toggleSort(key)) : undefined,
           onClick: sortable ? () => toggleSort(key) : undefined,
         }, label + (sortable && sort.key === key ? (sort.dir === -1 ? ' ▼' : (sort.dir === 1 ? ' ▲' : '')) : ''),
-          h('span', { className: 'dsh-gw-col-grip', onPointerDown: startResize(index) }))
+          index < columns.length - 1 ? h(ColumnGrip, { label, onPointerDown: startResize(index), onResize: (delta) => setWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)
       }))
       const rows = sorted.map((record) => h('tr', { key: record.path, tabIndex: 0, onKeyDown: (event) => keyboardActivate(event, () => onOpen(record.path)), onClick: () => onOpen(record.path) },
         h('td', { className: 'title' },
@@ -3416,7 +3729,6 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const [topicWidths, setTopicWidths] = React.useState([15, 10, 31, 17, 9, 18])
       const startTopicResize = colResizeStart(topicWidths, setTopicWidths)
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -3426,6 +3738,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const allRecords = list.data?.records ?? []
+      const detailRecords = React.useMemo(() => allRecords.filter((record) => topicTypeOf(record) !== '选题'), [list.data?.records])
+      useDetailCrumb(onCrumb, openPath, detailRecords, setOpenPath)
       const platforms = []
       const tagOptions = []
       for (const record of allRecords) {
@@ -3494,7 +3808,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
               h('table', { className: 'dsh-gw-table dsh-gw-topics-table' },
               h('colgroup', null, ['c-date', 'c-platform', 'c-title', 'c-tags', 'c-views', 'c-sched'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: topicWidths[index] + '%' } }))),
               h('thead', null, h('tr', null, ['日期', '平台', '标题', '标签', '数据', '排期'].map((label, index) => h(CollectionSortHead, { key: label + index, label, field: ['date', 'platform', 'title', 'tags', 'views', 'schedule'][index], sort: topicSort, onSort: (field) => setTopicSort((current) => toggledCollectionSort(current, field)), style: index === 4 ? { textAlign: 'right' } : undefined },
-                index < 6 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startTopicResize(index) }) : null)))),
+                index < 5 ? h(ColumnGrip, { label, onPointerDown: startTopicResize(index), onResize: (delta) => setTopicWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
               h('tbody', null, records.map((record) => {
                 const tagPills = String(record.front?.tags ?? '').split(/[/,、;；]/).map((part) => part.trim()).filter((part) => part !== '')
                 return h('tr', { key: record.path, tabIndex: 0, onClick: () => setOpenPath(record.path), onKeyDown: (event) => keyboardActivate(event, () => setOpenPath(record.path)) },
@@ -3823,6 +4137,7 @@ const STAGE_OF_STATUS = {
     function StudioCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
       const [studioSort, setStudioSort] = React.useState({ field: '', desc: false })
       const [statusFilters, setStatusFilters] = React.useState([])
+      const [platformFilters, setPlatformFilters] = React.useState([])
       const [studioWidths, setStudioWidths] = React.useState([30, 13, 20, 17, 7, 13])
       const startStudioResize = colResizeStart(studioWidths, setStudioWidths)
       const [busy, setBusy] = React.useState(false)
@@ -3854,8 +4169,8 @@ const STAGE_OF_STATUS = {
       const [createVariantPlatform, setCreateVariantPlatform] = React.useState('')
       // 一次拉两样：选题（拆解）和平台版本（真正在拍的东西）。
       // 分开拉的话两次 reload 各自闪一下，分区还会短暂错位。
-      const list = usePagedList('/topics/list?limit=200', async (uri) => {
-        const [topics, variants] = await Promise.all([get(uri), get('/v2/variants')])
+      const list = usePagedList('/topics/list?limit=200', async (uri, options = {}) => {
+        const [topics, variants] = await Promise.all([get(uri, options), get('/v2/variants', options)])
         return { ...topics, records: topics?.records ?? [], variants: variants?.variants ?? [] }
       })
       const rf = useRecordFilter(list.data?.records ?? [], list)
@@ -3873,7 +4188,6 @@ const STAGE_OF_STATUS = {
         setVariantCreateRequest((n) => n + 1)
       }, [preset])
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：关详情回列表（票号只在被点时才变，和 TopicsCard 同款）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -3890,7 +4204,8 @@ const STAGE_OF_STATUS = {
       // 之前建的版本全挂在拆解笔记下，按 type 一刀切会把它们从我的选题彻底抹掉，
       // 只剩「日历 → 平台矩阵 → 去我的选题」这条深链能撞见，离开就再也找不回来。
       const masterIdsWithVariants = new Set(allVariants.map((variant) => String(variant.front?.masterId ?? '')).filter((id) => id !== ''))
-      const allRecords = rawRecords.filter((record) => topicTypeOf(record) !== '拆解' || masterIdsWithVariants.has(String(record.id ?? '')))
+      const allRecords = React.useMemo(() => rawRecords.filter((record) => topicTypeOf(record) !== '拆解' || masterIdsWithVariants.has(String(record.id ?? ''))), [list.data?.records, list.data?.variants])
+      useDetailCrumb(onCrumb, openPath, allRecords, (nextPath) => { setBodyWanted(nextPath !== null); setPendingVariant(''); setOpenPath(nextPath) })
       const platforms = []
       const tagOptions = []
       for (const record of allRecords) {
@@ -3902,6 +4217,11 @@ const STAGE_OF_STATUS = {
           if (clean !== '' && !tagOptions.includes(clean)) tagOptions.push(clean)
         }
       }
+      for (const variant of allVariants) {
+        const platform = normalizePlatform(variant.front?.platform)
+        if (platform !== '' && !platforms.includes(platform)) platforms.push(platform)
+      }
+      platforms.sort((left, right) => left.localeCompare(right, 'zh-CN'))
 
       const newTopicForm = h(React.Fragment, null,
         h('div', { className: 'dsh-gw-grid2' },
@@ -3924,7 +4244,7 @@ const STAGE_OF_STATUS = {
       const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', className: 'dsh-gw-create-card', open: allRecords.length === 0 || preset?.createTopic === true }, newTopicForm)
 
       // 早退必须放在 tagOptions 收集之后（TopicsCard 在这里撞过 TDZ，静态测试有守卫）。
-      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, newTopicForm, onReturnCalendar: calendarIntent === null ? null : (record) => openCard('calendar', { ...calendarIntent, calendarDraft: calendarIntent, topic: record.title, topicPath: record.path, variantId: '' }), openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
+      if (openPath !== null) return h(TopicDetail, { key: openPath, path: openPath, cardTitle: '我的选题', tagOptions, initial: allRecords.find((record) => record.path === openPath) ?? null, studioRecords: rawRecords, studioReady: list.data !== null && list.data !== undefined, onCrumb: onCrumb === undefined ? null : onCrumb, showOwnCrumb: false, openCard, studio: true, variantOnly: preset !== null && preset !== undefined && preset.variantOnly === true, onReturnCalendar: calendarIntent === null ? null : (record) => openCard('calendar', { ...calendarIntent, calendarDraft: calendarIntent, topic: record.title, topicPath: record.path, variantId: '' }), openVariantId: pendingVariant, openVariantRequest: variantRequest, openBody: bodyWanted, variantCreateRequest: variantCreateRequest, createPlatform: createVariantPlatform, onSwitchRecord: (nextPath) => { setBodyWanted(true); setPendingVariant(''); setOpenPath(nextPath) }, autoEdit: preset !== null && preset !== undefined && preset.edit === true && presetPath === openPath, onBack: () => { setOpenPath(null); setBodyWanted(false); setPendingVariant(''); if (onCrumb) onCrumb(null); list.reload() }, onStudioChanged: () => { list.reload() }, notify })
 
       const stageOf = (record) => {
         if (record.stage === 'shipped' || record.stage === 'doing' || record.stage === 'backlog') return record.stage
@@ -4011,8 +4331,6 @@ const STAGE_OF_STATUS = {
         try {
           const created = await post('/topics/create', { ...draft, status: '在写', type: '选题' })
           if (calendarIntent !== null && created?.created?.path) { setCalendarIntent({ ...calendarIntent, topic: draft.title, topicPath: created.created.path }); setCreateVariantPlatform(draft.platform); setVariantCreateRequest((n) => n + 1); setOpenPath(created.created.path) }
-          // 从详情里的「新建选题」卡创建时，直接切到刚建的那条，别把人留在旧选题上。
-          if (openPath !== null && created?.created?.path) { setOpenPath(created.created.path); setBodyWanted(false); setPendingVariant(''); setVariantRequest(0) }
           const empty = { title: '', platform: '', date: todayISO(), account: '', accountId: '', audience: '', goal: '', angle: '' }; draftBaseline.current = JSON.stringify(empty); setDraft(empty)
           notify('已建选题（状态=在写）；脚本写在平台版本里，不在这篇')
           list.reload()
@@ -4162,6 +4480,13 @@ const STAGE_OF_STATUS = {
       // 选题列表：不再按状态拆成多个折叠，一条选题一行，平台 / 状态 / 标签分列。
       const topicRows = shown.map((record) => {
         const variants = variantsOf(record.id)
+        const rowPlatforms = []
+        for (const variant of variants) {
+          const platform = normalizePlatform(variant.front?.platform) || String(variant.front?.platform ?? '').trim()
+          if (platform !== '' && !rowPlatforms.includes(platform)) rowPlatforms.push(platform)
+        }
+        const ownPlatform = normalizePlatform(record.front?.platform)
+        if (rowPlatforms.length === 0 && ownPlatform !== '') rowPlatforms.push(ownPlatform)
         const statuses = []
         for (const variant of variants) {
           const status = String(variant.status ?? '')
@@ -4169,19 +4494,23 @@ const STAGE_OF_STATUS = {
         }
         const stage = stageOf(record)
         const fallbackStatus = stage === 'doing' ? '在写' : stage === 'shipped' ? '已发 / 待回填' : '在写'
-        return { record, variants, statusText: statuses.length === 0 ? fallbackStatus : statuses.join(' / ') }
+        return { record, variants, rowPlatforms, statusText: statuses.length === 0 ? fallbackStatus : statuses.join(' / ') }
       })
-      const visibleTopicRows = statusFilters.length === 0
+      const platformTopicRows = platformFilters.length === 0
         ? topicRows
-        : topicRows.filter(({ statusText }) => String(statusText).split(' / ').some((status) => statusFilters.includes(status)))
+        : topicRows.filter(({ rowPlatforms }) => rowPlatforms.some((platform) => platformFilters.includes(platform)))
+      const visibleTopicRows = statusFilters.length === 0
+        ? platformTopicRows
+        : platformTopicRows.filter(({ statusText }) => String(statusText).split(' / ').some((status) => statusFilters.includes(status)))
       const sortedTopicRows = sortCollectionRows(visibleTopicRows, studioSort)
       const statusToneOf = (text) => String(text).includes('已发') || String(text).includes('待回填') || String(text).includes('已结案') ? 'ok' : String(text).includes('在写') ? 'brand' : 'warn'
       return h('div', null,
         h(ListFilter, { filter, setFilter, placeholder: '搜索当前卡片：标题 / 标签 / 正文', shown: shown.length, total: allRecords.length }),
-        h('div', { className: 'dsh-gw-card-top' },
-          h(MultiSelect, { label: '状态', options: TOPIC_STATUSES, value: statusFilters, onChange: setStatusFilters })),
+        h('div', { className: 'dsh-gw-card-top dsh-gw-studio-filters' },
+          h(MultiSelect, { label: '状态', options: TOPIC_STATUSES, value: statusFilters, onChange: setStatusFilters }),
+          h(MultiSelect, { label: '平台', options: platforms, value: platformFilters, onChange: setPlatformFilters }),
+          list.data?.truncated ? h('button', { type: 'button', className: 'dsh-gw-btn', disabled: list.loading, title: '继续载入更多选题', onClick: list.loadMore }, list.loading ? '读取中…' : '载入更多') : null),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
-        h(ListPager, { list }),
         list.loading ? h(Empty, null, t('loading')) : null,
         !list.loading && allRecords.length === 0
           ? h(Empty, null, '还没有自己的选题。下面新建一条，或从爆款拆解详情点「用这条建选题」。')
@@ -4190,25 +4519,16 @@ const STAGE_OF_STATUS = {
           newTopicFold,
           h(Fold, { title: '选题列表', count: visibleTopicRows.length, open: true },
             visibleTopicRows.length === 0
-              ? h(Empty, null, statusFilters.length === 0 ? '没有符合筛选的选题。' : '没有符合状态筛选的选题。')
+              ? h(Empty, null, statusFilters.length === 0 && platformFilters.length === 0 ? '没有符合筛选的选题。' : '没有符合状态或平台筛选的选题。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-topiclist-box dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '选题列表：可横向滚动并拖动表头调整列宽' },
                 h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table' },
                   h('colgroup', null, studioWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
                   h('thead', null, h('tr', null,
                     ['选题', '平台', '状态', '标签', '版本', '操作'].map((label, index) => h(CollectionSortHead, { key: label, label, field: ['title', 'platform', 'status', 'tags', 'versions', null][index], sort: studioSort, onSort: (field) => setStudioSort((current) => toggledCollectionSort(current, field)) },
-                      index < 5 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startStudioResize(index) }) : null)))),
-                  h('tbody', null, sortedTopicRows.map(({ record, variants, statusText }) => h('tr', { key: record.path },
+                      index < 5 ? h(ColumnGrip, { label, onPointerDown: startStudioResize(index), onResize: (delta) => setStudioWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
+                  h('tbody', null, sortedTopicRows.map(({ record, variants, rowPlatforms, statusText }) => h('tr', { key: record.path },
                     h('td', null, h('button', { className: 'dsh-gw-topiclist-title', title: record.title, onClick: () => setOpenPath(record.path) }, record.title)),
-                    h('td', null, (() => {
-                      const names = []
-                      for (const variant of variants) {
-                        const platform = normalizePlatform(variant.front?.platform) || String(variant.front?.platform ?? '')
-                        if (platform !== '' && !names.includes(platform)) names.push(platform)
-                      }
-                      const own = normalizePlatform(record.front?.platform)
-                      if (names.length === 0 && own !== '') names.push(own)
-                      return names.length === 0 ? '—' : names.join(' / ')
-                    })()),
+                    h('td', null, rowPlatforms.length === 0 ? '—' : rowPlatforms.join(' / ')),
                     h('td', null, h(Pill, { tone: statusToneOf(statusText), title: '这条选题下各平台版本的状态' }, statusText)),
                     h('td', null, (() => {
                       const tags = splitTags(record.front?.tags)
@@ -4370,11 +4690,11 @@ const STAGE_OF_STATUS = {
      * 每个平台版本各自维护脚本、风险、发布自检和状态；不再让一篇笔记
      * 同时当“抖音版”和“小红书版”用。
      */
-    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged, getVariantBaseline, onVariantWriting, onVariantSaved, onScriptDeleted, newTopicForm = null }) {
+    function PlatformVariantsPanel({ masterId, topicPath, topicTitle, topicLink, notify, openCard, onOpenScript, onCloseScript, activeScriptId, createRequest, createPlatform, onChanged, getVariantBaseline, onVariantWriting, onVariantSaved, onScriptDeleted }) {
       const list = useAsync(
-        () => (masterId === undefined || masterId === null || masterId === ''
+        (signal) => (masterId === undefined || masterId === null || masterId === ''
           ? Promise.resolve({ variants: [] })
-          : get('/v2/masters/' + encodeURIComponent(masterId) + '/variants')),
+          : get('/v2/masters/' + encodeURIComponent(masterId) + '/variants', { signal })),
         [masterId],
       )
       const [draft, setDraft] = React.useState({ platform: '抖音', account: '', accountId: '' })
@@ -4927,33 +5247,6 @@ const STAGE_OF_STATUS = {
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         writeError ? h('div', null, h(ErrorBar, { error: writeError.error, onRetry: writeError.error?.code === 'conflict' ? list.reload : writeError.retry }), h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setWriteError(null) }, '放弃失败的字段保存')) : null,
         h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
-        // 同题多版并排对照（W2）：不点进每一行，也能一屏看清各平台版本
-        // 的账号、排期、完播/时长/播放/赞，以及数据来源和统计口径有没有缺。
-        variants.length > 1 ? h('div', { className: 'dsh-gw-vcompare', role: 'region', 'aria-label': '同题多版对照' },
-          h('table', null,
-            h('thead', null, h('tr', null, ['版本', '平台', '账号', '发布', '完播', '时长', '播放', '赞', '来源', '口径'].map((label) => h('th', { key: label }, label)))),
-            h('tbody', null, variants.map((variant) => {
-              const metric = variant.latestMetric ?? null
-              const hasMetric = metric !== null && metric !== undefined
-              const source = hasMetric ? String(metric.source ?? '').trim() : ''
-              const caliber = hasMetric ? String(metric.caliber ?? '').trim() : ''
-              return h('tr', { key: 'cmp-' + String(variant.id) },
-                h('td', { title: String(variant.title ?? '') }, String(variant.title ?? variant.id ?? '')),
-                h('td', null, String(variant.front?.platform ?? '')),
-                h('td', null, accountNameOf(variant) === '' ? '默认账号' : accountNameOf(variant)),
-                h('td', null, variant?.schedule?.date ? String(variant.schedule.date).slice(5, 10) : '未排'),
-                h('td', { className: 'is-num' }, formatPercent(metric?.completion)),
-                h('td', { className: 'is-num' }, formatDuration(metric?.avgDuration)),
-                h('td', { className: 'is-num' }, formatCount(metric?.views)),
-                h('td', { className: 'is-num' }, formatCount(metric?.likes)),
-                h('td', { title: source }, hasMetric && source === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : (source || '—')),
-                h('td', { title: caliber }, hasMetric && caliber === '' ? h('span', { className: 'dsh-gw-ledger-miss' }, '⚠ 未填') : (caliber || '—')))
-            })))) : null,
-        newTopicForm === null || newTopicForm === undefined ? null : h(Fold, {
-          title: '新建选题',
-          className: 'dsh-gw-create-card',
-          open: false,
-        }, newTopicForm),
         showCreate === true ? h('div', { className: 'dsh-gw-create-card dsh-gw-platform-create' },
           h('div', { className: 'dsh-gw-create-card-head' }, '新建平台版本'),
           h('div', { className: 'dsh-gw-create-card-body' },
@@ -4982,8 +5275,8 @@ const STAGE_OF_STATUS = {
     // 列表接口本身也带了正文（index.js 的 topics 列表），两处合起来，第一次打开也不空一帧。
     const recordCache = new Map()
 
-    function TopicDetail({ onReturnCalendar = null, path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly, newTopicForm = null }) {
-      const detail = useAsync(() => get('/topics/record?path=' + encodeURIComponent(path)), [path])
+    function TopicDetail({ onReturnCalendar = null, path, onBack, notify, cardTitle, showOwnCrumb, openCard, autoEdit, tagOptions, studio, openVariantId, openVariantRequest, openBody, variantCreateRequest, createPlatform, onSwitchRecord, initial, studioRecords, studioReady, onStudioChanged, variantOnly }) {
+      const detail = useAsync((signal) => get('/topics/record?path=' + encodeURIComponent(path), { signal }), [path])
       // 选题上也能挂一个默认账号：这条选题主要交给哪个号做。建平台版本时按平台再选具体账号。
       const accountList = usePagedList('/accounts/list?limit=300')
       // 保存撞上「Obsidian 里也改过」时，把两边的正文都收在这里，由 ConflictDialog 三选一。
@@ -5520,7 +5813,6 @@ const STAGE_OF_STATUS = {
       const variantsBlock = studio === true ? h('div', { style: { order: 4 } }, h(PlatformVariantsPanel, {
         createRequest: variantCreateRequest,
         createPlatform: createPlatform,
-        newTopicForm,
         masterId: record?.id ?? '',
         // 推日历要用到「这一版属于哪条拆解」：标题、路径、原链接都从当前这条笔记带过去。
         topicPath: path,
@@ -5945,7 +6237,7 @@ const STAGE_OF_STATUS = {
       const UPCOMING_PAGE_SIZE = 10
       const [upcomingWidths, setUpcomingWidths] = React.useState([18, 34, 16, 17, 15])
       const startUpcomingResize = colResizeStart(upcomingWidths, setUpcomingWidths)
-      const upcoming = useAsync(async () => {
+      const upcoming = useAsync(async (signal) => {
         const from = String(start).slice(0, 10)
         const to = String(end).slice(0, 10)
         if (from === '' || to === '' || from > to) return []
@@ -5959,7 +6251,7 @@ const STAGE_OF_STATUS = {
           const next = new Date(year, mon, 1)
           cursor = next.getFullYear() + '-' + String(next.getMonth() + 1).padStart(2, '0')
         }
-        const states = await Promise.all(months.map((month) => get('/calendar?month=' + month)))
+        const states = await Promise.all(months.map((month) => get('/calendar?month=' + month, { signal })))
         // 任一月份读失败都不能被 flatMap 吞成“这段时间没有排期”。
         // 把软 warning 提升为 useAsync 能保留旧数据的读取错误；折叠区也会自动展开提示。
         const warning = states.map(responseWarning).find((error) => error !== null)
@@ -5989,7 +6281,7 @@ const STAGE_OF_STATUS = {
               h('colgroup', null, upcomingWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
               h('thead', null, h('tr', null,
                 ['日期', '选题', '平台', '账号', '状态'].map((label, index) => h('th', { key: label }, label,
-                  index < 4 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startUpcomingResize(index) }) : null)))),
+                  index < 4 ? h(ColumnGrip, { label, onPointerDown: startUpcomingResize(index), onResize: (delta) => setUpcomingWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
               h('tbody', null, pageItems.map((entry) => h('tr', { key: entry.id },
                 h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.date ?? '').slice(5)),
                 h('td', { className: 'dsh-gw-cell-wrap', title: String(entry.topic ?? '') }, String(entry.topic ?? '')),
@@ -6034,6 +6326,24 @@ const STAGE_OF_STATUS = {
       return created
     }
 
+    function fanoutPartialReceipt(payload) {
+      if (payload?.partial !== true) return null
+      const results = Array.isArray(payload.results) ? payload.results : []
+      const failed = Array.isArray(payload.failed) ? payload.failed : []
+      const failedPlatforms = []
+      for (const item of failed) {
+        const platform = normalizePlatform(item?.platform)
+        if (platform !== '' && !failedPlatforms.includes(platform)) failedPlatforms.push(platform)
+      }
+      return {
+        month: String(payload.month ?? ''),
+        createdVariants: results.filter((item) => item?.variantCreated === true).length,
+        writtenRows: results.filter((item) => item?.rowCreated === true).length,
+        failed,
+        failedPlatforms,
+      }
+    }
+
     function resolveCalendarAccount(entry, records) {
       const rows = records ?? []
       const id = String(entry?.accountId ?? '').trim()
@@ -6075,7 +6385,8 @@ const STAGE_OF_STATUS = {
       const [pickedProduct, setPickedProduct] = React.useState(null)
       const draftBaseline = React.useRef(JSON.stringify(draft))
       const [partialMove, setPartialMove] = React.useState(null)
-      const cal = useAsync(async () => ({ ...(await get('/calendar?month=' + month)), _month: month }), [month])
+      const [fanoutReceipt, setFanoutReceipt] = React.useState(null)
+      const cal = useAsync(async (signal) => ({ ...(await get('/calendar?month=' + month, { signal })), _month: month }), [month])
       const calendarData = cal.data?._month === month ? cal.data : null
       const entries = calendarData?.entries ?? []
       // 关联键的两个候选源：选题笔记和商品档案。两个都按最近改动排在前面。
@@ -6091,7 +6402,7 @@ const STAGE_OF_STATUS = {
         return choices
       }, [productOptions, pickedProduct])
       // 同选题同平台可能有多个版本（主号 / 测试号 / 矩阵号）：排期这一行要能说清是哪一版。
-      const variantList = useAsync(() => get('/v2/variants'), [])
+      const variantList = useAsync((signal) => get('/v2/variants', { signal }), [])
       const allVariants = variantList.data?.variants ?? []
       const variantsById = React.useMemo(() => new Map(allVariants.map((variant) => [String(variant.id), variant])), [allVariants])
       const topicOptions = topicLinks.records.filter((record) => topicTypeOf(record) !== '拆解' || allVariants.some((variant) => String(variant.front?.masterId) === String(record.id ?? record.front?.id)))
@@ -6300,17 +6611,27 @@ const STAGE_OF_STATUS = {
             const createdVariants = results.filter((item) => item.variantCreated === true).length
             cal.reload(); variantList.reload()
             if (failed.length > 0) {
+              const receipt = fanoutPartialReceipt({ ...result, partial: true })
+              setFanoutReceipt(receipt)
               notify('多平台分发未完成：' + failed.map((item) => String(item.platform) + '（' + String(item.error ?? '原因不明') + '）').join('；')
-                + (createdVariants > 0 ? '；已建 ' + createdVariants + ' 个版本但没全部写进日历，请刷新核对' : ''), true)
+                + (createdVariants > 0 ? '；已建 ' + createdVariants + ' 个版本但没全部写进日历，请按页面回执核对' : ''), true)
               return
             }
+            setFanoutReceipt(null)
             const written = results.filter((item) => item.rowCreated === true).length
             const kept = results.length - written
             const next = { ...draft, topic: '', topicPath: '', variantId: '', productPath: '', note: '', gmv: '', conv: '' }
             draftBaseline.current = JSON.stringify(next); setDraft(next)
             notify('已扇出：' + selected + ' · ' + platforms.length + ' 个平台各一版一行'
               + (written < results.length ? '；' + String(kept) + ' 个平台已有同一排期，未重复写' : ''))
-          } catch (error) { notify('多平台排期未完成：' + String(error.message), true) } finally { setBusy(false) }
+          } catch (error) {
+            const receipt = fanoutPartialReceipt(error?.payload)
+            if (receipt !== null) {
+              setFanoutReceipt(receipt)
+              cal.reload(); variantList.reload()
+              notify('多平台排期只完成了一部分：已建 ' + receipt.createdVariants + ' 个版本、写入 ' + receipt.writtenRows + ' 行；失败 ' + receipt.failedPlatforms.join('、') + '。请按页面回执核对后只重试失败平台。', true)
+            } else notify('多平台排期未完成：' + String(error.message), true)
+          } finally { setBusy(false) }
           return
         }
         let variant
@@ -6526,6 +6847,11 @@ const STAGE_OF_STATUS = {
         h(ErrorBar, { error: topicList.error, onRetry: topicList.reload }), h(ErrorBar, { error: productList.error, onRetry: productList.reload }), h(ErrorBar, { error: variantList.error, onRetry: variantList.reload }), h(ErrorBar, { error: accountList.error, onRetry: accountList.reload }),
         h(ErrorBar, { error: topicLinks.error, onRetry: topicLinks.reload }), h(ErrorBar, { error: productLinks.error, onRetry: productLinks.reload }), h(ErrorBar, { error: accountLinks.error, onRetry: accountLinks.reload }),
         partialMove ? h('div', { role: 'alert', className: 'dsh-gw-row-meta' }, '改期只完成一半：目标 ' + partialMove.date + ' 已建立，旧月 ' + partialMove.fromMonth + ' 尚未删除。', h('button', { className: 'dsh-gw-btn', onClick: () => { pendingDayRef.current = partialMove.date; setMonth(partialMove.targetMonth); setSelected(partialMove.date) } }, '查看目标月'), h('button', { className: 'dsh-gw-btn', onClick: () => setPartialMove(null) }, '已检查，收起提示')) : null,
+        fanoutReceipt ? h('div', { role: 'alert', className: 'dsh-gw-row-meta' },
+          '多平台排期只完成了一部分：已建 ' + fanoutReceipt.createdVariants + ' 个版本，已写入 ' + fanoutReceipt.writtenRows + ' 行。失败平台：' + (fanoutReceipt.failed.length === 0 ? '未提供明细' : fanoutReceipt.failed.map((item) => String(item.platform ?? '未知平台') + '（' + String(item.error ?? '原因不明') + '）').join('；')) + '。',
+          h('button', { className: 'dsh-gw-btn', onClick: () => { cal.reload(); variantList.reload() } }, '刷新核对'),
+          fanoutReceipt.failedPlatforms.length === 0 ? null : h('button', { className: 'dsh-gw-btn', onClick: () => { setDraft((current) => ({ ...current, platform: joinPlatforms(fanoutReceipt.failedPlatforms), variantId: '', account: '', accountId: '' })); setShowAdd(true) } }, '只保留失败平台'),
+          h('button', { className: 'dsh-gw-btn', onClick: () => setFanoutReceipt(null) }, '已检查，收起提示')) : null,
         h('div', { className: 'dsh-gw-cal', ref: calBodyRef, style: { '--dsh-gw-cal-head-h': calHeadH + 'px' } },
           h('div', { className: 'dsh-gw-cal-grid' },
             h('div', { className: 'dsh-gw-cal-week' }, CAL_WEEKDAYS.map((name) => h('div', { key: name, className: 'dsh-gw-cal-wd' }, name))),
@@ -6645,7 +6971,7 @@ const STAGE_OF_STATUS = {
                     : topicList.error !== null
                       ? h(ErrorBar, { error: topicList.error, onRetry: topicList.reload })
                       : topicSearchRecords.length === 0
-                        ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '没有匹配选题，保存时会新建。')
+                        ? h('span', { className: 'dsh-gw-row-meta', style: { padding: '6px 8px' } }, '没有匹配选题。请先新建选题，再创建平台版本并排期。')
                         : topicSearchRecords.slice(0, 10).map((record) => h('button', {
                           type: 'button', key: record.path, role: 'option', className: 'dsh-gw-cal-candidate', onClick: () => pickTopicRecord(record),
                         }, h('span', { className: 'dsh-gw-cal-candidate-name' }, String(record.title ?? record.path ?? '')), h('span', { className: 'dsh-gw-cal-candidate-path' }, String(record.path ?? ''))))) : null,
@@ -6821,7 +7147,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 卡片：灵感箱 ────────────── */
 
     function IdeasCard({ notify, openCard }) {
-      const list = useAsync(() => get('/ideas'), [])
+      const list = useAsync((signal) => get('/ideas', { signal }), [])
       const topicList = usePagedList('/topics/list?limit=200')
       const [content, setContent] = React.useState('')
       const [source, setSource] = React.useState('')
@@ -7135,7 +7461,7 @@ const STAGE_OF_STATUS = {
             ),
             h('thead', null, h('tr', null, ['日期', '来源', '链接', '内容', '去向', '状态 / 操作'].map((label, index) => h('th', { key: String(index) },
               label,
-              index < 5 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startIdeaResize(index) }) : null)))),
+              index < 5 ? h(ColumnGrip, { label, onPointerDown: startIdeaResize(index), onResize: (delta) => setIdeaWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
             h('tbody', null, shownEntries.slice().reverse().map((entry) => {
               const promoting = promote !== null && promote.id === entry.id
               const relinking = relink !== null && relink.id === entry.id
@@ -7295,7 +7621,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 卡片：数据分析复盘 ────────────── */
 
     function LedgerPanel({ paths, onOpenPath, onOpenTopic, needle, hlVariantId, hlDate }) {
-      const ledger = useAsync(() => get('/v2/ledger'), [])
+      const ledger = useAsync((signal) => get('/v2/ledger', { signal }), [])
       const [monthFilter, setMonthFilter] = React.useState('')
       const [platformFilters, setPlatformFilters] = React.useState([])
       const [accountFilters, setAccountFilters] = React.useState([])
@@ -7445,11 +7771,10 @@ const STAGE_OF_STATUS = {
     /** 数据复盘保留每次累计快照；榜单只取每个版本最新快照，避免跨日期重复累加。 */
     function ContentDataCard({ notify, onCrumb, crumb, closeTicket, openCard, preset }) {
       const list = usePagedList('/data/list?limit=100')
-      const boards = useAsync(() => get('/boards'), [])
+      const boards = useAsync((signal) => get('/boards', { signal }), [])
       const [openPath, setOpenPath] = React.useState(null)
       const [rankBy, setRankBy] = React.useState('views')
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
         if (seenTicket.current === closeTicket) return
@@ -7458,8 +7783,13 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
 
-      const ledgers = (list.data?.records ?? []).filter((record) => String(record.path ?? '').includes('/回流台账/'))
+      const ledgers = React.useMemo(() => (list.data?.records ?? []).filter((record) => String(record.path ?? '').includes('/回流台账/')), [list.data?.records])
       const contentAll = boards.data === null || boards.data === undefined ? [] : boards.data.content
+      const detailRecords = React.useMemo(() => {
+        const merged = [...(Array.isArray(contentAll) ? contentAll : []), ...ledgers]
+        return merged.map((record) => record?.path ? record : { ...record, path: record?.sourcePath ?? record?.notePath ?? '' })
+      }, [contentAll, ledgers])
+      useDetailCrumb(onCrumb, openPath, detailRecords, setOpenPath)
       const cf = useRecordFilter(contentAll)
       const num = (value) => {
         const n = Number(value)
@@ -7516,7 +7846,6 @@ const STAGE_OF_STATUS = {
       const [csvText, setCsvText] = React.useState('')
       const [busy, setBusy] = React.useState(false)
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -7525,7 +7854,8 @@ const STAGE_OF_STATUS = {
         setOpenPath(null)
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
-      const records = (list.data?.records ?? []).filter((record) => !String(record.path ?? '').includes('/回流台账/'))
+      const records = React.useMemo(() => (list.data?.records ?? []).filter((record) => !String(record.path ?? '').includes('/回流台账/')), [list.data?.records])
+      useDetailCrumb(onCrumb, openPath, records, setOpenPath)
       const rf = useRecordFilter(records, list)
       // 复盘筛选：周期 / 平台两个多选，转化率按区间、环比按方向。
       const periods = Array.from(new Set(records.map((record) => String(record.front?.period ?? '').trim()).filter(Boolean))).sort().reverse()
@@ -7590,7 +7920,7 @@ const STAGE_OF_STATUS = {
 
       // 台账记录的是累计快照。先按平台版本只取最新日期，再按选题+平台汇总；
       // 不能把同一版本 1 万、2 万两天的累计数加成 3 万。
-      const noteBoard = useAsync(() => get('/v2/ledger'), [])
+      const noteBoard = useAsync((signal) => get('/v2/ledger', { signal }), [])
       const noteRows = React.useMemo(() => {
         const map = new Map()
         const latestByVariant = new Map()
@@ -7708,7 +8038,6 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', platform: '', positioning: '', audience: '', status: '启用', note: '' })
       const [busy, setBusy] = React.useState(false)
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
         if (seenTicket.current === closeTicket) return
@@ -7718,6 +8047,7 @@ const STAGE_OF_STATUS = {
       }, [closeTicket])
 
       const records = list.data?.records ?? []
+      useDetailCrumb(onCrumb, openPath, records, setOpenPath)
       const rf = useRecordFilter(records, list)
       const shown = rf.shown
 
@@ -7814,7 +8144,6 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', kind: '自家', platform: '', price: '', sales: '', tags: '', link: '' })
       const [busy, setBusy] = React.useState(false)
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -7824,6 +8153,7 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const records = list.data?.records ?? []
+      useDetailCrumb(onCrumb, openPath, records, setOpenPath)
       const schema = list.data?.schema ?? []
       const rf = useRecordFilter(records, list)
       const [platformFilters, setPlatformFilters] = React.useState([])
@@ -7859,7 +8189,7 @@ const STAGE_OF_STATUS = {
       }
 
       const picked = records.filter((record) => selected.includes(record.path))
-      const rollup = useAsync(() => get('/product-rollup'), [])
+      const rollup = useAsync((signal) => get('/product-rollup', { signal }), [])
       const rolledAll = rollup.data === null || rollup.data === undefined ? [] : rollup.data.products
       const rolled = rolledAll
       const allItems = []
@@ -7958,7 +8288,7 @@ const STAGE_OF_STATUS = {
                 h('tr', null,
                   ['商品档案', '日期', '带过内容', '播放', 'GMV', '转化率'].map((label, index) => h('th', { key: label, style: index >= 3 ? { textAlign: 'right' } : undefined },
                     label,
-                    index < 5 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startRollupResize(index) }) : null))
+                    index < 5 ? h(ColumnGrip, { label, onPointerDown: startRollupResize(index), onResize: (delta) => setRollupWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null))
                 )
               ),
               h('tbody', null,
@@ -8106,7 +8436,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 卡片：客户反馈 ────────────── */
 
     function FeedbackCard({ notify, openCard }) {
-      const list = useAsync(() => get('/feedback'), [])
+      const list = useAsync((signal) => get('/feedback', { signal }), [])
       const sourceTopicList = usePagedList('/topics/list?limit=200')
       const sourceProductList = usePagedList('/products/list?limit=200')
       const sourceGroups = feedbackSourceGroups(PLATFORMS, sourceTopicList.data?.records ?? [], sourceProductList.data?.records ?? [], topicTypeOf)
@@ -8361,10 +8691,10 @@ const STAGE_OF_STATUS = {
           compact
             ? h('thead', null, h('tr', null, ['原文', '处理意见', '处理结果', '状态'].map((label, index) => h('th', { key: label + index },
               label,
-              index < 3 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startFbCompactResize(index) }) : null))))
+              index < 3 ? h(ColumnGrip, { label, onPointerDown: startFbCompactResize(index), onResize: (delta) => setFbCompactWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null))))
             : h('thead', null, h('tr', null, ['日期', '渠道', '来源', '情感', '原文', '标签', '处理意见', '处理结果', '状态'].map((label, index) => h('th', { key: label + index },
               label,
-              index < 8 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startFbFullResize(index) }) : null)))),
+              index < 8 ? h(ColumnGrip, { label, onPointerDown: startFbFullResize(index), onResize: (delta) => setFbFullWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
           h('tbody', null, shownSorted.map((entry) => {
             const editingThis = editing !== null && editing.id === entry.id
             const cell = (key, node, extra) => h('td', Object.assign({ onClick: pickCell(entry, key), 'data-editing': editingThis ? 'true' : undefined }, extra ?? {}), node)
@@ -8455,17 +8785,21 @@ const STAGE_OF_STATUS = {
      * 之前这表只能进正文手打管道符，加一行指标要自己数格式，很容易错位。
      */
     function CampaignMetricsPanel({ path, notify }) {
-      const detail = useAsync(() => get('/campaigns/record?path=' + encodeURIComponent(path)), [path])
+      const detail = useAsync((signal) => get('/campaigns/record?path=' + encodeURIComponent(path), { signal }), [path])
       const [rows, setRows] = React.useState([])
+      const rowsBaseline = React.useRef('[]')
       const [busy, setBusy] = React.useState(false)
       const [metricWidths, setMetricWidths] = React.useState([34, 28, 28, 10])
       const startMetricResize = colResizeStart(metricWidths, setMetricWidths)
       React.useEffect(() => {
         if (detail.data?.record === undefined) return
         const parsed = parseCampaignMetrics(detail.data.record.body)
-        setRows(parsed.rows.length === 0 ? [{ metric: '', expected: '', actual: '' }] : parsed.rows)
+        const nextRows = parsed.rows.length === 0 ? [{ metric: '', expected: '', actual: '' }] : parsed.rows
+        rowsBaseline.current = JSON.stringify(nextRows)
+        setRows(nextRows)
       }, [detail.data])
       const record = detail.data?.record ?? null
+      useDraftGuard(JSON.stringify(rows) !== rowsBaseline.current, busy)
       const canSave = record !== null && !busy
       function updateRow(index, patch) {
         setRows((prev) => prev.map((row, at) => (at === index ? { ...row, ...patch } : row)))
@@ -8497,7 +8831,7 @@ const STAGE_OF_STATUS = {
           h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table' },
             h('colgroup', null, metricWidths.map((width, index) => h('col', { key: index, style: { width: width + '%' } }))),
             h('thead', null, h('tr', null, ['指标', '预期', '实际', ''].map((label, index) => h('th', { key: label || 'actions' }, label,
-              index < 3 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + (label || '操作') + '列宽', onPointerDown: startMetricResize(index) }) : null)))),
+              index < 3 ? h(ColumnGrip, { label: label || '操作', onPointerDown: startMetricResize(index), onResize: (delta) => setMetricWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
             h('tbody', null, rows.map((row, index) => h('tr', { key: String(index) },
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.metric, placeholder: '如：播放量', onChange: (event) => updateRow(index, { metric: event.target.value }), style: { width: '100%' } })),
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.expected, placeholder: '预期值', onChange: (event) => updateRow(index, { expected: event.target.value }), style: { width: '100%' } })),
@@ -8514,7 +8848,6 @@ const STAGE_OF_STATUS = {
       const [draft, setDraft] = React.useState({ title: '', platform: '', status: '草稿', start: '', end: '', budget: '', goal: '' })
       const [busy, setBusy] = React.useState(false)
 
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(openPath) }, [openPath, onCrumb])
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -8524,6 +8857,7 @@ const STAGE_OF_STATUS = {
         if (onCrumb) onCrumb(null)
       }, [closeTicket])
       const records = list.data?.records ?? []
+      useDetailCrumb(onCrumb, openPath, records, setOpenPath)
       const rf = useRecordFilter(records, list)
 
       async function create() {
@@ -8585,7 +8919,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 通用：笔记详情编辑器 ────────────── */
 
     function NoteDetail({ kind, path, onBack, notify, cardTitle, showOwnCrumb, openCard }) {
-      const detail = useAsync(() => get('/' + kind + '/record?path=' + encodeURIComponent(path)), [kind, path])
+      const detail = useAsync((signal) => get('/' + kind + '/record?path=' + encodeURIComponent(path), { signal }), [kind, path])
       // 与 TopicDetail 同款：保存撞上「Obsidian 里也改过」时把两边正文收在这里。
       const [conflict, setConflict] = React.useState(null)
       const [body, setBody] = React.useState(null)
@@ -9665,7 +9999,7 @@ const STAGE_OF_STATUS = {
     const SECTION_BY_PREFIX = { H: 'hard', S: 'soft', W: 'watch' }
 
     function CopyRulesCard({ notify }) {
-      const state = useAsync(() => get('/rules'), [])
+      const state = useAsync((signal) => get('/rules', { signal }), [])
       const [busy, setBusy] = React.useState(false)
       const [draft, setDraft] = React.useState({ id: '', section: 'hard', title: '', fields: {} })
       // 行内编辑：点「编辑」把这一条变成输入框，保存时按 id 走同一个 PUT
@@ -9848,10 +10182,10 @@ const STAGE_OF_STATUS = {
                     h('col', { className: 'c-ev', style: { width: ruleWidths[3] + '%' } })),
                   h('thead', null, h('tr', null, RULE_COLS.map((label, i) => h('th', { key: String(i) },
                     label,
-                    i < RULE_COLS.length - 1 ? h('span', {
-                      className: 'dsh-gw-col-grip',
+                    i < RULE_COLS.length - 1 ? h(ColumnGrip, {
+                      label,
                       onPointerDown: startRuleResize(i),
-                      title: '拖动调整列宽',
+                      onResize: (delta) => setRuleWidths((current) => shiftedColumnWidths(current, i, delta)),
                     }) : null)))),
                   h('tbody', null, activeItems.map((item, index) => {
                     // 用「分组 + 编号 + 序号」做行键：只可能有一行进编辑态，
@@ -10022,10 +10356,9 @@ const STAGE_OF_STATUS = {
     function SopCard({ notify, onCrumb, crumb, closeTicket, preset }) {
       // 目录树宽度用百分比存：换个屏幕、进专注模式都对得上同一比例。
       const [treeWidth, setTreeWidth] = React.useState(readSopTreeWidth)
-      const tree = useAsync(() => get('/sop'), [])
+      const tree = useAsync((signal) => get('/sop', { signal }), [])
       const [activePath, setActivePath] = React.useState(null)
       // 把当前打开的笔记报给 Panel，面包屑才能显示成三层。
-      React.useEffect(() => { if (typeof onCrumb === 'function') onCrumb(activePath) }, [activePath, onCrumb])
       // 面包屑点了上层：关掉当前笔记（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
       React.useEffect(() => {
@@ -10057,12 +10390,15 @@ const STAGE_OF_STATUS = {
         const timer = window.setTimeout(() => setHitQuery(needle), 240)
         return () => window.clearTimeout(timer)
       }, [filter])
-      const search = useAsync(() => (hitQuery === '' ? Promise.resolve({ matches: [] }) : get('/sop/search?q=' + encodeURIComponent(hitQuery))), [hitQuery])
+      const search = useAsync((signal) => (hitQuery === '' ? Promise.resolve({ matches: [] }) : get('/sop/search?q=' + encodeURIComponent(hitQuery), { signal })), [hitQuery])
       const searchMatches = search.data?.matches ?? []
 
       const nodes = tree.data?.tree ?? []
+      const noteRecords = React.useMemo(() => flattenNoteRecords(nodes), [tree.data?.tree])
+      useDetailCrumb(onCrumb, activePath, noteRecords, (nextPath) => { setMode('live'); setActivePath(nextPath) }, '选择当前 SOP')
       const total = countAll(nodes)
       const dirty = note !== null && text !== note.text
+      const allowLeave = useDraftGuard(dirty, busy)
 
       // 从选题详情「打开发布 SOP」进来时，直接定位到清单那一篇，而不是只停在树根。
       const seenPreset = React.useRef(null)
@@ -10080,10 +10416,11 @@ const STAGE_OF_STATUS = {
       React.useEffect(() => {
         if (activePath === null) return
         let alive = true
-        get('/sop/note?note=' + encodeURIComponent(activePath))
+        const controller = new AbortController()
+        get('/sop/note?note=' + encodeURIComponent(activePath), { signal: controller.signal })
           .then((result) => { if (alive) { setNote(result.note); setText(result.note.text) } })
-          .catch((error) => { if (alive) notify(String(error.message), true) })
-        return () => { alive = false }
+          .catch((error) => { if (alive && !controller.signal.aborted && error?.name !== 'AbortError') notify(String(error.message), true) })
+        return () => { alive = false; controller.abort() }
       }, [activePath])
 
       const sopSync = useExternalSync({
@@ -10125,7 +10462,7 @@ const STAGE_OF_STATUS = {
       }
 
       function openNote(path) {
-        if (dirty && !window.confirm('当前笔记有未保存的改动，确定切走吗？')) return
+        if (!allowLeave('当前笔记有未保存的改动，确定切走吗？')) return
         setMode('live')
         setActivePath(path)
       }
@@ -10511,7 +10848,7 @@ const STAGE_OF_STATUS = {
     /* ────────────── 卡片：术语表 ────────────── */
 
     function GlossaryCard({ notify }) {
-      const list = useAsync(() => get('/glossary'), [])
+      const list = useAsync((signal) => get('/glossary', { signal }), [])
       const [draft, setDraft] = React.useState({ zh: '', en: '', domain: '', tags: '', note: '' })
       const [filter, setFilter] = React.useState('')
       const [domainFilter, setDomainFilter] = React.useState([])
@@ -10735,10 +11072,13 @@ const STAGE_OF_STATUS = {
                   key: col.key,
                   className: sortKey === col.key ? 'is-sorted' : '',
                   style: { cursor: 'pointer', userSelect: 'none' },
-                  title: '点击排序',
+                  tabIndex: 0,
+                  'aria-sort': sortKey === col.key ? (sortDir === 1 ? 'ascending' : 'descending') : 'none',
+                  title: '点击或按回车排序',
+                  onKeyDown: (event) => keyboardActivate(event, () => toggleSort(col.key)),
                   onClick: () => toggleSort(col.key),
                 }, col.label + (sortKey === col.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''),
-                  index < 5 ? h('span', { className: 'dsh-gw-col-grip', onPointerDown: startGlossResize(index) }) : null)))),
+                  index < 4 ? h(ColumnGrip, { label: col.label, onPointerDown: startGlossResize(index), onResize: (delta) => setGlossWidths((current) => shiftedColumnWidths(current, index, delta)) }) : null)))),
               h('tbody', null, shown.map((entry) => {
                 const editingThis = editing !== null && editing.id === entry.id
                 const cell = (key, text) => h('td', { key: 'cell-' + key, onClick: pickRow(entry, key), title: String(text ?? '') + '（点一下就能改）' }, String(text ?? '') === '' ? '—' : String(text ?? ''))
@@ -10891,6 +11231,7 @@ const STAGE_OF_STATUS = {
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState(null)
       const [cardState, setCardState] = React.useState(state?.cards ?? [])
+      const [cardBusy, setCardBusy] = React.useState('')
 
       async function save() {
         // 换 vault 根目录是可逆的，但影响面最大：插件之后读写的都是那个目录。
@@ -10904,6 +11245,11 @@ const STAGE_OF_STATUS = {
         setError(null)
         try {
           const result = await put('/config', { vaultRoot, sopDir })
+          if (result?.config !== undefined) {
+            setVaultRoot(result.config.vaultRoot ?? '')
+            setSopDir(result.config.sopDir || 'SOP')
+          }
+          if (Array.isArray(result?.cards)) setCardState(result.cards)
           onSaved(result)
         } catch (problem) {
           setError(problem)
@@ -10917,6 +11263,8 @@ const STAGE_OF_STATUS = {
       // 有了这三个数就不用靠感觉猜。
       const [health, setHealth] = React.useState(null)
       const [healthBusy, setHealthBusy] = React.useState(false)
+      const [connectionHealth, setConnectionHealth] = React.useState(null)
+      const [connectionBusy, setConnectionBusy] = React.useState(false)
       const [migration, setMigration] = React.useState(null)
       const [migrationBusy, setMigrationBusy] = React.useState(false)
 
@@ -10946,6 +11294,18 @@ const STAGE_OF_STATUS = {
           setError(problem)
         } finally {
           setMigrationBusy(false)
+        }
+      }
+
+      async function runConnectionHealth() {
+        setConnectionBusy(true)
+        setError(null)
+        try {
+          setConnectionHealth(await get('/health'))
+        } catch (problem) {
+          setError(problem)
+        } finally {
+          setConnectionBusy(false)
         }
       }
 
@@ -11000,12 +11360,19 @@ const STAGE_OF_STATUS = {
       }
 
       async function toggleCard(card) {
-        const next = cardState.map((item) => (item.id === card.id ? { ...item, enabled: !item.enabled } : item))
-        setCardState(next)
+        if (cardBusy !== '') return
+        const next = cardState.map((item) => (item.id === card.id ? { ...item, enabled: !item.enabled } : { ...item }))
+        setCardBusy(card.id)
+        setError(null)
         try {
-          await put('/cards', { cards: next.map(({ id, enabled }) => ({ id, enabled })) })
+          const result = await put('/cards', { cards: next.map(({ id, enabled }) => ({ id, enabled })) })
+          setCardState(Array.isArray(result?.cards) ? result.cards : next)
         } catch (problem) {
+          // 失败时保持服务端最后确认的状态，不让复选框看起来像已经保存。
+          setCardState((current) => current.map((item) => ({ ...item })))
           setError(problem)
+        } finally {
+          setCardBusy('')
         }
       }
 
@@ -11021,8 +11388,8 @@ const STAGE_OF_STATUS = {
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || vaultRoot.trim() === '', onClick: save }, t('save')),
           h('button', { className: 'dsh-gw-btn', onClick: onClose }, t('cancel'))),
         h(Sect, null, '显示哪些卡片'),
-        cardState.map((card) => h('label', { key: card.id, className: 'dsh-gw-row', style: { cursor: 'pointer' } },
-          h('input', { type: 'checkbox', checked: card.enabled !== false, onChange: () => toggleCard(card) }),
+        cardState.map((card) => h('label', { key: card.id, className: 'dsh-gw-row dsh-gw-card-toggle', style: { cursor: 'pointer' } },
+          h('input', { type: 'checkbox', checked: card.enabled !== false, disabled: cardBusy !== '', 'aria-busy': cardBusy === card.id || undefined, onChange: () => { void toggleCard(card) } }),
           h('div', { className: 'dsh-gw-row-main' }, h('div', { className: 'dsh-gw-row-title' }, (card.icon ?? '') + ' ' + card.title)),
           h(Pill, null, WORKSPACES.find((item) => item.id === card.workspace)?.label ?? card.workspace))),
         h('details', null,
@@ -11036,6 +11403,13 @@ const STAGE_OF_STATUS = {
               h('div', { className: 'dsh-gw-health-row' }, h('b', null, '选题'), h('span', null, String(migration.totalTopics ?? 0) + ' 篇'), h('span', { className: 'dsh-gw-row-meta' }, '跳过测试目录 ' + String(migration.skippedTestCount ?? 0))),
               h('div', { className: 'dsh-gw-health-row' }, h('b', null, '缺稳定 ID'), h('span', null, String(migration.missingIdCount ?? 0) + ' 篇')),
               h('div', { className: 'dsh-gw-health-row' }, h('b', null, '待建平台版本'), h('span', null, String(migration.createVariantCount ?? 0) + ' 个'))),
+          h(Sect, null, '连接体检'),
+          h('div', { className: 'dsh-gw-health' },
+            h('button', { className: 'dsh-gw-btn', disabled: connectionBusy, onClick: () => { void runConnectionHealth() } }, connectionBusy ? '检查中…' : '检查连接')),
+          connectionHealth === null ? null : h('div', { className: 'dsh-gw-health-out', role: 'status' },
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '插件'), h('span', null, connectionHealth.version || '版本未知'), h('span', { className: 'dsh-gw-row-meta' }, String(connectionHealth.elapsedMs ?? 0) + 'ms')),
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'vault'), h('span', null, connectionHealth.vaultReadable === true ? '可读取' : '不可读取'), h('span', { className: 'dsh-gw-row-meta' }, connectionHealth.vaultMessage || '只读检查，没有创建或改写文件')),
+            h('div', { className: 'dsh-gw-health-row' }, h('b', null, '外部更新'), h('span', null, connectionHealth.watcher === 'active' ? '实时监听' : '轮询兜底'), h('span', { className: 'dsh-gw-row-meta' }, '此检查不会写入 vault'))),
           h(Sect, null, '性能体检'),
           h('div', { className: 'dsh-gw-health' },
             h('button', { className: 'dsh-gw-btn', disabled: healthBusy, onClick: runHealth }, healthBusy ? '测量中…' : '测一下')),
@@ -11059,8 +11433,8 @@ const STAGE_OF_STATUS = {
      */
     function PendingCard({ notify, openCard, preset }) {
       // 只有一条写路径：平台版本 → POST /v2/variants/:id/metrics → Data/回流台账/YYYY-MM.md。
-      const v2list = useAsync(() => get('/v2/pending'), [])
-      const ledger = useAsync(() => get('/v2/ledger'), [])
+      const v2list = useAsync((signal) => get('/v2/pending', { signal }), [])
+      const ledger = useAsync((signal) => get('/v2/ledger', { signal }), [])
       const [busy, setBusy] = React.useState(null)
       const [platformFilters, setPlatformFilters] = React.useState([])
       const [accountFilters, setAccountFilters] = React.useState([])
@@ -11378,13 +11752,17 @@ const STAGE_OF_STATUS = {
           }, '清除筛选')),
         visibleCount < flatRows.length ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => setVisibleCount((n) => n + 50) }, '再显示 50 行（已显示 ' + Math.min(visibleCount, flatRows.length) + '/' + flatRows.length + '）') : null,
         shownItems.length === 0
-          ? h(Empty, null, platformFilters.length === 0 && accountFilters.length === 0 ? '还没有已发布的平台版本。' : '没有符合筛选的平台版本。')
+          ? (platformFilters.length === 0 && accountFilters.length === 0 && v2items.length === 0
+            ? h(Empty, null,
+              h('span', null, '还没有已发布的平台版本。先到「我的选题」创建平台版本并推进发布。'),
+              typeof openCard === 'function' ? h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => openCard('studio') }, '去我的选题') : null)
+            : h(Empty, null, '没有符合筛选的平台版本。'))
           : h('div', { className: 'dsh-gw-tablebox dsh-gw-pending-box', role: 'region', tabIndex: 0, 'aria-label': '待回填数据表：可横向滚动、拖动表头调整列宽，前三列与表头固定', style: pendingTableStyle },
             h('table', { className: 'dsh-gw-table dsh-gw-pending-table' },
               h('colgroup', null, pendingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
                 ['平台', '账号', '选题', '日期', '任务', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '操作'].map((label, index) => h('th', { key: label }, label,
-                  index < 10 ? h('span', { className: 'dsh-gw-col-grip', role: 'separator', 'aria-label': '调整' + label + '列宽', onPointerDown: startPendingResize(index) }) : null)))),
+                  index < 10 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startPendingResize(index), onResize: (delta) => setPendingWidths((current) => shiftedPixelColumnWidths(current, index, delta, [64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 88])) }) : null)))),
               h('tbody', null,
                 flatRows.slice(0, visibleCount).map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
                 editingNew ? editRow(null) : null))))
@@ -11821,16 +12199,19 @@ const STAGE_OF_STATUS = {
       const [refreshVersion, setRefreshVersion] = React.useState(0)
       const stateReads = React.useRef(null)
       const summaryReads = React.useRef(null)
+      const stateAbort = React.useRef(null)
+      const summaryAbort = React.useRef(null)
       if (stateReads.current === null) stateReads.current = createReadEpoch()
       if (summaryReads.current === null) summaryReads.current = createReadEpoch()
       const [summaryError, setSummaryError] = React.useState(null)
       const [showSettings, setShowSettings] = React.useState(false)
+      const [theme, setTheme] = React.useState(readTheme)
       // 卡片间跳转时顺手带过去的预填数据（比如从选题卡「→ 排期」带着标题和关联路径进日历）。
       const [preset, setPreset] = React.useState(null)
       const searchRef = React.useRef(null)
       const bodyRef = React.useRef(null)
       const paletteRef = React.useRef(null)
-      React.useLayoutEffect(() => installHostAccent(paletteRef.current), [])
+      React.useLayoutEffect(() => installHostAccent(paletteRef.current, window, document, theme), [theme])
       const [crumbSlot, setCrumbSlot] = React.useState(null)
       // 面板宽度跟窗口宽度没关系：侧栏可以很窄而窗口很宽。所以按元素宽度打标记，
       // 不按视口写 @media（那种情况下一条都不会命中）。520 / 440 是内容区的两个拐点。
@@ -11860,11 +12241,18 @@ const STAGE_OF_STATUS = {
       })
 
       const toastTimer = React.useRef(null)
+      const dismissToast = React.useCallback(() => {
+        if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+        toastTimer.current = null
+        setToast(null)
+      }, [])
       const notify = React.useCallback((message, isError) => {
         const error = isError === true
         setToast({ message, isError: error })
         if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
-        toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast(null) }, error ? 6000 : 2600)
+        toastTimer.current = null
+        // 写入失败等错误必须留下来让人读完并决定是否重试；成功提示才自动收起。
+        if (!error) toastTimer.current = window.setTimeout(() => { toastTimer.current = null; setToast(null) }, 2600)
       }, [])
       const registryRef = React.useRef(null)
       if (registryRef.current === null) registryRef.current = createDraftRegistry((message) => window.confirm(message), () => notify('正在保存，请等保存结束再离开或刷新', true))
@@ -11895,6 +12283,8 @@ const STAGE_OF_STATUS = {
           formRef.current = null
           stateReads.current.invalidate()
           summaryReads.current.invalidate()
+          stateAbort.current?.abort()
+          summaryAbort.current?.abort()
           if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
         }
       }, [])
@@ -11932,14 +12322,19 @@ const STAGE_OF_STATUS = {
         } catch {
           // 同上。
         }
+        return true
       }
 
       const loadState = React.useCallback(() => {
         const ticket = stateReads.current.begin('state')
+        stateAbort.current?.abort()
+        const controller = new AbortController()
+        stateAbort.current = controller
         setState((prev) => ({ ...prev, loading: true, error: null }))
-        get('/state')
+        get('/state', { signal: controller.signal })
           .then((data) => { if (stateReads.current.current(ticket, 'state')) setState({ loading: false, data, error: null }) })
-          .catch((error) => { if (stateReads.current.current(ticket, 'state')) setState((prev) => ({ ...prev, loading: false, error })) })
+          .catch((error) => { if (!controller.signal.aborted && error?.name !== 'AbortError' && stateReads.current.current(ticket, 'state')) setState((prev) => ({ ...prev, loading: false, error })) })
+          .finally(() => { if (stateAbort.current === controller) stateAbort.current = null })
       }, [])
 
       React.useEffect(() => { loadState() }, [])
@@ -11947,10 +12342,14 @@ const STAGE_OF_STATUS = {
       const loadSummary = React.useCallback(() => {
         if (state.data?.configured !== true) return
         const ticket = summaryReads.current.begin('summary')
+        summaryAbort.current?.abort()
+        const controller = new AbortController()
+        summaryAbort.current = controller
         setSummaryError(null)
-        get('/overview')
+        get('/overview', { signal: controller.signal })
           .then((data) => { if (summaryReads.current.current(ticket, 'summary')) setSummary(data.summary) })
-          .catch((error) => { if (summaryReads.current.current(ticket, 'summary')) setSummaryError(error) })
+          .catch((error) => { if (!controller.signal.aborted && error?.name !== 'AbortError' && summaryReads.current.current(ticket, 'summary')) setSummaryError(error) })
+          .finally(() => { if (summaryAbort.current === controller) summaryAbort.current = null })
       }, [state.data?.configured])
 
       React.useEffect(() => { loadSummary() }, [loadSummary])
@@ -12021,17 +12420,18 @@ const STAGE_OF_STATUS = {
         setSearchStatus({ query: needle, scope: searchScope, loading: needle !== '', error: null })
         if (needle === '') return undefined
         let alive = true
+        const controller = new AbortController()
         const timer = window.setTimeout(() => {
-          get('/search?q=' + encodeURIComponent(needle) + '&scope=' + searchScope)
+          get('/search?q=' + encodeURIComponent(needle) + '&scope=' + searchScope, { signal: controller.signal })
             .then((data) => {
               if (!alive) return
               setHits(data.matches ?? [])
               setSearchMeta({ scope: data.scope ?? searchScope, total: Number(data.total ?? (data.matches ?? []).length) })
               setSearchStatus({ query: needle, scope: searchScope, loading: false, error: null })
             })
-            .catch((error) => { if (alive) setSearchStatus({ query: needle, scope: searchScope, loading: false, error }) })
+            .catch((error) => { if (alive && !controller.signal.aborted && error?.name !== 'AbortError') setSearchStatus({ query: needle, scope: searchScope, loading: false, error }) })
         }, 220)
-        return () => { alive = false; window.clearTimeout(timer) }
+        return () => { alive = false; controller.abort(); window.clearTimeout(timer) }
       }, [query, searchScope, searchRetry])
 
       React.useEffect(() => {
@@ -12048,8 +12448,9 @@ const STAGE_OF_STATUS = {
       // 面包屑点中间层时，卡片自己并不知道要退出去（openPath 在它内部），
       // 用一个自增票号通知它：变了就关掉详情，回到列表。
       const [closeTicket, setCloseTicket] = React.useState(0)
+      const detailPath = detailCrumb !== null && typeof detailCrumb === 'object' ? String(detailCrumb.value ?? '') : (detailCrumb === null ? '' : String(detailCrumb))
+      const detailSelector = detailCrumb !== null && typeof detailCrumb === 'object' ? detailCrumb : null
       const openComponent = cardId === null ? null : CARD_COMPONENTS[cardId]
-      const openCardMeta = cards.find((card) => card.id === cardId)
 
       function body() {
         if (state.loading && state.data === null) return h(Empty, null, t('loading'))
@@ -12108,26 +12509,17 @@ const STAGE_OF_STATUS = {
           return [
             h(Sect, { key: 'crumb', className: 'dsh-gw-card-crumb' },
               h(Breadcrumb, {
-                trail: [
-                  { label: (openCardMeta?.icon ?? '') === '' ? (openCardMeta?.title ?? cardId) : openCardMeta.icon + ' ' + (openCardMeta?.title ?? cardId) },
-                  ...(detailCrumb === null ? [] : [{ label: detailCrumb }]),
-                ],
-                context: [WORKSPACES.find((item) => item.id === workspace)?.label ?? workspace],
-                // 点工作区名：直接退回卡片列表（跟点「←」时在卡片层的行为一致）。
-                onContext: () => { leaveCard() },
+                selectors: detailSelector === null ? [] : [{
+                  level: 'detail', value: detailPath, label: detailSelector.label ?? '当前项目', options: detailSelector.options,
+                  onChange: (nextPath) => {
+                    if (nextPath === detailPath || !draftRegistry.allow()) return
+                    detailSelector.onChange(nextPath)
+                  },
+                }],
+                trail: detailSelector === null ? [{ label: cards.find((card) => card.id === cardId)?.title ?? cardId }] : [],
                 onNav: (index) => {
-                  // 从右往左：最后一层是笔记，中间是卡片，最左是工作区。
-                  // -1 是「←」：有笔记就退到卡片列表，已经在卡片列表就退到工作区。
-                  // 退笔记、退卡片都会让正在编辑的那篇卸载 —— 有没保存的改动先问一句。
-                  if (index === -1) {
-                    if (detailCrumb === null) { leaveCard(); return }
-                    if (!draftRegistry.allow()) return
-                    setDetailCrumb(null)
-                    setCloseTicket((n) => n + 1)
-                    return
-                  }
-                  // 点卡片名：退到卡片列表（卡片内部要一起退，否则页面不动）。
-                  if (index === 0) {
+                  // ← 有具体项目时退回卡片列表；否则退回工作区首页。
+                  if (index === -1 && detailPath !== '') {
                     if (!draftRegistry.allow()) return
                     setDetailCrumb(null)
                     setCloseTicket((n) => n + 1)
@@ -12143,6 +12535,19 @@ const STAGE_OF_STATUS = {
           ]
         }
         const rows = summaryRows(workspaceCards, summary)
+        const actions = homeActions(workspaceCards, summary)
+        const actionStrip = actions.length === 0 ? null : h('section', { key: 'next', className: 'dsh-gw-next', 'aria-labelledby': 'dsh-gw-next-title' },
+          h('div', { className: 'dsh-gw-next-head' },
+            h('div', { id: 'dsh-gw-next-title', className: 'dsh-gw-next-title' }, '下一步'),
+            h('div', { className: 'dsh-gw-next-hint' }, '按当前待办优先显示')),
+          h('div', { className: 'dsh-gw-next-grid' }, actions.map((action) => h('button', {
+            key: action.cardId, type: 'button', className: 'dsh-gw-next-action', onClick: () => openCard(action.cardId),
+            'aria-label': action.label + '：' + action.meta,
+          },
+            h('span', { className: 'dsh-gw-next-copy' },
+              h('span', { className: 'dsh-gw-next-label' }, action.label),
+              h('span', { className: 'dsh-gw-next-meta' }, action.meta)),
+            h('span', { className: 'dsh-gw-next-arrow', 'aria-hidden': 'true' }, '→')))))
         const rowNode = (row) => h('div', {
           key: row.card.id, className: 'dsh-gw-row', tabIndex: 0, role: 'button',
           'aria-label': row.card.title + '：' + row.meta,
@@ -12156,7 +12561,7 @@ const STAGE_OF_STATUS = {
             row.unit === undefined || row.unit === null || row.unit === '' ? null : h('span', { className: 'dsh-gw-row-unit' }, row.unit)))
         const order = new Map((CARD_ORDER[workspace] ?? []).map((id, index) => [id, index]))
         const orderedRows = rows.slice().sort((left, right) => (order.get(left.card.id) ?? 99) - (order.get(right.card.id) ?? 99))
-        const nodes = orderedRows.map(rowNode)
+        const nodes = [actionStrip, ...orderedRows.map(rowNode)].filter(Boolean)
         if (rows.length === 0) nodes.push(h(Empty, { key: 'empty' }, '这个工作区的卡片都被关掉了，去设置里打开。'))
         return h('div', null, nodes)
       }
@@ -12171,11 +12576,39 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-panel', ref: paletteRef },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
+            h('button', {
+              className: 'dsh-gw-ibtn dsh-gw-ibtn-big dsh-gw-theme-toggle',
+              type: 'button',
+              'data-mode': theme,
+              title: theme === 'light' ? '切换到暗色模式' : '切换到亮色模式',
+              'aria-label': theme === 'light' ? '切换到暗色模式' : '切换到亮色模式',
+              'aria-pressed': theme === 'dark',
+              onClick: () => setTheme((current) => writeTheme(current === 'light' ? 'dark' : 'light')),
+            }, h(Icon, { name: theme === 'light' ? 'moon' : 'sun' })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { if (!draftRegistry.allow('还有没保存的改动。保留草稿并重新读取磁盘数据吗？')) return; loadState(); loadSummary(); setRefreshVersion((n) => n + 1) } }, h(Icon, { name: 'refresh' }))),
           h('div', { className: 'dsh-gw-tabs' },
             h('div', { className: 'dsh-gw-tablist', role: 'tablist', 'aria-label': '工作区' },
-              WORKSPACES.map((item) => h('button', { key: item.id, className: 'dsh-gw-tab', role: 'tab', 'aria-selected': workspace === item.id, 'data-on': workspace === item.id, onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) } }, item.label))),
+              WORKSPACES.map((item) => h('button', {
+                key: item.id, id: 'dsh-gw-tab-' + item.id, className: 'dsh-gw-tab', role: 'tab',
+                'aria-selected': workspace === item.id, 'aria-controls': 'dsh-gw-workspace-panel', tabIndex: workspace === item.id ? 0 : -1,
+                'data-on': workspace === item.id,
+                onKeyDown: (event) => {
+                  const target = workspaceTabTarget(WORKSPACES, item.id, event.key)
+                  if (target === null) return
+                  event.preventDefault(); event.stopPropagation()
+                  leaveCard(() => {
+                    setWorkspace(target); setShowSettings(false)
+                    const focusTarget = () => {
+                      const tab = document.getElementById('dsh-gw-tab-' + target)
+                      if (tab?.getAttribute('aria-selected') === 'true') tab.focus()
+                      else window.requestAnimationFrame(focusTarget)
+                    }
+                    window.requestAnimationFrame(focusTarget)
+                  })
+                },
+                onClick: () => { leaveCard(() => { setWorkspace(item.id); setShowSettings(false) }) },
+              }, item.label))),
             h('div', { className: 'dsh-gw-search' + (query === '' ? '' : ' has-value') },
               h('input', { ref: searchRef, value: query, placeholder: t('search'), 'aria-label': t('search'), onChange: (event) => setQuery(event.target.value) }),
               query === '' ? null : h('button', {
@@ -12185,15 +12618,42 @@ const STAGE_OF_STATUS = {
                 'aria-label': '清除已输入的内容',
                 onClick: () => { setQuery(''); searchRef.current?.focus() },
               }, h(Icon, { name: 'close', size: 12 })))),
+          configured && !showSettings ? h('div', { className: 'dsh-gw-card-tabs', role: 'tablist', 'aria-label': '卡片' },
+            workspaceCards.map((card, index) => h('button', {
+              key: card.id,
+              id: 'dsh-gw-card-tab-' + card.id,
+              type: 'button',
+              className: 'dsh-gw-card-tab',
+              role: 'tab',
+              'aria-selected': cardId === card.id,
+              tabIndex: cardId === card.id || (cardId === null && index === 0) ? 0 : -1,
+              'data-on': cardId === card.id,
+              onKeyDown: (event) => {
+                const target = workspaceTabTarget(workspaceCards, card.id, event.key)
+                if (target === null) return
+                event.preventDefault(); event.stopPropagation()
+                if (openCard(target) === false) return
+                window.requestAnimationFrame(() => document.getElementById('dsh-gw-card-tab-' + target)?.focus())
+              },
+              onClick: () => { if (cardId !== card.id) openCard(card.id) },
+            }, card.title))) : null,
           h(DraftContext.Provider, { value: draftRegistry },
             h(RefreshContext.Provider, { value: refreshVersion },
               h(CrumbSlot.Provider, { value: crumbSlot },
-                h('div', { className: 'dsh-gw-body', ref: bodyRef },
+                h('div', { id: 'dsh-gw-workspace-panel', className: 'dsh-gw-body', ref: bodyRef, role: 'tabpanel', 'aria-labelledby': 'dsh-gw-tab-' + workspace },
                   h(ErrorBar, { error: state.data === null ? null : state.error, onRetry: loadState }),
                   h(ErrorBar, { error: summaryError, onRetry: loadSummary }),
                   state.loading && state.data !== null ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '正在后台刷新，编辑器保持打开…') : null,
                   body())))),
-          toast === null ? null : h('p', { className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok', role: toast.isError === true ? 'alert' : 'status', 'aria-live': toast.isError === true ? 'assertive' : 'polite', style: { margin: '0 14px 12px' } }, toast.message),
+          toast === null ? null : h('div', {
+            className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok',
+            role: toast.isError === true ? 'alert' : 'status',
+            'aria-live': toast.isError === true ? 'assertive' : 'polite',
+            style: { margin: '0 14px 12px', display: 'flex', alignItems: 'center', gap: '8px' },
+          }, h('span', { style: { flex: 1 } }, toast.message), h('button', {
+            type: 'button', className: 'dsh-gw-ibtn', onClick: dismissToast,
+            title: '关闭提示', 'aria-label': '关闭提示',
+          }, h(Icon, { name: 'close', size: 12 }))),
         ),
         confirmState === null ? null : (createPortal === null
           ? h(ConfirmDialog, { request: confirmState, onDone: finishConfirm })
@@ -12505,7 +12965,7 @@ const STAGE_OF_STATUS = {
     }
 
     // 供调试/未来使用：卡片清单与工作区定义。
-    const exports_ = {
+    const exports_ = { __test: { TopicDetail, PlatformVariantsPanel, NoteDetail, CalendarCard, GlossaryCard, CampaignsCard, ConfirmDialog, DraftContext, RefreshContext, createDraftRegistry, setChatPreview },
       NS,
       WORKSPACES,
       Panel,
