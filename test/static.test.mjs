@@ -449,7 +449,7 @@ test('Pending retains eleven real columns, fourteen metric fields, and local sti
   const header = body.slice(body.indexOf("h('thead'"), body.indexOf("h('tbody'"))
   assert.match(header, /\['平台', '账号', '选题', '日期', '任务', '播放\/阅读', '赞\/收藏', '评论', '转发', '链接', '操作'\]\.map/)
   assert.match(body, /pendingWidths\.map/)
-  assert.match(body, /\[64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 88\]/)
+  assert.match(body, /\[64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 104\]/)
   assert.match(body, /colSpan: 11/)
   assert.match(body, /reviewTask/)
   assert.match(src, /\.dsh-gw-tablebox\.dsh-gw-pending-box\{[^}]*overflow:auto/)
@@ -471,7 +471,7 @@ test('sunlit editorial theme uses warm white paper, soft orange, and restrained 
   assert.equal((src.match(/\.dsh-gw-panel\[data-gw-scheme=dark\]\{/g) ?? []).length, 1)
   assert.match(src, /data-gw-scheme=light[^}]*--gw-canvas:#f8f3ea;[^}]*--gw-paper:#fffaf2;[^}]*--gw-ink:#352d28;[^}]*--gw-accent:var\(--gw-warm,#b95f42\);--gw-accent-soft:#d97757/)
   assert.match(src, /data-gw-scheme=dark[^}]*--gw-canvas:#241c18;[^}]*--gw-paper:#2c231e;[^}]*--gw-ink:#f7eee8;[^}]*--gw-accent:var\(--gw-warm,#f0a07e\);--gw-accent-soft:#d98260/)
-  assert.match(src, /\.dsh-gw-panel\[data-gw-scheme\] \.dsh-gw-card-tabs\{gap:2px 8px;padding:5px 16px 6px/)
+  assert.match(src, /\.dsh-gw-panel\[data-gw-scheme\] \.dsh-gw-card-tabs\{gap:2px 8px;padding:4px 12px 5px/)
   assert.match(src, /\.dsh-gw-panel\[data-tight=true\]\[data-gw-scheme\] \.dsh-gw-card-tabs\{padding:4px 10px 5px;gap:2px 6px/)
   assert.match(src, /const LS_THEME = 'dsh-growth:theme'/)
   assert.match(src, /className: 'dsh-gw-ibtn dsh-gw-ibtn-big dsh-gw-theme-toggle'/)
@@ -484,7 +484,7 @@ test('sunlit editorial theme uses warm white paper, soft orange, and restrained 
   assert.match(src, /\.dsh-gw-panel\[data-gw-scheme\] \.dsh-gw-row\{[^}]*border:0;[^}]*border-bottom:1px solid var\(--gw-rule\);[^}]*border-radius:0/)
   assert.match(src, /\.dsh-gw-panel\[data-gw-scheme\] :is\(\.dsh-gw-ms-pop,[^}]*box-shadow:var\(--gw-shadow-pop\)/)
   assert.match(src, /\.dsh-gw-theme-toggle\{border-color:var\(--gw-rule-strong\);background:var\(--gw-paper-raised\);color:var\(--gw-muted\)\}/)
-  assert.match(src, /const BUILD = '2026-11-14i'/)
+  assert.match(src, /const BUILD = '2026-11-14k'/)
 })
 
 test('Studio owns wide-table scrolling instead of expanding the page', () => {
@@ -553,6 +553,18 @@ test('feedback full-vault search exposes clickable source results for create and
   assert.match(helper, /list\.query/)
   assert.match(helper, /records\.slice\(0, 12\)/)
 })
+test('feedback table keeps status visible in a real column and expands later boundaries together', () => {
+  const body = actualFunction('FeedbackCard')
+  assert.match(body, /\['c-body', 'c-fix', 'c-fix', 'c-state', 'c-act'\]/)
+  assert.match(body, /\['c-date', 'c-channel', 'c-source', 'c-mood', 'c-body', 'c-tags', 'c-fix', 'c-fix', 'c-state', 'c-act'\]/)
+  assert.match(body, /\['原文', '处理意见', '处理结果', '状态', '操作'\]/)
+  assert.match(body, /\['日期', '渠道', '来源', '情感', '原文', '标签', '处理意见', '处理结果', '状态', '操作'\]/)
+  assert.match(body, /className: 'dsh-gw-fb-state-cell'[\s\S]*className: 'dsh-gw-fb-state'/)
+  assert.match(body, /className: 'dsh-gw-fb-actions-cell'[\s\S]*className: 'dsh-gw-acts'/)
+  assert.match(body, /expandingPixelColResizeStart\(fbFullWidths/)
+  assert.match(body, /expandedPixelColumnWidths\(current, index, delta/)
+  assert.match(body, /width: fbWidths\.reduce\(\(sum, width\) => sum \+ width, 0\) \+ 'px'/)
+})
 test('account rows and product rollups have bounded identity layout and stable platform badges', () => {
   assert.match(src, /\.dsh-gw-account-row\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/)
   assert.match(src, /\.dsh-gw-account-row \.dsh-gw-row-main\{[^}]*grid-template-columns:90px minmax\(0,1fr\)[^}]*column-gap:8px/)
@@ -609,9 +621,18 @@ test('errors persist until dismissed and settings expose truthful read-only heal
   assert.match(settings, /get\('\/health'\)/)
   assert.match(settings, /'连接体检'/)
   assert.match(settings, /'只读检查，没有创建或改写文件'/)
-  assert.match(settings, /setCardBusy\(card\.id\)/)
-  assert.match(settings, /setCardState\(Array\.isArray\(result\?\.cards\) \? result\.cards : next\)/)
-  assert.match(settings, /disabled: cardBusy !== ''/)
+  assert.match(settings, /const initialSettings = state\?\.operationalSettings/)
+  assert.match(settings, /expectedRevision: settings\.revision, replace: true, profile/)
+  assert.match(settings, /replace: copyCurrent && profile !== null, activate: true, profile: base/)
+  assert.doesNotMatch(settings, /expectedRevision: result\.revision, rules: profileRulesOf\(profile\)/)
+  assert.doesNotMatch(settings, /expectedRevision: result\.revision, cardLayout: profile\.cardLayout/)
+  assert.match(settings, /settingsLoadError === null \? null/)
+  assert.match(src, /\.dsh-gw-settings-layout\{display:grid;grid-template-columns:minmax\(124px,154px\) minmax\(0,1fr\)/)
+  assert.match(src, /\.dsh-gw-settings-navbtn\[data-on=true\]\{[^}]*box-shadow:inset 2px 0 0 var\(--gw-accent\)/)
+  assert.match(src, /\.dsh-gw-settings-savebar\{position:sticky;bottom:0/)
+  assert.match(src, /async function publicationDetails\(\) \{[\s\S]{0,180}operationalReviewDays\(operationalSettingsSnapshot\)/)
+  assert.match(src, /async function pushVariantWithBrief\(\) \{[\s\S]{0,900}runAutomationPolicy\(operationalSettingsSnapshot, 'suggestCopy'/)
+  assert.match(settings, /已停止写入以避免覆盖/)
 })
 
 test('read hooks and search physically cancel superseded requests', () => {
@@ -644,9 +665,13 @@ test('all list tables use the shared local-scroll and resize contract', () => {
   assert.ok(gripUses >= 11, 'expected every adjustable table to use ColumnGrip; found ' + gripUses)
   assert.equal((src.match(/className: 'dsh-gw-col-grip'/g) ?? []).length, 1, 'raw grip markup must stay centralized')
   const pending = actualFunction('PendingCard')
-  assert.match(pending, /pixelColResizeStart\(pendingWidths, setPendingWidths/)
-  assert.match(src, /\.dsh-gw-rules-scroll>\.dsh-gw-rules-frame\{overflow:visible;min-width:680px\}/)
+  assert.match(pending, /expandingPixelColResizeStart\(pendingWidths, setPendingWidths/)
+  assert.match(src, /\.dsh-gw-rules-scroll>\.dsh-gw-rules-frame\{overflow:visible;min-width:0\}/)
   assert.match(src, /\.dsh-gw-rules thead th\{[^}]*position:sticky;top:0/)
+  // 推动式列宽契约：所有拖宽都走 expandedPixelColumnWidths（只改被拖列，右侧列整体平移），旧「此消彼长」函数必须保持删除状态。
+  assert.doesNotMatch(src, /shiftedColumnWidths|shiftedPixelColumnWidths|colResizeStart|pixelColResizeStart|installColumnDrag|installPixelColumnDrag/)
+  assert.match(src, /function expandingPixelColResizeStart/)
+  assert.match(src, /function usePixelColumnWidths/)
 })
 
 test('account picker keeps a readable select width and wraps the create button', () => {
@@ -658,7 +683,7 @@ test('account picker keeps a readable select width and wraps the create button',
 })
 
 test('upcoming schedule table can shrink below the generic adjustable minimum', () => {
-  assert.match(src, /\.dsh-gw-table\.dsh-gw-upcoming\{min-width:0;table-layout:fixed;width:100%\}/)
+  assert.match(src, /\.dsh-gw-adjustable-table\{min-width:0\}/)
   assert.match(actualFunction('UpcomingQueue'), /dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table/)
 })
 

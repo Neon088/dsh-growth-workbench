@@ -339,7 +339,19 @@ async function publishedFixture(title, reviewDays, withMetric = false) {
   if (withMetric) await request('POST', `/api/dsh-growth/v2/variants/${variantId}/metrics`, { date: localDay(), views: '1' })
   return variantId
 }
+async function setCloseCheckpoint(days) {
+  const loaded = await request('GET', '/api/dsh-growth/operational-settings')
+  const settings = loaded.json
+  const profile = structuredClone(settings.profiles.find((entry) => entry.id === settings.activeProfileId))
+  profile.observationCheckpoints = [{ id: 'configured-close', daysAfterPublish: days, close: true }]
+  const saved = await request('PUT', '/api/dsh-growth/operational-settings/profiles/' + encodeURIComponent(profile.id), {
+    expectedRevision: settings.revision, replace: true, profile,
+  })
+  if (saved.status !== 200) throw new Error('could not configure observation checkpoint: ' + JSON.stringify(saved.json))
+}
+await setCloseCheckpoint(1)
 const dueTodayId = await publishedFixture('今天截止夹具', 1)
+await setCloseCheckpoint(7)
 const unrecordedId = await publishedFixture('未录入夹具', 7)
 const upcomingId = await publishedFixture('观察中夹具', 7, true)
 const missingMaster = await request('POST', '/api/dsh-growth/v2/masters', { title: '缺发布时间夹具', platform: 'B站', date: localDay(), status: '在写' })

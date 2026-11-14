@@ -49,18 +49,18 @@ const prodRow = (w) => `
 // ── C. 反馈表 ──────────────────────────────────────────────────
 const fbTable = (w, compact) => {
   const cols = compact
-    ? [['c-body', 38], ['c-fix', 22], ['c-fix', 16], ['c-state', 14], ['c-act', 10]]
-    : [['c-date', 8], ['c-channel', 10], ['c-mood', 8], ['c-body', 30], ['c-tags', 11], ['c-fix', 11], ['c-fix', 11], ['c-state', 7], ['c-act', 5]]
+    ? [['c-body', 260], ['c-fix', 132], ['c-fix', 132], ['c-state', 100], ['c-act', 92]]
+    : [['c-date', 72], ['c-channel', 86], ['c-source', 128], ['c-mood', 68], ['c-body', 232], ['c-tags', 92], ['c-fix', 124], ['c-fix', 124], ['c-state', 104], ['c-act', 96]]
   const head = compact
-    ? ['原文', '处理意见', '处理结果', '状态', '']
-    : ['日期', '渠道', '情感', '原文', '标签', '处理意见', '处理结果', '状态', '']
+    ? ['原文', '处理意见', '处理结果', '状态', '操作']
+    : ['日期', '渠道', '来源', '情感', '原文', '标签', '处理意见', '处理结果', '状态', '操作']
   const actCell = `<td style="white-space:nowrap"><div class="dsh-gw-acts" style="opacity:1"><button class="dsh-gw-ibtn dsh-gw-row-del" data-tone="danger" title="删除">✕</button></div></td>`
   const body = compact
     ? `<td>快递太慢了，三天还没到，客服也不回消息</td><td>先道歉再补发</td><td>已补发</td><td><select class="dsh-gw-fb-state" data-state="跟进中"><option>跟进中</option></select></td>${actCell}`
-    : `<td>11-06</td><td>小红书</td><td><span class="dsh-gw-pill" data-tone="error">负</span></td><td>快递太慢了，三天还没到</td><td><span class="dsh-gw-pill">物流</span></td><td>先道歉再补发</td><td>已补发</td><td><select class="dsh-gw-fb-state" data-state="跟进中"><option>跟进中</option></select></td>${actCell}`
+    : `<td>11-06</td><td>小红书</td><td>平台 · 小红书</td><td><span class="dsh-gw-pill" data-tone="error">负</span></td><td>快递太慢了，三天还没到</td><td><span class="dsh-gw-pill">物流</span></td><td>先道歉再补发</td><td>已补发</td><td><select class="dsh-gw-fb-state" data-state="跟进中"><option>跟进中</option></select></td>${actCell}`
   return `<div class="dsh-gw-tablebox dsh-gw-fb-box" style="width:${w}px">
-    <table class="dsh-gw-table dsh-gw-fb-table${compact ? ' dsh-gw-fb-compact' : ''}">
-      <colgroup>${cols.map(([n, p]) => `<col class="${n}" style="width:${p}%">`).join('')}</colgroup>
+    <table class="dsh-gw-table dsh-gw-fb-table${compact ? ' dsh-gw-fb-compact' : ''}" style="width:${cols.reduce((sum, [, p]) => sum + p, 0)}px">
+      <colgroup>${cols.map(([n, p]) => `<col class="${n}" style="width:${p}px">`).join('')}</colgroup>
       <thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
       <tbody><tr>${body}</tr></tbody>
     </table></div>`

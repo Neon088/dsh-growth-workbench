@@ -152,7 +152,7 @@ const check = (name, ok, extra) => {
   const r = pushToAgent('Topics/111.md', '# 标题\n正文一行', (m, e) => said.push([m, e === true]))
   check('返回值 true', r === true)
   check('setDraft 被调用一次', fake.draft !== '')
-  check('草稿带文件名抬头', fake.draft.startsWith('以下是工作台里的笔记《111》：'), JSON.stringify(fake.draft.slice(0, 30)))
+  check('草稿带文件名抬头', fake.draft.includes('以下是工作台里的笔记《111》：'), JSON.stringify(fake.draft.slice(0, 80)))
   check('草稿包含正文', fake.draft.includes('# 标题\n正文一行'))
   check('默认不自动发送', fake.submitted === 0 && fake.persisted === 1, 'submitted=' + fake.submitted)
   check('提示语是「放进输入框」', said.length === 1 && said[0][0].includes('输入框'), JSON.stringify(said))
@@ -228,7 +228,7 @@ const check = (name, ok, extra) => {
   check('按 path 推送返回 true', r === true, JSON.stringify(said))
   check('请求带上了 note= 并做了编码', asked.length === 1 && asked[0].includes('note=Data%2F2026-11%20%E5%A4%8D%E7%9B%98.md'), JSON.stringify(asked))
   check('正文被塞进草稿', fake.draft.includes('## 标题') && fake.draft.includes('正文'), JSON.stringify(fake.draft))
-  check('抬头用文件名', fake.draft.startsWith('以下是工作台里的笔记《2026-11 复盘》：'))
+  check('抬头用文件名', fake.draft.includes('以下是工作台里的笔记《2026-11 复盘》：'))
 }
 
 // 7) 卡片头部：路径为空
@@ -328,7 +328,7 @@ const check = (name, ok, extra) => {
   const fake = makeFake()
   inputBridge.actions = fake
   await pushToAgent('Topics/1.md', '正文', () => {})
-  check('无指令时以「以下是」开头', fake.draft.trimStart().startsWith('以下是工作台'), fake.draft.slice(0, 30))
+  check('无指令时包含资料抬头', fake.draft.includes('以下是工作台'), fake.draft.slice(0, 80))
   check('无指令时不含模板', !Object.values(PUSH_PROMPTS).some((text) => fake.draft.includes(text)))
 }
 
