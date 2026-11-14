@@ -303,6 +303,72 @@ test('backend: mirrored backups do not collide and vault backup failures prevent
   assert.equal(fs.readFileSync(path.join(root, 'Topics', 'refuse.md'), 'utf8'), 'keep\n')
 })
 
+test('backend: operational settings persist profiles, rules, layout, active profile and CAS conflicts', async (t) => {
+  const { root, request } = await fixture(t)
+  const file = path.join(root, '.plugin-data', 'operational-rules.json')
+  assert.ok(fs.existsSync(file))
+  assert.ok(fs.readFileSync(file, 'utf8').endsWith('\n'))
+  let current = await request('GET', '/operational-settings')
+  assert.equal(current.status, 200, JSON.stringify(current.json))
+  assert.equal(current.json.revision, 1)
+  assert.equal(current.json.activeProfileId, 'default')
+  assert.deepEqual((await request('GET', '/state')).json.cards, current.json.cards)
+
+  current = await request('POST', '/operational-settings/profiles', {
+    expectedRevision: current.json.revision,
+    profile: { id: 'multi-channel', name: '多平台分发', description: '多平台内容运营', goals: ['增长'], platforms: ['小红书', '抖音'], accounts: ['main'] },
+  })
+  assert.equal(current.status, 200, JSON.stringify(current.json))
+  const created = current.json.profiles.find((profile) => profile.id === 'multi-channel')
+  const rules = {
+    workflow: created.workflow,
+    automation: { ...created.automation, createDraft: 'auto' },
+    publishGates: [...created.publishGates, { id: 'title', type: 'required-field', field: 'draft.title', enabled: true }],
+    observationCheckpoints: [{ id: 'day-1', daysAfterPublish: 1, close: false }, { id: 'day-3', daysAfterPublish: 3, close: false }, { id: 'day-7', daysAfterPublish: 7, close: true }],
+    aiContext: created.aiContext,
+    reminders: created.reminders,
+    successBenchmarks: [{ id: 'views', metric: 'views', checkpointId: 'day-7', mode: 'fixed', direction: 'at-least', value: 1000 }],
+  }
+  current = await request('PUT', '/operational-settings/profiles/multi-channel/rules', { expectedRevision: current.json.revision, rules })
+  assert.equal(current.status, 200, JSON.stringify(current.json))
+  const profile = current.json.profiles.find((entry) => entry.id === 'multi-channel')
+  const layout = profile.cardLayout.map((entry) => ({ ...entry, visible: entry.id !== 'glossary' }))
+  current = await request('PUT', '/operational-settings/profiles/multi-channel/workspaces', { expectedRevision: current.json.revision, cardLayout: layout })
+  assert.equal(current.status, 200, JSON.stringify(current.json))
+  current = await request('PUT', '/operational-settings/active-profile', { expectedRevision: current.json.revision, profileId: 'multi-channel' })
+  assert.equal(current.status, 200, JSON.stringify(current.json))
+  assert.equal(current.json.cards.find((card) => card.id === 'glossary').enabled, false)
+  assert.deepEqual((await request('GET', '/state')).json.cards, current.json.cards)
+
+  const expectedRevision = current.json.revision
+  const races = await Promise.all(['A', 'B', 'C'].map((suffix) => request('PUT', '/operational-settings/profiles/multi-channel', {
+    expectedRevision,
+    profile: { name: '多平台分发 ' + suffix, description: profile.description, goals: profile.goals, content: profile.content, audience: profile.audience, platforms: profile.platforms, accounts: profile.accounts },
+  })))
+  assert.equal(races.filter((result) => result.status === 200).length, 1)
+  assert.equal(races.filter((result) => result.status === 409).length, 2)
+  assert.ok(races.filter((result) => result.status === 409).every((result) => result.json.currentRevision === expectedRevision + 1 && result.json.current?.revision === expectedRevision + 1))
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).revision, expectedRevision + 1)
+})
+
+test('backend: operational settings reject unsafe rules and legacy cards patch only active layout', async (t) => {
+  const { request } = await fixture(t)
+  let current = (await request('GET', '/operational-settings')).json
+  const unsafe = structuredClone(current.activeProfile)
+  unsafe.automation.externalPublish = 'off'
+  const refused = await request('PUT', '/operational-settings/profiles/default/rules', {
+    expectedRevision: current.revision,
+    rules: { workflow: unsafe.workflow, automation: unsafe.automation, publishGates: unsafe.publishGates, observationCheckpoints: unsafe.observationCheckpoints, aiContext: unsafe.aiContext, reminders: unsafe.reminders, successBenchmarks: unsafe.successBenchmarks },
+  })
+  assert.equal(refused.status, 400)
+  assert.equal((await request('GET', '/operational-settings')).json.revision, current.revision)
+  const cards = current.cards.map((card, index) => ({ id: card.id, enabled: index !== 0 }))
+  const patched = await request('PUT', '/cards', { cards })
+  assert.equal(patched.status, 200, JSON.stringify(patched.json))
+  assert.equal(patched.json.revision, current.revision + 1)
+  assert.deepEqual(patched.json.cards.map(({ id, enabled }) => ({ id, enabled })), cards)
+})
+
 test('backend: state health and settings writes return canonical read-only contracts', async (t) => {
   const { request } = await fixture(t)
   const before = await request('GET', '/state')

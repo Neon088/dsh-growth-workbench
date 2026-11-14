@@ -27,6 +27,7 @@ const suites = [
   'test/backend-pagination.test.mjs',
   'test/client-behavior.test.mjs',
   'test/profile-maintenance.test.mjs',
+  'test/operational-settings.test.mjs',
 ]
 for (const suite of suites) {
   if (!existsSync(join(repository, suite))) throw new Error('Missing expected test suite: ' + suite)

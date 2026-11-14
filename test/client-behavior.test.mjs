@@ -18,13 +18,14 @@ const names = [
   'pageQuery', 'mergeRecordPage', 'usePagedList', 'useLinkedRecords', 'useAsync', 'responseWarning',
   'metricDraftChanged', 'resolveCalendarTopic', 'chooseCalendarVariant', 'moveCalendarEntry', 'fanoutPartialReceipt',
   'deleteVariantWithBaseline', 'variantPathTo', 'advanceVariant', 'indexBy', 'homeActions', 'workspaceTabTarget', 'columnResizeDelta',
-  'keyboardActivate', 'shiftedColumnWidths', 'installColumnDrag', 'shiftedPixelColumnWidths', 'installPixelColumnDrag', 'installModalFocus',
+  'keyboardActivate', 'expandedPixelColumnWidths', 'readSavedWidths', 'writeSavedWidths', 'installExpandingPixelColumnDrag', 'usePixelColumnWidths', 'expandingPixelColResizeStart', 'installModalFocus',
   'useStableFieldId', 'associateField', 'Field', 'ErrorBar', 'PlatformInput', 'AccountPicker',
   'PlatformMultiInput', 'splitPlatforms', 'MultiSelect', 'SourceSelect', 'ComboField', 'splitCombo', 'joinCombo',
-  'useRecordFilter', 'matchRecord', 'splitTags', 'detailCrumbOf', 'useDetailCrumb', 'TopicsCard', 'StudioCard', 'colResizeStart',
+  'useRecordFilter', 'matchRecord', 'splitTags', 'detailCrumbOf', 'useDetailCrumb', 'TopicsCard', 'StudioCard',
   'collectionSortValue', 'sortCollectionRows', 'toggledCollectionSort', 'CollectionSortHead',
   'createMeasuredHeightTracker', 'useMeasuredBlockHeight', 'ListPager',
   'parseSurfaceColor', 'surfaceLuminance', 'surfaceContrast', 'hostAccent', 'installHostAccent',
+  'activeOperationalProfile', 'trustedAiContextSummary', 'automationPolicy', 'operationalReviewDays', 'runAutomationPolicy',
   'installActionMenu', 'ActionMenu', 'calendarAccountName', 'CalendarCard', 'shiftMonth', 'monthTitle', 'monthGrid',
 ]
 const transitionStart = source.indexOf('    const VARIANT_NEXT = ')
@@ -32,6 +33,10 @@ const transitionEnd = source.indexOf('\n    }', transitionStart)
 assert.ok(transitionStart >= 0 && transitionEnd > transitionStart)
 const comboLine = source.match(/^    const COMBO_SEP = .+$/m)?.[0]
 assert.ok(comboLine)
+const operationalHelperConstants = [
+  'AI_CONTEXT_SOURCE_LABELS', 'AUTOMATION_ACTION_LABELS', 'AUTOMATION_MODES', 'SAFE_AUTOMATION_ACTIONS',
+].map((name) => source.match(new RegExp('^    const ' + name + ' = .+$', 'm'))?.[0]).join('\n')
+assert.ok(operationalHelperConstants.includes('SAFE_AUTOMATION_ACTIONS'))
 
 const plain = (value) => JSON.parse(JSON.stringify(value))
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
@@ -104,7 +109,7 @@ const context = vm.createContext({
   platformOptions: (items) => [...new Set(items.filter((value) => value !== undefined && value !== null && value !== ''))],
   PLATFORMS: ['抖音', '小红书'],
 })
-vm.runInContext("const DraftContext = 'draft', RefreshContext = 'refresh'; let fieldSerial = 0; const modalStack = [];\n" + comboLine + '\n' + source.slice(transitionStart, transitionEnd + 6) + '\n' + names.map(bodyOf).join('\n') + '\nglobalThis.api = { ' + names.join(', ') + ' };', context)
+vm.runInContext("const DraftContext = 'draft', RefreshContext = 'refresh'; let fieldSerial = 0; const modalStack = [];\n" + comboLine + '\n' + operationalHelperConstants + '\n' + source.slice(transitionStart, transitionEnd + 6) + '\n' + names.map(bodyOf).join('\n') + '\nglobalThis.api = { ' + names.join(', ') + ' };', context)
 const api = context.api
 // Render the actual cards; only unrelated visual leaves are inert VNodes.
 for (const name of [...(bodyOf('TopicsCard') + bodyOf('StudioCard') + bodyOf('CalendarCard')).matchAll(/\bh\(\s*([A-Z]\w*)/g)].map((match) => match[1])) if (context[name] === undefined) context[name] = function VisualLeaf() {}
@@ -464,21 +469,25 @@ test('row/sort keyboard activation fires once and ignores nested controls', () =
   const child = keyEvent('Enter', {}); child.currentTarget = target; api.keyboardActivate(child, () => { count++ }); assert.equal(count, 2)
   const other = keyEvent('ArrowDown', target); api.keyboardActivate(other, () => { count++ }); assert.equal(count, 2)
 })
-test('column widths clamp both neighbors while preserving their combined width', () => {
-  const next = api.shiftedColumnWidths([50, 50], 0, 100); assert.deepEqual(plain(next), [96, 4]); assert.equal(next[0] + next[1], 100)
+test('expanding pixel widths change only the dragged column and honor its minimum', () => {
+  assert.deepEqual(plain(api.expandedPixelColumnWidths([64, 88, 96], 1, 40, [56, 72, 80])), [64, 128, 96])
+  assert.deepEqual(plain(api.expandedPixelColumnWidths([64, 88, 96], 1, -100, [56, 72, 80])), [64, 72, 96])
+  assert.deepEqual(plain(api.expandedPixelColumnWidths([64, 88], 3, 20, [56, 72])), [64, 88])
 })
-test('pixel column widths preserve their combined width and honor per-column minima', () => {
-  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64, 88], 0, 100, [56, 72])), [80, 72])
-  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64, 88], 0, -100, [56, 72])), [56, 96])
-  assert.deepEqual(plain(api.shiftedPixelColumnWidths([64], 0, 10, [56])), [64])
+test('expanding pixel drag cleans up and grows table width instead of shrinking its neighbor', () => {
+  const doc = new EventBus(), host = new EventBus(), classes = new Set(); doc.body = { classList: { add: (value) => classes.add(value), remove: (value) => classes.delete(value) } }
+  const table = { isConnected: true }; let widths
+  const stop = api.installExpandingPixelColumnDrag({ currentTarget: { closest: () => table }, clientX: 10, preventDefault() {}, stopPropagation() {} }, [64, 88, 96], 1, (value) => { widths = value }, [56, 72, 80], doc, host)
+  doc.emit('pointermove', { clientX: 42 }); assert.deepEqual(plain(widths), [64, 120, 96])
+  doc.emit('pointerup'); stop(); assert.equal(doc.count(), 0); assert.equal(host.count(), 0); assert.equal(classes.size, 0)
 })
 test('pointercancel, blur and explicit unmount cleanup remove all column drag listeners', () => {
   for (const end of ['pointercancel', 'blur', 'cleanup']) {
     const doc = new EventBus(), host = new EventBus(), classes = new Set(); doc.body = { classList: { add: (value) => classes.add(value), remove: (value) => classes.delete(value) } }
     const table = { isConnected: true, getBoundingClientRect: () => ({ width: 100 }) }; let widths
     const event = { currentTarget: { closest: () => table }, clientX: 10, preventDefault() {}, stopPropagation() {} }
-    const stop = api.installColumnDrag(event, [50, 50], 0, (value) => { widths = value }, doc, host)
-    doc.emit('pointermove', { clientX: 30 }); assert.deepEqual(plain(widths), [70, 30])
+    const stop = api.installExpandingPixelColumnDrag(event, [50, 50], 0, (value) => { widths = value }, [], doc, host)
+    doc.emit('pointermove', { clientX: 30 }); assert.deepEqual(plain(widths), [70, 50])
     if (end === 'cleanup') stop(); else (end === 'blur' ? host : doc).emit(end)
     stop(); assert.equal(doc.count(), 0); assert.equal(host.count(), 0); assert.equal(classes.size, 0)
   }
@@ -486,7 +495,7 @@ test('pointercancel, blur and explicit unmount cleanup remove all column drag li
 test('disconnected tables terminate column drag without updating unmounted state', () => {
   const doc = new EventBus(), host = new EventBus(); doc.body = { classList: { add() {}, remove() {} } }
   const table = { isConnected: false, getBoundingClientRect: () => ({ width: 100 }) }; let updates = 0
-  api.installColumnDrag({ currentTarget: { closest: () => table }, clientX: 0, preventDefault() {}, stopPropagation() {} }, [50, 50], 0, () => { updates++ }, doc, host)
+  api.installExpandingPixelColumnDrag({ currentTarget: { closest: () => table }, clientX: 0, preventDefault() {}, stopPropagation() {} }, [50, 50], 0, () => { updates++ }, [], doc, host)
   doc.emit('pointermove', { clientX: 100 }); assert.equal(updates, 0); assert.equal(doc.count(), 0); assert.equal(host.count(), 0)
 })
 function focusDOM() {
@@ -752,6 +761,29 @@ test('detail breadcrumb hook reports a stable descriptor and clears it on unmoun
   assert.equal(reports.length, 1, 'callback identity alone does not republish descriptor')
   reports[0].onChange('Topics/a.md'); assert.deepEqual(chosen, ['new:Topics/a.md'])
   actor.unmount(); assert.equal(reports.at(-1), null)
+})
+
+test('operational helpers select the active profile, enforce safe automation and derive the close checkpoint', async () => {
+  const settings = {
+    activeProfileId: 'growth',
+    profiles: [{
+      id: 'growth', name: '增长方案',
+      automation: { suggestCopy: 'auto', createDraft: 'off' },
+      observationCheckpoints: [{ id: 'd1', daysAfterPublish: 1, close: false }, { id: 'd14', daysAfterPublish: 14, close: true }],
+    }],
+  }
+  assert.equal(api.activeOperationalProfile(settings).name, '增长方案')
+  assert.equal(api.operationalReviewDays(settings), 14)
+  assert.equal(api.automationPolicy(settings, 'suggestCopy').mode, 'auto')
+  let runs = 0
+  const notices = []
+  assert.equal((await api.runAutomationPolicy(settings, 'suggestCopy', async () => { runs++; return 'ok' }, (message) => notices.push(message))).ran, true)
+  assert.equal((await api.runAutomationPolicy(settings, 'createDraft', async () => { runs++ }, (message) => notices.push(message))).ran, false)
+  assert.equal(runs, 1)
+})
+test('operational review days reject malformed or unbounded checkpoints', () => {
+  assert.equal(api.operationalReviewDays({ activeProfileId: 'x', profiles: [{ id: 'x', observationCheckpoints: [{ daysAfterPublish: 0, close: true }] }] }), 7)
+  assert.equal(api.operationalReviewDays(null), 7)
 })
 
 let failed = 0

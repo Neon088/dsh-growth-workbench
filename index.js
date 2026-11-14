@@ -20,8 +20,9 @@ import * as fm from './lib/frontmatter.js'
 import * as csv from './lib/csv.js'
 import { registerVaultTool } from './lib/agent-tool.js'
 import { PLATFORMS, normalizePlatform, platformOptions, splitPlatforms } from './lib/platforms.js'
-import { parseChecklist, CHECKLIST_TITLE_HINTS } from './lib/checklist.js'
+import { parseChecklist, checklistState, CHECKLIST_TITLE_HINTS } from './lib/checklist.js'
 import { createDomainStore, VARIANT_STATUSES, VARIANT_TRANSITIONS, normalizeVariantStatus } from './lib/domain.js'
+import { buildObservationPlan, canonicalOperationalSettings, createDefaultOperationalSettings, evaluatePublishGate, evaluateSuccessBenchmarks, materializeCards, migrateOperationalSettings, OperationalSettingsError } from './lib/operational-settings.js'
 import { createMigrator } from './lib/migrate.js'
 
 const API_PREFIX = '/api/dsh-growth'
@@ -345,7 +346,9 @@ export function apply(ctx, config) {
   trace(`apply start; hasCtx=${ctx !== void 0}; configKeys=${configKeys}${configKeys === 12 ? '' : '; keys=' + Object.keys(config ?? {}).join(',')}`)
 
   let userConfig = {}
-  let cards = DEFAULT_CARDS.map((card) => ({ ...card }))
+  let operationalSettings = createDefaultOperationalSettings(DEFAULT_CARDS)
+  let cards = materializeCards(operationalSettings, DEFAULT_CARDS)
+  let operationalSettingsLoadError = null
   let vault = null
   let domain = null
   let migrator = null
@@ -455,29 +458,73 @@ export function apply(ctx, config) {
     }
   }
 
+  function operationalRulesPath() {
+    return join(dataDir(), 'operational-rules.json')
+  }
+
   async function loadState() {
     try {
       userConfig = JSON.parse(await readFile(join(dataDir(), 'config.json'), 'utf8'))
     } catch {
       userConfig = {}
     }
+    let legacyCards = DEFAULT_CARDS.map((card) => ({ id: card.id, enabled: card.enabled !== false }))
     try {
       const parsed = JSON.parse(await readFile(join(dataDir(), 'cards.json'), 'utf8'))
       if (Array.isArray(parsed)) {
-        const byId = new Map(cards.map((card) => [card.id, card]))
-        for (const entry of parsed) {
-          const existing = byId.get(String(entry?.id ?? ''))
-          if (existing !== undefined) existing.enabled = entry.enabled !== false
-        }
+        const requested = new Map(parsed.map((entry) => [String(entry?.id ?? ''), entry?.enabled !== false]))
+        legacyCards = legacyCards.map((entry) => requested.has(entry.id) ? { ...entry, enabled: requested.get(entry.id) } : entry)
       }
     } catch {
-      // 没有自定义就用默认。
+      // 没有旧版卡片快照就用 catalog 默认值。
+    }
+    operationalSettingsLoadError = null
+    try {
+      await withFileWriteLock(operationalRulesPath(), async () => {
+        let raw = null
+        let exists = true
+        try {
+          raw = JSON.parse(await readFile(operationalRulesPath(), 'utf8'))
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error
+          exists = false
+        }
+        operationalSettings = migrateOperationalSettings(raw, {
+          legacyCards: exists ? undefined : legacyCards,
+          cardCatalog: DEFAULT_CARDS,
+        })
+        if (!exists) {
+          await atomicWriteFile(operationalRulesPath(), JSON.stringify(operationalSettings, null, 2) + '\n', {
+            beforeCommit: async () => {
+              try {
+                await stat(operationalRulesPath())
+                throw new VaultError('运营设置已由其他实例创建，重新载入后再试', 'conflict')
+              } catch (error) {
+                if (error instanceof VaultError) throw error
+                if (error?.code !== 'ENOENT') throw error
+              }
+            },
+          })
+        }
+      })
+      cards = materializeCards(operationalSettings, DEFAULT_CARDS)
+    } catch (error) {
+      operationalSettingsLoadError = error
+      cards = DEFAULT_CARDS.map((card) => {
+        const legacy = legacyCards.find((entry) => entry.id === card.id)
+        return { ...card, enabled: legacy?.enabled !== false }
+      })
     }
   }
 
   async function saveUserConfig(nextUserConfig = userConfig) {
     await mkdir(dataDir(), { recursive: true })
     await atomicWrite(join(dataDir(), 'config.json'), JSON.stringify(nextUserConfig, null, 2) + '\n')
+  }
+
+  async function saveOperationalSettings(nextSettings = operationalSettings) {
+    await mkdir(dataDir(), { recursive: true })
+    await atomicWrite(operationalRulesPath(), JSON.stringify(nextSettings, null, 2) + '\n')
   }
 
   async function saveCards(nextCards = cards) {
@@ -496,12 +543,158 @@ export function apply(ctx, config) {
   // 以相反顺序完成后，内存与磁盘各自停在不同版本。
   let configCommitQueue = Promise.resolve()
   let cardsCommitQueue = Promise.resolve()
+  let operationalCommitQueue = Promise.resolve()
   function queueCommit(queueName, operation) {
-    const previous = queueName === 'config' ? configCommitQueue : cardsCommitQueue
+    const previous = queueName === 'config' ? configCommitQueue : queueName === 'operational' ? operationalCommitQueue : cardsCommitQueue
     const next = previous.catch(() => undefined).then(operation)
     if (queueName === 'config') configCommitQueue = next
+    else if (queueName === 'operational') operationalCommitQueue = next
     else cardsCommitQueue = next
     return next
+  }
+
+  function operationalPayload(settings = operationalSettings) {
+    const materialized = materializeCards(settings, DEFAULT_CARDS)
+    return {
+      schemaVersion: settings.schemaVersion,
+      revision: settings.revision,
+      activeProfileId: settings.activeProfileId,
+      profiles: settings.profiles,
+      activeProfile: settings.profiles.find((profile) => profile.id === settings.activeProfileId) ?? null,
+      cards: materialized,
+    }
+  }
+
+  function activeOperationalProfile() {
+    return operationalSettings.profiles.find((profile) => profile.id === operationalSettings.activeProfileId) ?? operationalSettings.profiles[0] ?? null
+  }
+
+  function closeObservationDays(profile = activeOperationalProfile()) {
+    const close = Array.isArray(profile?.observationCheckpoints)
+      ? profile.observationCheckpoints.find((checkpoint) => checkpoint?.close === true)
+      : null
+    const days = Number(close?.daysAfterPublish)
+    return Number.isInteger(days) && days >= 1 && days <= 365 ? days : 7
+  }
+
+  function inAppReminders(profile, observationPlan) {
+    if (profile?.reminders?.enabled !== true || profile?.reminders?.channel !== 'in-app') return []
+    const leads = Array.isArray(profile.reminders.leadHours) ? profile.reminders.leadHours : []
+    return observationPlan.flatMap((checkpoint) => leads.map((leadHours) => ({
+      checkpointId: checkpoint.checkpointId,
+      leadHours,
+      dueAt: checkpoint.dueAt,
+      remindAt: new Date(new Date(checkpoint.dueAt).getTime() - leadHours * 3600000).toISOString(),
+      channel: 'in-app',
+      status: 'pending',
+    })))
+  }
+
+  async function operationalPublishGateContext(variant) {
+    const checklist = await domain.loadChecklist()
+    const check = checklist === null ? null : checklistState(variant.front, checklist.items)
+    const risk = String(variant.front?.riskLevel ?? '低')
+    return {
+      draft: { title: variant.title ?? variant.front?.title ?? '', body: variant.body ?? '' },
+      checklist: check,
+      checklistComplete: check?.complete === true,
+      riskLevel: risk,
+      riskApproved: !/(?:高|禁发|high|blocked)/i.test(risk) || check?.complete === true,
+      accountId: variant.front?.accountId,
+      account: { id: variant.front?.accountId, name: variant.front?.account },
+      evidence: variant.front?.publishedLink ?? '',
+      assets: String(variant.front?.materials ?? '').split(/[、,;；\n]+/).map((item) => item.trim()).filter(Boolean),
+    }
+  }
+
+  async function evaluateOperationalBenchmarks(profile, variant, metric) {
+    const checkpoints = Array.isArray(profile?.observationCheckpoints) ? profile.observationCheckpoints : []
+    const publishedAt = new Date(String(variant.front?.publishedAt ?? '')).getTime()
+    const metricAt = new Date(String(metric.date ?? '') + 'T23:59:59Z').getTime()
+    const elapsedDays = Number.isFinite(publishedAt) && Number.isFinite(metricAt)
+      ? Math.max(1, Math.floor((metricAt - publishedAt) / 86400000) + 1)
+      : 1
+    const checkpoint = checkpoints.filter((entry) => entry.daysAfterPublish <= elapsedDays).sort((a, b) => b.daysAfterPublish - a.daysAfterPublish)[0] ?? checkpoints[0]
+    if (checkpoint === undefined) return null
+    const history = (await domain.listMetrics()).filter((entry) => String(entry.variantId ?? '') !== variant.id)
+    const recent = history.slice(0, 100)
+    const sameType = recent.filter((entry) => normalizePlatform(entry.platform) === normalizePlatform(variant.front?.platform))
+    return evaluateSuccessBenchmarks(profile, { ...metric, recent, sameType }, checkpoint.id)
+  }
+
+  function operationalFailure(error) {
+    if (error instanceof VaultError) return error
+    if (error instanceof OperationalSettingsError) {
+      return new VaultError(error.message, error.code === 'not_found' ? 'not_found' : 'bad_field', { errors: error.errors ?? [] })
+    }
+    return error
+  }
+
+  function requireOperationalSettings() {
+    if (operationalSettingsLoadError !== null) {
+      throw new VaultError('运营设置文件无法读取，请先修复或恢复 operational-rules.json：' + describe(operationalSettingsLoadError), 'read_failed')
+    }
+  }
+
+  function operationalTransaction(expectedRevision, operation, { optionalRevision = false } = {}) {
+    return queueCommit('operational', () => withFileWriteLock(operationalRulesPath(), async () => {
+      requireOperationalSettings()
+      let before
+      let current
+      try {
+        before = await readFile(operationalRulesPath(), 'utf8')
+        current = canonicalOperationalSettings(JSON.parse(before), DEFAULT_CARDS)
+      } catch (error) {
+        throw operationalFailure(error)
+      }
+      if (!optionalRevision || expectedRevision !== undefined) {
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new VaultError('expectedRevision 必须是正整数', 'bad_request')
+        if (expectedRevision !== current.revision) {
+          throw new VaultError('运营设置已被修改，刷新后再保存', 'conflict', {
+            currentRevision: current.revision,
+            current: operationalPayload(current),
+          })
+        }
+      }
+      const draft = JSON.parse(JSON.stringify(current))
+      let result
+      try {
+        result = await operation(draft)
+        draft.revision = current.revision + 1
+        const next = canonicalOperationalSettings(draft, DEFAULT_CARDS)
+        const text = JSON.stringify(next, null, 2) + '\n'
+        await atomicWriteFile(operationalRulesPath(), text, {
+          beforeCommit: async () => {
+            let latest
+            try { latest = await readFile(operationalRulesPath(), 'utf8') } catch { latest = '' }
+            if (latest !== before) {
+              let latestSettings = current
+              try { latestSettings = canonicalOperationalSettings(JSON.parse(latest), DEFAULT_CARDS) } catch { /* conflict evidence falls back to current */ }
+              throw new VaultError('运营设置文件已在外部修改，刷新后再保存', 'conflict', {
+                currentRevision: latestSettings.revision,
+                current: operationalPayload(latestSettings),
+              })
+            }
+          },
+        })
+        operationalSettings = next
+        cards = materializeCards(next, DEFAULT_CARDS)
+        return { ...operationalPayload(next), saved: true, ...(result ?? {}) }
+      } catch (error) {
+        throw operationalFailure(error)
+      }
+    }))
+  }
+
+  function operationalRouteId(route, suffix = '') {
+    const prefix = 'operational-settings/profiles/'
+    if (!route.startsWith(prefix)) return ''
+    const tail = suffix === '' ? route.slice(prefix.length) : route.slice(prefix.length, -suffix.length)
+    if (tail === '' || tail.includes('/')) throw new VaultError('运营档案路径不合法', 'bad_path')
+    let id
+    try { id = decodeURIComponent(tail) } catch { throw new VaultError('运营档案路径编码不合法', 'bad_path') }
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(id)) throw new VaultError('运营档案 id 不合法', 'bad_field')
+    return id
   }
 
   function dirNameOf(kind) {
@@ -1163,11 +1356,23 @@ export function apply(ctx, config) {
   // 真正把版本推进去。只在 resolve 通过之后调用。
   async function applyCalendarAdvance(resolved, options = {}) {
     if (resolved.ok !== true) return resolved
+    const profile = activeOperationalProfile()
+    let operational = null
+    let publishOptions = options
+    if (resolved.steps.includes('已发') && profile !== null) {
+      const gate = evaluatePublishGate(profile, await operationalPublishGateContext(resolved.variant))
+      if (!gate.ok) return { ok: false, blocking: true, reason: gate.failed.map((entry) => entry.reason).join('；'), publishGate: gate }
+      const publishedAt = String(options.at ?? '').trim() || new Date().toISOString()
+      const observationPlan = buildObservationPlan(profile, publishedAt)
+      const closeDays = observationPlan.find((checkpoint) => checkpoint.close)?.daysAfterPublish ?? closeObservationDays(profile)
+      publishOptions = { ...options, at: publishedAt, reviewDays: closeDays }
+      operational = { profileId: profile.id, observationPlan, reminders: inAppReminders(profile, observationPlan) }
+    }
     let current = resolved.variant
     try {
       for (const step of resolved.steps) current = await domain.transitionVariant(current.path, step, {
         actor: 'calendar',
-        ...(step === '已发' ? { at: options.at, reviewDays: options.reviewDays, link: options.link } : {}),
+        ...(step === '已发' ? { at: publishOptions.at, reviewDays: publishOptions.reviewDays, link: publishOptions.link } : {}),
       })
     } catch (error) {
       if (String(current.sha1 ?? '') !== String(resolved.variant.sha1 ?? '')) {
@@ -1185,7 +1390,7 @@ export function apply(ctx, config) {
       }
       return { ok: false, reason: error?.message ?? String(error), steps: resolved.steps }
     }
-    return { ok: true, status: current.status, steps: resolved.steps }
+    return { ok: true, status: current.status, steps: resolved.steps, ...(operational === null ? {} : { operational }) }
   }
 
   // 版本的发布状态往前走了，日历上挂着它的那一行也要跟着走 ——
@@ -1254,11 +1459,33 @@ export function apply(ctx, config) {
 
   async function transitionVariantWithCalendar(variant, to, options = {}) {
     const target = normalizeVariantStatus(to)
+    const profile = activeOperationalProfile()
+    let operational = null
+    let effectiveOptions = options
+    if (target === '已发' && profile !== null) {
+      const gate = evaluatePublishGate(profile, await operationalPublishGateContext(variant))
+      if (!gate.ok) {
+        throw new VaultError(gate.failed.map((entry) => entry.reason).join('；'), 'bad_request', { publishGate: gate })
+      }
+      const publishedAt = String(options.at ?? '').trim() || new Date().toISOString()
+      const observationPlan = buildObservationPlan(profile, publishedAt)
+      const closeDays = observationPlan.find((checkpoint) => checkpoint.close)?.daysAfterPublish ?? closeObservationDays(profile)
+      effectiveOptions = { ...options, at: publishedAt, reviewDays: closeDays }
+      operational = {
+        profileId: profile.id,
+        observationPlan,
+        reminders: inAppReminders(profile, observationPlan),
+      }
+    }
     const plans = await calendarProjectionPlans(variant.id, target, { cancel: target === '已取消' })
-    const moved = await domain.transitionVariant(variant.path, target, options)
+    const moved = await domain.transitionVariant(variant.path, target, effectiveOptions)
     try {
       const applied = await applyCalendarPlans(plans)
-      return { variant: moved, calendarSynced: applied.map((plan) => ({ month: plan.month, rows: plan.next.length })) }
+      return {
+        variant: moved,
+        calendarSynced: applied.map((plan) => ({ month: plan.month, rows: plan.next.length })),
+        ...(operational === null ? {} : { operational }),
+      }
     } catch (error) {
       try {
         await vault.writeNote(variant.path, variant.text, { expectedSha1: moved.sha1 })
@@ -1896,7 +2123,16 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
 
     if (route === 'state' && method === 'GET') {
-      return { config: publicConfig(), dataDir: dataDir(), configured: vaultRoot() !== '', cards }
+      return {
+        config: publicConfig(), dataDir: dataDir(), configured: vaultRoot() !== '', cards,
+        operationalSettings: operationalSettingsLoadError === null ? {
+          schemaVersion: operationalSettings.schemaVersion,
+          revision: operationalSettings.revision,
+          activeProfileId: operationalSettings.activeProfileId,
+          profiles: operationalSettings.profiles,
+        } : null,
+        ...(operationalSettingsLoadError === null ? {} : { operationalSettingsError: { code: 'read_failed', message: describe(operationalSettingsLoadError) } }),
+      }
     }
 
     if (route === 'health' && method === 'GET') {
@@ -1920,6 +2156,106 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         vaultMessage,
         watcher: root !== '' && existsSync(root) && ensureVaultWatcher() !== null ? 'active' : 'fallback',
         elapsedMs: Date.now() - startedAt,
+      }
+    }
+
+    if (route === 'operational-settings' && method === 'GET') {
+      requireOperationalSettings()
+      return operationalPayload()
+    }
+
+    if (route === 'operational-settings/profiles' && method === 'POST') {
+      return operationalTransaction(body?.expectedRevision, (draft) => {
+        const supplied = body?.profile ?? {}
+        const id = String(supplied.id ?? '').trim()
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(id)) throw new VaultError('运营档案 id 不合法', 'bad_field')
+        if (draft.profiles.some((profile) => profile.id === id)) throw new VaultError('运营档案已存在：' + id, 'duplicate')
+        const base = createDefaultOperationalSettings(DEFAULT_CARDS).profiles[0]
+        const profile = body?.replace === true
+          ? { ...supplied, id }
+          : {
+            ...base,
+            id,
+            name: supplied.name,
+            description: supplied.description ?? '',
+            goals: supplied.goals ?? [],
+            content: supplied.content ?? base.content,
+            audience: supplied.audience ?? base.audience,
+            platforms: supplied.platforms ?? [],
+            accounts: supplied.accounts ?? [],
+          }
+        draft.profiles.push(profile)
+        if (body?.activate === true) draft.activeProfileId = id
+        return { createdProfile: profile }
+      })
+    }
+
+    if (route === 'operational-settings/active-profile' && method === 'PUT') {
+      return operationalTransaction(body?.expectedRevision, (draft) => {
+        const id = String(body?.profileId ?? '')
+        const profile = draft.profiles.find((entry) => entry.id === id)
+        if (profile === undefined) throw new VaultError('找不到运营档案：' + id, 'not_found')
+        draft.activeProfileId = id
+        return { activeProfile: profile }
+      })
+    }
+
+    if (route.startsWith('operational-settings/profiles/') && route.endsWith('/rules') && method === 'PUT') {
+      const id = operationalRouteId(route, '/rules')
+      return operationalTransaction(body?.expectedRevision, (draft) => {
+        const profile = draft.profiles.find((entry) => entry.id === id)
+        if (profile === undefined) throw new VaultError('找不到运营档案：' + id, 'not_found')
+        const next = body?.rules ?? {}
+        for (const key of ['workflow', 'automation', 'publishGates', 'observationCheckpoints', 'aiContext', 'reminders', 'successBenchmarks']) profile[key] = next[key]
+        return { profile }
+      })
+    }
+
+    if (route.startsWith('operational-settings/profiles/') && route.endsWith('/workspaces') && method === 'PUT') {
+      const id = operationalRouteId(route, '/workspaces')
+      return operationalTransaction(body?.expectedRevision, (draft) => {
+        const profile = draft.profiles.find((entry) => entry.id === id)
+        if (profile === undefined) throw new VaultError('找不到运营档案：' + id, 'not_found')
+        profile.cardLayout = body?.cardLayout
+        return { profile }
+      })
+    }
+
+    if (route.startsWith('operational-settings/profiles/') && !route.slice('operational-settings/profiles/'.length).includes('/')) {
+      const id = operationalRouteId(route)
+      if (method === 'PUT') {
+        return operationalTransaction(body?.expectedRevision, (draft) => {
+          const index = draft.profiles.findIndex((entry) => entry.id === id)
+          if (index < 0) throw new VaultError('找不到运营档案：' + id, 'not_found')
+          if (body?.profile?.id !== undefined && body.profile.id !== id) throw new VaultError('运营档案 id 不能修改', 'bad_field')
+          const current = draft.profiles[index]
+          const next = body?.profile ?? {}
+          if (body?.replace === true) {
+            draft.profiles[index] = { ...next, id }
+          } else {
+            draft.profiles[index] = {
+              ...current,
+              name: next.name,
+              description: next.description,
+              goals: next.goals,
+              content: next.content,
+              audience: next.audience,
+              platforms: next.platforms,
+              accounts: next.accounts,
+            }
+          }
+          return { profile: draft.profiles[index] }
+        })
+      }
+      if (method === 'DELETE') {
+        return operationalTransaction(body?.expectedRevision, (draft) => {
+          const index = draft.profiles.findIndex((entry) => entry.id === id)
+          if (index < 0) throw new VaultError('找不到运营档案：' + id, 'not_found')
+          if (draft.profiles.length === 1) throw new VaultError('至少保留一个运营档案', 'bad_request')
+          if (draft.activeProfileId === id) throw new VaultError('请先切换运营档案，再删除当前档案', 'bad_request')
+          draft.profiles.splice(index, 1)
+          return { deletedProfileId: id }
+        })
       }
     }
 
@@ -1954,16 +2290,13 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
 
     if (route === 'cards' && method === 'PUT') {
-      return queueCommit('cards', async () => {
-        let nextCards = cards
-        if (Array.isArray(body?.cards)) {
-          const requested = new Map(body.cards.map((entry) => [String(entry?.id ?? ''), entry.enabled !== false]))
-          nextCards = cards.map((card) => requested.has(card.id) ? { ...card, enabled: requested.get(card.id) } : { ...card })
-          await saveCards(nextCards)
-          cards = nextCards
-        }
-        return { cards }
-      })
+      if (!Array.isArray(body?.cards)) return { cards }
+      return operationalTransaction(body?.expectedRevision, (draft) => {
+        const requested = new Map(body.cards.map((entry) => [String(entry?.id ?? ''), entry.enabled !== false]))
+        const profile = draft.profiles.find((entry) => entry.id === draft.activeProfileId)
+        profile.cardLayout = profile.cardLayout.map((entry) => requested.has(entry.id) ? { ...entry, visible: requested.get(entry.id) } : entry)
+        return {}
+      }, { optionalRevision: true })
     }
 
     if (route === 'overview' && method === 'GET') return { summary: await summary() }
@@ -2111,7 +2444,19 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       const variant = await domain.getVariant(v2[1])
       if (!['已发', '待回填', '已结案'].includes(variant.status)) throw new VaultError('只有已经发布的版本才能回填数据', 'bad_request')
       if (String(variant.front?.publishedAt ?? '').trim() === '') throw new VaultError('这个版本没有实际发布时间，不能回填发布后数据；请先在版本或日历中确认发布', 'bad_request')
-      return { metric: await domain.appendMetric({ ...body, variantId: variant.id, masterId: variant.front?.masterId, platform: variant.front?.platform, account: variant.front?.account, dataDir: dirOf('dataDir') }) }
+      const metric = await domain.appendMetric({ ...body, variantId: variant.id, masterId: variant.front?.masterId, platform: variant.front?.platform, account: variant.front?.account, dataDir: dirOf('dataDir') })
+      const profile = activeOperationalProfile()
+      const benchmark = profile === null ? null : await evaluateOperationalBenchmarks(profile, variant, metric.entry)
+      const observationPlan = profile === null ? [] : buildObservationPlan(profile, variant.front.publishedAt)
+      return {
+        metric,
+        operational: profile === null ? null : {
+          profileId: profile.id,
+          benchmark,
+          observationPlan,
+          reminders: inAppReminders(profile, observationPlan),
+        },
+      }
     }
     if (v2[0] === 'variants' && v2.length === 3 && v2[2] === 'close-review' && method === 'POST') {
       const variant = await domain.getVariant(v2[1])
