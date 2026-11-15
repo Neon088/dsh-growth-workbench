@@ -24,7 +24,9 @@ const END = '    /* @generated lib/platforms.js end */'
 const BODY_FROM = '/** 规范平台名'
 
 function sharedBlock() {
-  const source = readFileSync(SOURCE, 'utf8')
+  // 统一按 LF 拼接：Windows 上 checkout 出来的文件可能是 CRLF，
+  // 而 lib/platforms.js 可能是 LF（或反过来），不归一的话 CI 上会永远「不一致」。
+  const source = readFileSync(SOURCE, 'utf8').replace(/\r\n/g, '\n')
   const from = source.indexOf(BODY_FROM)
   if (from < 0) throw new Error('lib/platforms.js 找不到「' + BODY_FROM + '」开头的表，生成中止')
   const body = source.slice(from).replace(/\n?export \{[\s\S]*?\}\s*$/, '\n')
@@ -37,28 +39,30 @@ function sharedBlock() {
 }
 
 const current = readFileSync(CLIENT, 'utf8')
-const startAt = current.indexOf(START)
-const endAt = current.indexOf(END)
+const eol = current.includes('\r\n') ? '\r\n' : '\n'
+const currentLf = current.replace(/\r\n/g, '\n')
+const startAt = currentLf.indexOf(START)
+const endAt = currentLf.indexOf(END)
 if (startAt < 0 || endAt < 0 || endAt < startAt) {
   throw new Error('client.js 里找不到 @generated 标记块，先手工补上 start/end 两行标记')
 }
 const block = sharedBlock()
-const next = current.slice(0, startAt) + block + current.slice(endAt + END.length)
+const next = currentLf.slice(0, startAt) + block + currentLf.slice(endAt + END.length)
 
 if (process.argv.includes('--check')) {
-  if (next === current) {
+  if (next === currentLf) {
     console.log('client.js 的平台表与 lib/platforms.js 一致')
     process.exit(0)
   }
   // 只报第一处差异，够定位了；整段打印太长。
   let at = 0
-  while (at < next.length && next[at] === current[at]) at += 1
-  const line = current.slice(0, at).split('\n').length
-  const near = current.slice(at, at + 80).split('\n')[0]
+  while (at < next.length && next[at] === currentLf[at]) at += 1
+  const line = currentLf.slice(0, at).split('\n').length
+  const near = currentLf.slice(at, at + 80).split('\n')[0]
   console.error('client.js 的平台表和 lib/platforms.js 不一致（客户端第 ' + line + ' 行附近：' + JSON.stringify(near) + '）')
   console.error('改的是 lib/platforms.js 的话，跑一次 npm run build:client 重新生成。')
   process.exit(1)
 }
 
-writeFileSync(CLIENT, next, 'utf8')
+writeFileSync(CLIENT, next.replace(/\n/g, eol), 'utf8')
 console.log('client.js 的平台表已从 lib/platforms.js 重新生成')
