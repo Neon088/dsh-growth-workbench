@@ -1,0 +1,34 @@
+# 每次 push / PR 跑一遍离线验证。
+#
+# 这个仓库没有运行时依赖（package.json 里没有 dependencies），所以不需要 npm ci，
+# setup-node 之后直接跑 verify 就行。测试全部在临时目录里跑，不碰真实 vault，
+# 也不需要 DSH 正在运行。
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # 插件本身只针对 Windows 验证过（路径、安装脚本、标题栏都按 Windows 写的），
+    # 所以 Windows runner 才是有效信号；ubuntu 上跑绿了不代表用户那边能用。
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: verify
+        run: npm run verify
+      - name: packaging sanity
+        run: npm pack --dry-run

@@ -9,7 +9,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join, relative, sep, isAbsolute, resolve, parse as parsePath, dirname } from 'node:path'
 import { readFile, writeFile, mkdir, rename, readdir, stat } from 'node:fs/promises'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, renameSync, rmSync, watch } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, renameSync, rmSync, watch, writeFileSync } from 'node:fs'
 import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
@@ -60,7 +60,7 @@ const STATUS_BY_CODE = new Map([
   ['bad_request', 400], ['bad_path', 400], ['bad_json', 400], ['bad_field', 400],
   ['bad_frontmatter', 400], ['invalid_table', 400], ['duplicate', 409], ['conflict', 409],
   ['exists', 409], ['not_found', 404], ['read_failed', 500], ['write_failed', 500],
-  ['backup_failed', 500], ['list_failed', 500], ['stat_failed', 500],
+  ['backup_failed', 500], ['list_failed', 500], ['stat_failed', 500], ['busy', 409],
 ])
 
 const OPEN_HOSTS = new Set([
@@ -296,10 +296,42 @@ export const inject = ['webServer']
  * DSH 的 GUI 有登录态，插件的路由却挂在它外面（同端口、不同路径），
  * 任何网页都能对 http://127.0.0.1:<port>/api/dsh-growth/... 发请求 ——
  * 旧版连 token 都不要，等于把「读写 vault」开给了互联网。
- * 现在：浏览器请求必须带这个进程级 token（先从 /token 领，跨站拿不到），
- * 跨站请求直接 403；没有 sec-fetch 头的本机命令行/脚本照旧放行。
+ * 现在：所有 API 请求都必须带这个进程级 token —— 浏览器页面从 /token 领
+ * （只发给同源调用方，跨站拿不到），本机脚本从 <dataDir>/session-token 读
+ * （0600，只有当前用户能读）；跨站请求直接 403。
+ * 「没有 sec-fetch-site 头就整体放行」那条后门已经删掉：curl 和任何本机进程
+ * 一样要带票，否则等于没设门槛。
+ *
+ * 事件流（EventSource 加不了自定义头）另给一张一次性 ticket：
+ * POST 不了就 GET /events-ticket 换票，60 秒内有效、用一次即作废，
+ * token 不再出现在 URL 和访问日志里。
  */
 const AUTH_TOKEN = randomBytes(24).toString('hex')
+const EVENT_TICKET_TTL_MS = 60_000
+const EVENT_TICKET_MAX = 64
+const eventTickets = new Map()
+
+function pruneEventTickets(now) {
+  for (const [ticket, expiresAt] of eventTickets) if (expiresAt <= now) eventTickets.delete(ticket)
+}
+
+function issueEventTicket() {
+  const now = Date.now()
+  pruneEventTickets(now)
+  while (eventTickets.size >= EVENT_TICKET_MAX) eventTickets.delete(eventTickets.keys().next().value)
+  const ticket = randomBytes(18).toString('hex')
+  eventTickets.set(ticket, now + EVENT_TICKET_TTL_MS)
+  return ticket
+}
+
+/** 单次使用：取走就删，过期也算无效 —— 票泄漏了也只能换到一次连接。 */
+function consumeEventTicket(ticket) {
+  if (typeof ticket !== 'string' || ticket === '') return false
+  const expiresAt = eventTickets.get(ticket)
+  if (expiresAt === undefined) return false
+  eventTickets.delete(ticket)
+  return expiresAt > Date.now()
+}
 
 /**
  * 刻意不导出 Config。
@@ -3454,6 +3486,8 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     const beat = setInterval(() => {
       try { res.write(': ping\n\n') } catch { /* 连接已断 */ }
     }, 25000)
+    // 心跳不该把进程钉住：连接活着时它照常发，进程要退出时它不拦着。
+    if (typeof beat.unref === 'function') beat.unref()
     const done = () => {
       changeListeners.delete(entry)
       if (entry.timer !== null) clearTimeout(entry.timer)
@@ -3474,10 +3508,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return
     }
     const route = url.pathname.slice(API_PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '')
-    // ── 门槛：只有带着 token 的页面请求才放行 ──
+    // ── 门槛：所有路由都要凭证，只有 /token 自己例外 ──
     // sec-fetch-site 是浏览器自己加的、网页改不了：cross-site 一律拒。
     // 同一页面里的 fetch 会带 same-origin，它可以到 /token 领票；
-    // 没有这个头的调用方（curl、测试脚本、本机命令行）不是被网页驱动的，照旧放行。
+    // 没有这个头的调用方（curl、测试脚本、本机命令行）不再被整体放行 ——
+    // 它们读 <dataDir>/session-token（0600）带 x-dsh-growth-token 头。
     const site = String(req.headers?.['sec-fetch-site'] ?? '')
     if (site === 'cross-site') {
       res.statusCode = 403
@@ -3494,16 +3529,24 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       res.end(JSON.stringify({ ok: true, token: AUTH_TOKEN }))
       return
     }
-    // EventSource 加不了自定义头，所以长连接这一条额外允许 ?token= 带票（仍然只对本机 loopback 开放）。
-    const queryToken = route === 'v2/events' ? String(url.searchParams.get('token') ?? '') : ''
-    if (site !== '' && String(req.headers?.['x-dsh-growth-token'] ?? '') !== AUTH_TOKEN && queryToken !== AUTH_TOKEN) {
+    // 事件流：EventSource 带不了头，用一次性 ticket 换连接（token 不进 URL）。
+    if (route === 'v2/events') {
+      if (!consumeEventTicket(String(url.searchParams.get('ticket') ?? ''))) {
+        res.statusCode = 401
+        res.end(JSON.stringify({ ok: false, code: 'unauthorized', message: '实时通道的票无效、已用或过期，刷新一下工作台页面' }))
+        return
+      }
+      await serveEvents(req, res, url)
+      return
+    }
+    if (String(req.headers?.['x-dsh-growth-token'] ?? '') !== AUTH_TOKEN) {
       res.statusCode = 401
       res.end(JSON.stringify({ ok: false, code: 'unauthorized', message: '缺少访问凭证，刷新一下工作台页面' }))
       return
     }
-    // 事件流不是 JSON，也不走 handle()：单独在协议层吐 text/event-stream。
-    if (route === 'v2/events') {
-      await serveEvents(req, res, url)
+    if (route === 'events-ticket') {
+      res.statusCode = 200
+      res.end(JSON.stringify({ ok: true, ticket: issueEventTicket(), ttlMs: EVENT_TICKET_TTL_MS }))
       return
     }
     try {
@@ -3522,6 +3565,12 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
   }
 
   ctx.effect(() => {
+    // 本机脚本要能带着凭证调接口：把进程级 token 落到 <dataDir>/session-token。
+    // 0600：只有当前用户可读；页面仍然走 /token 领，不读这个文件。
+    try {
+      mkdirSync(dataDir(), { recursive: true })
+      writeFileSync(join(dataDir(), 'session-token'), AUTH_TOKEN + '\n', { mode: 0o600 })
+    } catch { /* 落盘失败只影响命令行脚本，页面照旧能领票 */ }
     const dispose = ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler })
     return () => {
       if (typeof dispose === 'function') dispose()

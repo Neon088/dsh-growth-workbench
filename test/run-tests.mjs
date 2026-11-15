@@ -12,6 +12,7 @@ const suites = [
   'test/lib.test.js',
   'test/checklist.test.mjs',
   'test/data-safety.test.js',
+  'test/vault-lock.test.mjs',
   'test/rules.test.js',
   'test/security.test.mjs',
   'test/static.test.mjs',

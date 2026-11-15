@@ -13,6 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
+import { authHeaders } from './_auth-token.mjs'
 const plugin = require('../index.js')
 const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-cal-vault-'))
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-cal-data-'))
@@ -28,7 +29,7 @@ async function request(method, url, body) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
   req.method = method
   req.url = url
-  req.headers = { host: '127.0.0.1:1234', 'content-type': 'application/json' }
+  req.headers = { host: '127.0.0.1:1234', 'content-type': 'application/json', ...authHeaders(dataDir) }
   req.socket = { remoteAddress: '127.0.0.1' }
   let payload = ''
   const res = { statusCode: 200, setHeader() {}, end(chunk) { if (chunk) payload += chunk } }

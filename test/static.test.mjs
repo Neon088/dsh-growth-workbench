@@ -4,6 +4,7 @@
 // ② 两个 CSS 变量名拼错，警告色整条丢失，界面上看不出来，只在代码里看得出。
 // ③ PUSH_PROMPTS 定义了却没人调用的指令（推出去只有裸正文）。
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -298,8 +299,11 @@ test('TDZ 守卫本身能抓住回归样例', () => {
 
 // ── ⑤ 两边手抄的表必须一致 ──
 // 客户端不能 import 服务端的模块（每个包只认一个 exports["./client"]，加载器不解析相对路径），
-// 所以状态机和平台表在 client.js 里各有一份副本。副本一定会漂移 —— 改了 lib 忘了改客户端，
+// 所以状态机在 client.js 里还有一份副本。副本一定会漂移 —— 改了 lib 忘了改客户端，
 // 界面上就会允许一个后端必然拒绝的动作。这条测试把两份钉在一起。
+//
+// 平台表不同：它是「生成」出来的（scripts/build-client.mjs），所以这里直接问生成器
+// 两边有没有漂移，而不是自己再解析一遍字面量 —— 生成器和测试用同一个判断。
 function listItemsOf(text, marker) {
   const start = text.indexOf(marker)
   assert.ok(start >= 0, '找不到 ' + marker)
@@ -335,12 +339,14 @@ test('状态机：client.js 的 VARIANT_NEXT 与 lib/domain.js 的 VARIANT_TRANS
   assert.deepEqual(client, server)
 })
 
-test('平台表：client.js 的 PLATFORMS 与 lib/platforms.js 的 PLATFORMS 一致', () => {
-  const platformSrc = fs.readFileSync(path.join(here, '..', 'lib', 'platforms.js'), 'utf8')
-  const server = listItemsOf(platformSrc, 'export const PLATFORMS = [')
-  const client = listItemsOf(src, 'const PLATFORMS = [')
-  assert.ok(server.length > 0, '服务端平台表解析为空')
-  assert.deepEqual(client, server)
+test('平台表：client.js 的内联块与 lib/platforms.js 一致（npm run check:client）', () => {
+  assert.match(src, /@generated lib\/platforms\.js start/, 'client.js 里找不到平台表的生成标记块')
+  const result = spawnSync(process.execPath, [path.join(here, '..', 'scripts', 'build-client.mjs'), '--check'], { encoding: 'utf8' })
+  assert.equal(result.status, 0, '平台表漂移了：\n' + String(result.stderr || result.stdout).trim())
+  // 生成块里必须真的带着这三样，否则客户端会在运行时缺函数。
+  for (const name of ['normalizePlatform', 'splitPlatforms', 'joinPlatforms']) {
+    assert.match(src.slice(src.indexOf('@generated lib/platforms.js start'), src.indexOf('@generated lib/platforms.js end')), new RegExp('function ' + name + '\\('), '生成块里缺 ' + name)
+  }
 })
 
 test('关卡片只有一个出口：setCardId(null) 只允许出现在 leaveCard 里', () => {

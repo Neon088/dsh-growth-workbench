@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
+import { authHeaders } from './_auth-token.mjs'
 import { createHash } from 'node:crypto'
 import { apply } from '../index.js'
 import { buildNote, splitNote, normalizeFrontPatch } from '../lib/frontmatter.js'
@@ -56,7 +57,7 @@ async function fixture(t) {
     const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
     req.method = method
     req.url = '/api/dsh-growth' + endpoint
-    req.headers = { host: '127.0.0.1:1234', 'content-type': 'application/json' }
+    req.headers = { host: '127.0.0.1:1234', 'content-type': 'application/json', ...authHeaders(path.join(root, '.plugin-data')) }
     req.socket = { remoteAddress: '127.0.0.1' }
     let payload = ''
     const res = { statusCode: 200, setHeader() {}, end(chunk) { if (chunk) payload += chunk } }

@@ -27,11 +27,17 @@ async function request(method, url, extraHeaders = {}, body) {
   req.headers = { host: '127.0.0.1:1234', 'content-type': 'application/json', ...extraHeaders }
   req.socket = { remoteAddress: '127.0.0.1' }
   let payload = ''
-  const res = { statusCode: 200, setHeader() {}, end(chunk) { if (chunk) payload += chunk } }
+  const res = {
+    statusCode: 200,
+    write(chunk) { payload += chunk },
+    setHeader() {},
+    on() {},
+    end(chunk) { if (chunk) payload += chunk },
+  }
   await handler(req, res)
   let json
-  try { json = JSON.parse(payload) } catch { json = String(payload).slice(0, 160) }
-  return { status: res.statusCode, json }
+  try { json = JSON.parse(payload.split('\n')[0]) } catch { json = String(payload).slice(0, 160) }
+  return { status: res.statusCode, json, raw: payload }
 }
 
 const base = '/api/dsh-growth'
@@ -59,9 +65,18 @@ log('/token 同源可领', r.status === 200 && typeof token === 'string' && toke
 r = await request('GET', base + '/overview', { 'sec-fetch-site': 'same-origin', 'x-dsh-growth-token': token })
 log('带 token 放行（不再 401/403）', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })
 
-// 6. 没有 sec-fetch 头的命令行调用 → 照旧放行（不破坏本地脚本）
+// 6. 没有 sec-fetch 头的命令行调用：不再整体放行，必须带票（1.0 之前那条后门已删）
 r = await request('GET', base + '/overview')
-log('无 sec-fetch 头放行（不再 401/403）', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })
+log('无 sec-fetch 头且无票 → 401', r.status === 401 && r.json.code === 'unauthorized', { status: r.status, code: r.json.code })
+
+// 6a. 本机脚本从 session-token 读票 → 放行
+const tokenFile = path.join(dataDir, 'session-token')
+const scriptToken = fs.readFileSync(tokenFile, 'utf8').trim()
+// Windows 没有 POSIX 权限位，mode 断言只在类 Unix 上做。
+const modeOk = process.platform === 'win32' || (fs.statSync(tokenFile).mode & 0o777) === 0o600
+log('session-token 落盘且与 /token 一致', scriptToken === token && modeOk, { len: scriptToken.length, mode: (fs.statSync(tokenFile).mode & 0o777).toString(8) })
+r = await request('GET', base + '/overview', { 'x-dsh-growth-token': scriptToken })
+log('带票的命令行调用放行', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })
 
 // 6b. DNS rebinding：Host 不是本机 → 403
 r = await request('GET', base + '/token', { host: 'evil.com:1234', 'sec-fetch-site': 'same-origin' })
@@ -71,24 +86,41 @@ log('Host 非本机被拒', r.status === 403 && r.json.code === 'forbidden', r)
 r = await request('GET', base + '/overview', { origin: 'http://evil.com' })
 log('Origin 非本机被拒', r.status === 403 && r.json.code === 'forbidden', r)
 
+// 6d. 实时通道：token 不再接受 query 形式
+r = await request('GET', base + '/v2/events?path=Topics/a.md&token=' + encodeURIComponent(token))
+log('events 拒绝 ?token=', r.status === 401, { status: r.status })
+
+// 6e. 换票接口本身要票
+r = await request('GET', base + '/events-ticket')
+log('换票接口无票 → 401', r.status === 401, { status: r.status })
+
+// 6f. 带票换一次性 ticket，ticket 只能连一次
+r = await request('GET', base + '/events-ticket', { 'x-dsh-growth-token': scriptToken })
+const ticket = r.json?.ticket
+log('换票成功', r.status === 200 && typeof ticket === 'string' && ticket.length === 36, { status: r.status, len: ticket?.length })
+r = await request('GET', base + '/v2/events?path=Topics/a.md&ticket=' + encodeURIComponent(ticket))
+log('ticket 建立事件流', r.status === 200 && /: connected/.test(r.raw), { status: r.status, head: r.raw.slice(0, 24) })
+r = await request('GET', base + '/v2/events?path=Topics/a.md&ticket=' + encodeURIComponent(ticket))
+log('同一张 ticket 不能复用', r.status === 401, { status: r.status })
+
 // 7. vaultRoot 填盘符根 → 拒绝
-r = await request('PUT', base + '/config', {}, { vaultRoot: 'C:\\' })
+r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: 'C:\\' })
 log('盘符根被拒', r.status === 400 && /磁盘/.test(r.json.message), { status: r.status, message: r.json.message })
 
 // 8. vaultRoot 填系统目录 → 拒绝
-r = await request('PUT', base + '/config', {}, { vaultRoot: 'C:\\Windows' })
+r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: 'C:\\Windows' })
 log('系统目录被拒', r.status === 400, { status: r.status, message: r.json.message })
 
 // 9. vaultRoot 不存在 → 拒绝
-r = await request('PUT', base + '/config', {}, { vaultRoot: 'C:\\no-such-dir-growth-probe' })
+r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: 'C:\\no-such-dir-growth-probe' })
 log('不存在的目录被拒', r.status === 400 && /不存在/.test(r.json.message), { status: r.status, message: r.json.message })
 
 // 10. vaultRoot 相对路径 → 拒绝
-r = await request('PUT', base + '/config', {}, { vaultRoot: 'Obsidian' })
+r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: 'Obsidian' })
 log('相对路径被拒', r.status === 400 && /绝对路径/.test(r.json.message), { status: r.status, message: r.json.message })
 
 // 11. 正常目录 → 通过
-r = await request('PUT', base + '/config', {}, { vaultRoot: vault })
+r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: vault })
 log('正常目录通过', r.status === 200 && r.json.saved === true, { status: r.status, saved: r.json.saved })
 
 console.log(out.join('\n'))

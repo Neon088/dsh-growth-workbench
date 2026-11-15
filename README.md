@@ -83,7 +83,7 @@ DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回
 
 - Windows（其他系统尚未完整验证）
 - Node.js `22.19+` 或 `24+`
-- DeepSeek Harness `0.2.0-rc.1+`
+- DeepSeek Harness `0.2.0-rc.1` ~ `0.2.x`（`package.json` 的 `engines.dsh` 写明 `<0.3.0-0`；0.3 的宿主 API 还没对过，不对上不放开）
 - 一个可读写的 Obsidian vault
 
 ## 安装
@@ -191,8 +191,16 @@ node rollback.mjs --confirm
 - 写入过程中使用临时文件替换，避免留下不完整文件。
 - 拒绝绝对路径、父目录跳转（`..`）和指向 vault 外部的链接路径；只处理 `.md` 和 `.csv`。
 - 事件推送只发送文件指纹，不发送正文内容，客户端收到后自行重读。
+- 同一时刻只允许一个 dsh 进程写：写之前先按文件路径在 `%TEMP%\dsh-growth-locks` 抢一把锁文件，抢不到就等（最多 15 秒，超时明确报「另一个 dsh 进程正在写」）。持锁进程被杀留下的锁，20 秒无心跳即视为残留并被接管，不会把文件永久锁死。这把锁只在同一台机器上有效。
+- 跨多个文件的改动按「补偿」处理，不假装是事务：比如日历改期先写新行、再删旧行，第二步失败会保留已成功的一半并明确报「部分成功」，而不是把两处都抹成未知状态。
 
 这些保护用于降低误写风险，不能替代 vault 自身的版本控制或定期备份。Markdown 表格也不适合多人同时编辑同一份数据。
+
+### 本机 API 凭据
+
+插件启动时生成一个随机 token，只对 `127.0.0.1` 上的请求有效，并写入 `~/.dsh-growth/session-token`（本机脚本可以读它来调用 API）。界面的实时事件流不把 token 拼进 URL（URL 会进日志和浏览器历史），而是先用一次请求换一张 60 秒内有效、只能用一次的票。
+
+跨站请求（`sec-fetch-site: cross-site`）一律拒绝；不带任何 `sec-fetch-site` 头的本机脚本必须带 `x-dsh-growth-token` 头。
 
 ## 旧数据迁移
 
@@ -220,6 +228,15 @@ npm run verify
 
 隔离测试使用临时目录，不会读写真实 vault。
 
+`client.js` 是宿主加载的单个模块，不能 `import` 服务端的 `lib/`，所以平台名归一那张表是**生成**进去的：`lib/platforms.js` 是唯一事实源，客户端里的标记块由脚本写入。
+
+```powershell
+npm run build:client   # 改完 lib/platforms.js 后重新生成 client.js 里的内联块
+npm run check:client   # 只比对是否漂移（npm run verify 里会跑）
+```
+
+改动 `lib/platforms.js` 后忘了重新生成，`check:client` 会失败并指出客户端第几行对不上。
+
 浏览器界面测试需要本机已有 React、Playwright 和 Chrome：
 
 ```powershell
@@ -235,7 +252,9 @@ npm run test:browser
 | `index.js` | DSH 入口、HTTP API、配置和业务编排 |
 | `client.js` | 侧边栏界面与交互 |
 | `lib/domain.js` | 平台版本、发布、指标和观察周期规则 |
-| `lib/vault.js` | 路径限制、冲突检查、备份和文件写入 |
+| `lib/vault.js` | 路径限制、冲突检查、备份、文件写入与跨进程写锁 |
+| `lib/platforms.js` | 平台名归一（客户端的内联块由脚本从这里生成） |
+| `scripts/build-client.mjs` | 把 `lib/platforms.js` 内联进 `client.js`（`--check` 只比对） |
 | `lib/table.js` | Markdown 表格读写 |
 | `lib/frontmatter.js` | frontmatter 读写 |
 | `lib/migrate.js` | 旧数据迁移 |

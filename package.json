@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node test/run-tests.mjs",
     "test:browser": "node test/browser-safety.test.mjs",
-    "verify": "node --check client.js && node --check index.js && node test/no-undefined-refs.mjs client.js index.js lib && node test/run-tests.mjs"
+    "build:client": "node scripts/build-client.mjs",
+    "check:client": "node scripts/build-client.mjs --check",
+    "verify": "node --check client.js && node --check index.js && node scripts/build-client.mjs --check && node test/no-undefined-refs.mjs client.js index.js lib && node test/run-tests.mjs"
   },
   "exports": {
     ".": "./index.js",
@@ -58,6 +60,6 @@
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": ">=0.2.0-rc.1"
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
   }
 }
