@@ -1,5 +1,9 @@
 # DSH Growth Workbench
 
+[![verify](https://github.com/Neon088/dsh-growth-workbench/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/Neon088/dsh-growth-workbench/actions/workflows/verify.yml)
+[![release](https://img.shields.io/github/v/release/Neon088/dsh-growth-workbench?label=release)](https://github.com/Neon088/dsh-growth-workbench/releases/latest)
+[![license](https://img.shields.io/github/license/Neon088/dsh-growth-workbench)](LICENSE)
+
 DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回填和复盘集中在一个侧边栏里，业务数据直接保存在你自己的 Obsidian vault 中。
 
 当前版本 `0.2.0`，仍在快速迭代。项目面向个人创作者和小型内容运营团队，**目前只支持 DSH**，不是 Codex、Claude Code 等通用 Agent 插件。
@@ -184,6 +188,8 @@ git pull
 node install.mjs --confirm
 ```
 
+装完**必须重启 DSH**：插件是在启动时注册服务端路由的，`index.js` 的改动不会热重载。只改了 `client.js` 的话，刷新工作台页面即可。
+
 需要撤回插件注册时，先预览回滚计划，再确认执行：
 
 ```powershell
@@ -244,7 +250,9 @@ npm run build:client   # 改完 lib/platforms.js 后重新生成 client.js 里�
 npm run check:client   # 只比对是否漂移（npm run verify 里会跑）
 ```
 
-改动 `lib/platforms.js` 后忘了重新生成，`check:client` 会失败并指出客户端第几行对不上。
+改动 `lib/platforms.js` 后忘了重新生成，`check:client` 会失败并指出客户端第几行对不上。生成和比对都会先把行尾统一成 LF，所以 Windows 上 CRLF 的 `client.js` 不会被误报成漂移。
+
+CI 在 GitHub Actions 上用同一套 `npm run verify` 跑（`windows-latest`，Node 22 和 24 各一遍），再加一次 `npm pack --dry-run` 确认发布包里该有的文件都在。把 profile 里的插件目录做成指向本仓库的 junction 时，改源码就是改线上加载的代码：`client.js` 会热重载，`index.js` 改完要重启 DSH。
 
 浏览器界面测试需要本机已有 React、Playwright 和 Chrome：
 
@@ -272,11 +280,15 @@ npm run test:browser
 | `lib/agent-tool.js` | `growth_vault` Agent 工具 |
 | `lib/profile-maintenance.js` | 安装与回滚（`install.mjs` / `rollback.mjs` 的实际实现） |
 | `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 安装、卸载、双击救急 |
+| `assets/icon-512.png` | 市场图标（512×512，由 `icon.svg` 渲染） |
+| `screenshots.json`、`docs/images/` | 市场截图清单与截图文件 |
+| `.github/workflows/verify.yml` | CI：`windows-latest` 上 Node 22 / 24 各跑一遍 `npm run verify` |
 | `test/` | 离线测试与浏览器界面测试 |
 
 ## 已知限制
 
 - 仅针对 DeepSeek Harness 开发。
+- 单机单人：没有账号体系，也没有多设备同步，跨机器只能靠你自己的 Git、网盘或 Obsidian 同步服务。
 - 目前主要在 Windows 上测试。
 - 项目仍在快速迭代，更新前请查看提交记录并保留备份。
 - 浏览器隔离测试不能代替 DSH 内的实际使用验收。
