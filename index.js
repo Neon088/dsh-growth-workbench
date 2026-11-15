@@ -24,6 +24,7 @@ import { parseChecklist, checklistState, CHECKLIST_TITLE_HINTS } from './lib/che
 import { createDomainStore, VARIANT_STATUSES, VARIANT_TRANSITIONS, normalizeVariantStatus } from './lib/domain.js'
 import { buildObservationPlan, canonicalOperationalSettings, createDefaultOperationalSettings, evaluatePublishGate, evaluateSuccessBenchmarks, materializeCards, migrateOperationalSettings, OperationalSettingsError } from './lib/operational-settings.js'
 import { createMigrator } from './lib/migrate.js'
+import { fetchLatestRelease, interpretRelease } from './lib/updates.js'
 
 const API_PREFIX = '/api/dsh-growth'
 const MAX_BODY_BYTES = 1024 * 1024
@@ -38,6 +39,35 @@ const PKG_VERSION = (() => {
     return ''
   }
 })()
+
+// 「检查更新」只读：问 GitHub 要 latest Release，和 PKG_VERSION 比一下。
+// 缓存 10 分钟 —— 设置页可能被反复点，别把 GitHub 的匿名配额（60 次/小时）点光。
+const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
+const UPDATE_CACHE_MS = 10 * 60_000
+let updateCache = { at: 0, value: null }
+
+/**
+ * 安装方式只影响「怎么更新」这句提示，不影响检查本身：
+ * .git 在插件目录里 = 源码 clone（或 junction 到 clone），git pull 就行；
+ * 否则是市场装进 node_modules 的副本，要回市场重装。
+ */
+async function updateState(force) {
+  const now = Date.now()
+  if (!force && updateCache.value !== null && now - updateCache.at < UPDATE_CACHE_MS) return updateCache.value
+  const checkedAt = new Date().toISOString()
+  let value
+  try {
+    value = interpretRelease({ current: PKG_VERSION, release: await fetchLatestRelease(), checkedAt })
+  } catch (error) {
+    // 连不上 GitHub 不算错误状态：当前版本照样显示，只把原因写进 error。
+    value = interpretRelease({ current: PKG_VERSION, release: null, checkedAt })
+    value.error = describe(error)
+  }
+  value.installKind = existsSync(join(PLUGIN_DIR, '.git')) ? 'git' : 'copy'
+  value.repo = 'Neon088/dsh-growth-workbench'
+  updateCache = { at: Date.now(), value }
+  return value
+}
 
 const DEFAULT_CARDS = [
   { id: 'accounts', workspace: 'ops', title: '账号档案', icon: '👤', enabled: true },
@@ -2111,6 +2141,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? await readJsonBody(req) : {}
 
     if (route === '' || route === 'ping') return { ping: true, version: PKG_VERSION }
+
+    // 检查更新：只读。不下载、不解压、不覆盖任何文件 —— 更新动作留给用户。
+    if (route === 'update-check' && method === 'GET') return await updateState(q('force') === '1')
 
     // 浏览器半边的诊断落点。面板跑在别人的页面里，控制台不是随时都能看，
     // 所以让它把自己的探测结果写进本机文件：重启一次就能看清是哪一层没接上。

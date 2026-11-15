@@ -169,6 +169,9 @@ function inBrowser(fixture) {
     if (path === '/client-log') return { ok: true }
     if (path === '/state') return { ok: true, configured: true, config: { vaultRoot: 'D:\\IsolatedNotes', sopDir: 'SOP' }, dataDir: 'isolated-test-only', cards: fixture.cards }
     if (path === '/health') return { ok: true, version: '0.2.0-test', configured: true, vaultReadable: true, vaultMessage: '测试 vault 可读取', watcher: 'active', elapsedMs: 3 }
+    if (path === '/ping') return { ok: true, ping: true, version: '0.2.1-test' }
+    if (path === '/update-check') return { ok: true, current: '0.2.1-test', latest: '0.2.2-test', behind: true, url: 'https://example.invalid/releases/tag/v0.2.2', publishedAt: '2026-11-16T02:00:00Z', checkedAt: new Date().toISOString(), notes: '隔离测试发布说明\n\n- 第二条', installKind: 'git', repo: 'isolated/repo', error: '' }
+    if (path === '/open-url' && method === 'POST') return { ok: true, opened: true }
     if (path === '/cards' && method === 'PUT') { fixture.cards = body.cards.map((item) => ({ ...fixture.cards.find((card) => card.id === item.id), ...item })); return { ok: true, cards: copy(fixture.cards) } }
     if (path === '/config' && method === 'PUT') return { ok: true, configured: true, config: { vaultRoot: body.vaultRoot, sopDir: body.sopDir || 'SOP' }, cards: copy(fixture.cards) }
     if (path === '/overview') return { ok: true, summary: { sopNotes:0, contentDataCount:0, contentDataLatest:'', topics:fixture.topics.length, topicsDoing:1, topicsScripted:0, campaignsActive:0, campaignsTotal:fixture.campaigns.length, productsMine:0, productsRival:fixture.products.length, dataLatest:fixture.month, dataCount:fixture.data.length, ideasNew:0, ideasTotal:0, accountsTotal:fixture.accounts.length, glossary:0, feedbackNegativeOpen:0, feedbackTotal:0, pendingCount:fixture.pendingItems.length, calendarMonth:fixture.month, calendarPending:fixture.calendarEntries.filter((entry) => entry.status === '待发').length, calendarTotal:fixture.calendarEntries.length, ruleCounts:{hard:0,soft:0,watch:0} } }
@@ -430,7 +433,7 @@ try {
   if (!calendarOnly && !previewDiag) {
   await check('真实 React 挂载首页；Esc 不调用空 onClose', async () => {
     const page = await newPage()
-    await page.getByText('账号档案', { exact: true }).waitFor()
+    await page.getByRole('tab', { name: '账号档案', exact: true }).waitFor()
     await page.keyboard.press('Escape')
     const initialTab = page.getByRole('tab', { name: '运营', exact: true })
     await initialTab.focus()
@@ -446,14 +449,24 @@ try {
     await page.keyboard.press('Home')
     await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'tab' && document.activeElement?.textContent.trim() === '运营')
     assert.equal(await page.getByRole('tab', { name: '运营', exact: true }).getAttribute('aria-selected'), 'true')
-    assert.equal(await page.locator('[role="tab"][tabindex="0"]').count(), 1)
+    assert.equal(await page.locator('.dsh-gw-tablist [role="tab"][tabindex="0"]').count(), 1)
     assert.equal(await page.locator('[role="tabpanel"]').getAttribute('aria-labelledby'), await initialTab.getAttribute('id'))
     await page.getByRole('button', { name: '设置', exact: true }).click()
-    await page.getByText('维护与诊断', { exact: true }).click()
+    await page.getByRole('button', { name: '维护', exact: true }).click()
     await page.getByText('连接体检', { exact: true }).waitFor()
     await page.getByRole('button', { name: '检查连接', exact: true }).click()
     await page.getByText('测试 vault 可读取', { exact: true }).waitFor()
     assert.equal(await page.getByText('此检查不会写入 vault', { exact: true }).count(), 1)
+    // 版本页：只读检查。必须显示当前版本，并且明确说出「有新版」和怎么更新。
+    await page.getByText('版本', { exact: true }).click()
+    await page.getByText('当前版本', { exact: true }).waitFor()
+    assert.equal(await page.getByText('v0.2.1-test', { exact: true }).count(), 1, '当前版本要来自 /ping，不能写死')
+    await page.getByRole('button', { name: '检查更新', exact: true }).waitFor()
+    await page.getByText('有新版', { exact: true }).waitFor()
+    assert.equal(await page.getByText('v0.2.2-test', { exact: true }).count(), 1)
+    assert.equal((await page.getByText(/git pull --ff-only/).count()) >= 1, true, '要写清楚更新方式')
+    await page.screenshot({ path: join(runDir, 'settings-update-600.png') })
+    await page.getByRole('button', { name: '维护', exact: true }).click()
     const firstCardToggle = page.locator('.dsh-gw-card-toggle input[type="checkbox"]').first()
     const checkedBefore = await firstCardToggle.isChecked()
     await page.evaluate(() => window.__fixture.queue({ path: '/cards', method: 'PUT', error: '设置保存失败' }))
@@ -563,7 +576,7 @@ try {
   }
   await check('第二批：账号摘要 / 单类目术语 / 方案平台多选与信息顺序', async () => {
     let page = await newPage()
-    await page.getByText('账号档案', { exact: true }).waitFor()
+    await page.getByRole('tab', { name: '账号档案', exact: true }).waitFor()
     const home = await page.evaluate(() => {
       const row = Array.from(document.querySelectorAll('.dsh-gw-row')).find((node) => node.querySelector('.dsh-gw-row-title')?.textContent.trim() === '账号档案')
       return row ? { meta: row.querySelector('.dsh-gw-row-meta')?.textContent.trim() ?? '', height: row.getBoundingClientRect().height } : null
@@ -1096,7 +1109,7 @@ try {
           assert(Math.abs(audit.frameWidth - width) <= 2.1, label + ': requested panel width was not applied')
         }
         let page = await newPage(undefined, options)
-        await page.getByText('账号档案', { exact: true }).waitFor()
+        await page.getByRole('tab', { name: '账号档案', exact: true }).waitFor()
         evidence.pages.home = await page.evaluate(layoutAudit); verifyBounds(evidence.pages.home, 'home')
         await page.screenshot({ path: join(runDir, 'ui-' + width + '-' + theme + '-home.png') }); await page.close()
 

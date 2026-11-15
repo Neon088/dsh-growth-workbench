@@ -6,7 +6,7 @@
 
 DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回填和复盘集中在一个侧边栏里，业务数据直接保存在你自己的 Obsidian vault 中。
 
-当前版本 `0.2.1`，仍在快速迭代。项目面向个人创作者和小型内容运营团队，**目前只支持 DSH**，不是 Codex、Claude Code 等通用 Agent 插件。
+当前版本 `0.2.2`，仍在快速迭代。项目面向个人创作者和小型内容运营团队，**目前只支持 DSH**，不是 Codex、Claude Code 等通用 Agent 插件。
 
 ---
 
@@ -181,7 +181,7 @@ node install.mjs --apply --expected-plan <上一步输出的指纹>
 
 ## 更新与回滚
 
-更新源码后重新运行安装脚本即可（安装是幂等的，重复跑结果一致）：
+先在工作台「设置 → 版本」里查有没有新版：它只读当前版本、问 GitHub 有没有更新的 Release，**不下载、不解压、不改任何文件**。看到「有新版」再按下面的步骤动手（安装是幂等的，重复跑结果一致）：
 
 ```powershell
 git pull
@@ -218,6 +218,11 @@ node rollback.mjs --confirm
 跨站请求（`sec-fetch-site: cross-site`）一律拒绝。领取 token 的接口只按这一条判断——桌面端页面有时不带 `sec-fetch-site`，所以不能因为「没有这个头」就拒绝它；其余接口一律要求 `x-dsh-growth-token` 头，不带任何 `sec-fetch-site` 头的本机脚本也必须带。
 
 ## 更新记录
+
+### 0.2.2
+
+- 设置页新增「版本」：显示当前版本与安装方式，查询 GitHub 最新 Release 并提示有没有新版，附发布说明和「打开发布页」。只做只读检查，不下载、不覆盖任何文件；结果缓存 10 分钟（GitHub 匿名配额 60 次/小时）。
+- 版本比较认语义化版本：`0.10.0` 比 `0.2.0` 新、预发布版排在正式版前面、认不出的 tag 不当成「没有新版」。
 
 ### 0.2.1
 
@@ -288,6 +293,7 @@ npm run test:browser
 | `lib/migrate.js` | 旧数据迁移 |
 | `lib/checklist.js` | 发布前风险自检清单 |
 | `lib/operational-settings.js` | 运营参数与设置 |
+| `lib/updates.js` | 检查 GitHub 最新 Release 与语义化版本比较 |
 | `lib/agent-tool.js` | `growth_vault` Agent 工具 |
 | `lib/profile-maintenance.js` | 安装与回滚（`install.mjs` / `rollback.mjs` 的实际实现） |
 | `install.mjs`、`rollback.mjs`、`run-rollback.bat` | 安装、卸载、双击救急 |
@@ -297,6 +303,8 @@ npm run test:browser
 | `test/` | 离线测试与浏览器界面测试 |
 
 ## 已知限制
+
+- 「检查更新」只比对 GitHub Release，不会自己下载或安装；更新要你 `git pull` 或去插件市场重装，装完重启 DSH。
 
 - 仅针对 DeepSeek Harness 开发。
 - 单机单人：没有账号体系，也没有多设备同步，跨机器只能靠你自己的 Git、网盘或 Obsidian 同步服务。

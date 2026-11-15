@@ -610,6 +610,8 @@ window.__ModuleLoader__.load({
 .dsh-gw-health-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .dsh-gw-health-row>b{flex:none;min-width:56px;font-weight:600;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-health-note{margin-top:4px;padding-top:4px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}
+/* Release 正文是多行中文，按原文换行、超长就在框里滚，别把设置页顶开。 */
+.dsh-gw-release-notes{margin-top:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-3,12.5px);line-height:1.6;white-space:pre-wrap;max-height:220px;overflow:auto}
 
 .dsh-gw-hint{display:none;margin:0;padding:0;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-2,11.5px);line-height:1.55}
 .dsh-gw-pending-row{flex-direction:column;align-items:stretch;gap:5px}
@@ -11802,8 +11804,10 @@ const STAGE_OF_STATUS = {
 
     const OP_SECTIONS = [
       ['profile', '工作档案'], ['automation', '自动化规则'], ['publish', '发布与观察'],
-      ['ai', 'AI 与目标'], ['connection', '连接'], ['maintenance', '维护'],
+      ['ai', 'AI 与目标'], ['connection', '连接'], ['maintenance', '维护'], ['update', '版本'],
     ]
+    // 打不开 GitHub 时的兜底地址：/open-url 的白名单里有 github.com，走系统浏览器。
+    const RELEASES_URL = 'https://github.com/Neon088/dsh-growth-workbench/releases'
     const OP_MODE_LABELS = { auto: '自动执行', confirm: '执行前确认', remind: '只提醒', off: '关闭' }
     const OP_ACTION_LABELS = { createDraft: '创建选题草稿', suggestCopy: '建议文案', prepareAssets: '准备素材清单', scheduleReminder: '安排提醒', collectMetrics: '收集数据' }
     const OP_AI_LABELS = { profile: '运营档案', goals: '内容目标', content: '内容方向', audience: '目标人群', 'copy-rules': '文案规则', sop: 'SOP', topic: '当前选题', product: '关联产品', 'recent-metrics': '近期数据' }
@@ -11922,6 +11926,61 @@ const STAGE_OF_STATUS = {
       const [migration, setMigration] = React.useState(null)
       const [migrationBusy, setMigrationBusy] = React.useState(false)
 
+      // 版本检查：只读。当前版本来自 /ping（服务端读 package.json），
+      // updateInfo 来自 /update-check —— 它只问 GitHub 有没有新 Release，
+      // 不下载、不解压、不覆盖任何文件。更新要用户自己 git pull 或去市场重装。
+      const [currentVersion, setCurrentVersion] = React.useState('')
+      const [updateInfo, setUpdateInfo] = React.useState(null)
+      const [updateBusy, setUpdateBusy] = React.useState(false)
+      const [updateOpening, setUpdateOpening] = React.useState(false)
+
+      React.useEffect(() => {
+        let alive = true
+        void (async () => {
+          try {
+            const result = await get('/ping')
+            if (alive && typeof result?.version === 'string') setCurrentVersion(result.version)
+          } catch {
+            // ping 拿不到不影响设置页其它部分，检查按钮会再试一次。
+          }
+        })()
+        return () => { alive = false }
+      }, [])
+
+      async function checkUpdate(force) {
+        if (updateBusy) return
+        setUpdateBusy(true)
+        setError(null)
+        try {
+          const result = await get('/update-check' + (force ? '?force=1' : ''))
+          setUpdateInfo(result ?? null)
+          if (typeof result?.current === 'string' && result.current !== '') setCurrentVersion(result.current)
+        } catch (problem) {
+          setError(problem)
+        } finally {
+          setUpdateBusy(false)
+        }
+      }
+
+      async function openRelease(url) {
+        if (updateOpening) return
+        setUpdateOpening(true)
+        setError(null)
+        try {
+          await post('/open-url', { url: String(url ?? RELEASES_URL) })
+        } catch (problem) {
+          setError(problem)
+        } finally {
+          setUpdateOpening(false)
+        }
+      }
+
+      // 打开「版本」页就自动查一次（缓存命中很快）；失败也只是显示原因，不挡路。
+      React.useEffect(() => {
+        if (section !== 'update' || updateInfo !== null) return
+        void checkUpdate(false)
+      }, [section])
+
       async function previewMigration() {
         setMigrationBusy(true)
         setError(null)
@@ -12018,7 +12077,8 @@ const STAGE_OF_STATUS = {
       const textListField = (label, value, onChange, placeholder) => h(Field, { label }, h('input', { value: joinSettingList(value), placeholder, onChange: (event) => onChange(splitSettingList(event.target.value)) }))
 
 
-      const pane = profile === null ? h(Empty, null, '还没有运营档案') : section === 'profile'
+      // 「版本」页不依赖运营档案：档案坏掉/还没建的时候也得能查版本。
+      const pane = profile === null && section !== 'update' ? h(Empty, null, '还没有运营档案') : section === 'profile'
         ? h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, '工作档案'), h('p', { className: 'dsh-gw-settings-lede' }, '定义这套工作台服务谁、做什么内容、在哪些平台推进。AI、提醒和数据判断都会引用这里。'), h('div', { className: 'dsh-gw-grid2' }, h(Field, { label: '档案名称' }, h('input', { value: profile.name, onChange: (event) => setProfileField('name', event.target.value) })), h(Field, { label: '说明' }, h('input', { value: profile.description, onChange: (event) => setProfileField('description', event.target.value) })), textListField('内容目标', profile.goals, (value) => setProfileField('goals', value), '涨粉、互动、转化'), textListField('主要平台', profile.platforms, (value) => setProfileField('platforms', value), '小红书、抖音、公众号'), textListField('默认账号', profile.accounts, (value) => setProfileField('accounts', value), '账号名，例如 抖音主号'), textListField('目标人群', profile.audience.segments, (value) => setProfileField('audience', { ...profile.audience, segments: value }), 'AI 创作者、设计师'), textListField('内容方向', profile.content.pillars, (value) => setProfileField('content', { ...profile.content, pillars: value }), 'AI 工具、设计方法'), textListField('内容类型', profile.content.types, (value) => setProfileField('content', { ...profile.content, types: value }), '图文、短视频'), textListField('禁用表达 / 约束', profile.content.constraints, (value) => setProfileField('content', { ...profile.content, constraints: value }), '不要夸大效果')))
         : section === 'automation'
         ? h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, '自动化规则'), h('p', { className: 'dsh-gw-settings-lede' }, '每条规则都能选择自动、确认、提醒或关闭。外部发布、删除、覆盖和自动结案永远不开放。'), Object.entries(profile.automation).map(([action, mode]) => h('label', { key: action, className: 'dsh-gw-settings-rule' }, h('span', null, OP_ACTION_LABELS[action] ?? action), h('select', { value: mode, onChange: (event) => setRulesField('automation', { ...profile.automation, [action]: event.target.value }) }, Object.entries(OP_MODE_LABELS).map(([value, label]) => h('option', { key: value, value }, label))))))
@@ -12028,6 +12088,8 @@ const STAGE_OF_STATUS = {
         ? h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, 'AI 默认上下文'), h('p', { className: 'dsh-gw-settings-lede' }, '选中的资料会作为受信任的规则摘要放在素材围栏之外。正文仍按不可信资料处理；AI 只能生成草稿，且不得覆盖已有内容。'), checkboxList(Object.keys(OP_AI_LABELS), profile.aiContext.sources, (sources) => setRulesField('aiContext', { ...profile.aiContext, sources }), OP_AI_LABELS), h('div', { className: 'dsh-gw-grid2' }, h(Field, { label: '最多资料项' }, h('input', { type: 'number', min: 1, max: 100, value: profile.aiContext.maxItems, onChange: (event) => setRulesField('aiContext', { ...profile.aiContext, maxItems: Number(event.target.value) || 1 }) })), h(Field, { label: '最多字数' }, h('input', { type: 'number', min: 100, max: 100000, value: profile.aiContext.maxChars, onChange: (event) => setRulesField('aiContext', { ...profile.aiContext, maxChars: Number(event.target.value) || 100 }) }))), h(Sect, null, '成功标准'), h('div', { className: 'dsh-gw-benchmark-list' }, profile.successBenchmarks.map((benchmark, index) => h('div', { key: benchmark.id, className: 'dsh-gw-settings-rule' }, h('select', { value: benchmark.metric, onChange: (event) => setRulesField('successBenchmarks', profile.successBenchmarks.map((entry, at) => at === index ? { ...entry, metric: event.target.value } : entry)) }, Object.entries(OP_METRIC_LABELS).map(([value, label]) => h('option', { key: value, value }, label))), h('select', { value: benchmark.mode, onChange: (event) => setRulesField('successBenchmarks', profile.successBenchmarks.map((entry, at) => at === index ? { ...entry, mode: event.target.value, ...(event.target.value === 'fixed' ? { value: Number(entry.value ?? 0) } : event.target.value === 'recent-average' ? { window: Number(entry.window ?? 10) } : {}) } : entry)) }, h('option', { value: 'fixed' }, '固定目标'), h('option', { value: 'recent-average' }, '近期均值'), h('option', { value: 'type-median' }, '同类型中位数')), benchmark.mode === 'fixed' ? h('input', { type: 'number', value: benchmark.value ?? 0, onChange: (event) => setRulesField('successBenchmarks', profile.successBenchmarks.map((entry, at) => at === index ? { ...entry, value: Number(event.target.value) || 0 } : entry)) }) : benchmark.mode === 'recent-average' ? h('input', { type: 'number', min: 1, max: 100, value: benchmark.window ?? 10, onChange: (event) => setRulesField('successBenchmarks', profile.successBenchmarks.map((entry, at) => at === index ? { ...entry, window: Number(event.target.value) || 1 } : entry)) }) : h('span', { className: 'dsh-gw-row-meta' }, '自动计算'), h('button', { className: 'dsh-gw-btn', onClick: () => setRulesField('successBenchmarks', profile.successBenchmarks.filter((_, at) => at !== index)) }, '移除'))), h('button', { className: 'dsh-gw-btn', onClick: () => { const checkpoint = profile.observationCheckpoints.find((entry) => entry.close) ?? profile.observationCheckpoints[0]; setRulesField('successBenchmarks', [...profile.successBenchmarks, { id: 'benchmark-' + Date.now().toString(36), metric: 'views', checkpointId: checkpoint.id, mode: 'fixed', direction: 'at-least', value: 1000 }]) } }, '+ 添加成功标准')))
         : section === 'connection'
         ? h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, '连接 Obsidian vault'), h(Field, { label: t('vaultRoot') }, h('input', { value: vaultRoot, onChange: (event) => setVaultRoot(event.target.value), placeholder: 'D:\\Notes\\vault' })), h('p', { className: 'dsh-gw-row-meta' }, t('vaultRootHint')), h('div', { className: 'dsh-gw-field-hint-row' }, h(Field, { label: 'SOP 目录' }, h('input', { value: sopDir, onChange: (event) => setSopDir(event.target.value), placeholder: 'SOP' })), h('span', { className: 'dsh-gw-hintmark', title: '「通用 → SOP 树」只列这个 vault 相对目录下的笔记。默认是 SOP；不会把整个 vault 当成 SOP。' }, '？')), h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || vaultRoot.trim() === '', onClick: saveConnection }, t('save'))), h(Sect, null, '连接体检'), h('p', { className: 'dsh-gw-row-meta' }, '只读检查，没有创建或改写文件'), h('div', { className: 'dsh-gw-health' }, h('button', { className: 'dsh-gw-btn', disabled: connectionBusy, onClick: () => { void runConnectionHealth() } }, connectionBusy ? '检查中…' : '连接体检')), connectionHealth === null ? null : h('div', { className: 'dsh-gw-health-out', role: 'status' }, h('div', { className: 'dsh-gw-health-row' }, h('b', null, '插件'), h('span', null, connectionHealth.version || '版本未知'), h('span', { className: 'dsh-gw-row-meta' }, String(connectionHealth.elapsedMs ?? 0) + 'ms')), h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'vault'), h('span', null, connectionHealth.vaultReadable === true ? '可读取' : '不可读取'), h('span', { className: 'dsh-gw-row-meta' }, connectionHealth.vaultMessage || '只读检查，没有创建或改写文件')), h('div', { className: 'dsh-gw-health-row' }, h('b', null, '外部更新'), h('span', null, connectionHealth.watcher === 'active' ? '实时监听' : '轮询兜底'), h('span', { className: 'dsh-gw-row-meta' }, '此检查不会写入 vault'))))
+        : section === 'update'
+        ? h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, '版本'), h('p', { className: 'dsh-gw-settings-lede' }, '只读检查：读当前版本、问 GitHub 有没有更新的 Release。不下载、不解压、不改任何文件 —— 更新动作要你自己做。'), h('div', { className: 'dsh-gw-health-row' }, h('b', null, '当前版本'), h('span', null, currentVersion === '' ? '未知' : 'v' + currentVersion), h('span', { className: 'dsh-gw-row-meta' }, '安装方式 ' + (updateInfo?.installKind === 'git' ? 'git 仓库' : '插件副本'))), h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: updateBusy, onClick: () => { void checkUpdate(true) } }, updateBusy ? '检查中…' : '检查更新'), h('button', { className: 'dsh-gw-btn', disabled: updateOpening, onClick: () => { void openRelease(updateInfo?.url ?? RELEASES_URL) } }, updateOpening ? '打开中…' : '打开发布页')), updateInfo === null ? null : h('div', { className: 'dsh-gw-health-out', role: 'status' }, updateInfo.ok === true ? h('div', { className: 'dsh-gw-health-row' }, h('b', null, '最新版本'), h('span', null, 'v' + updateInfo.latest), h('span', { className: 'dsh-gw-row-meta' }, updateInfo.behind ? '有新版' : '已是最新')) : h('div', { className: 'dsh-gw-health-row' }, h('b', null, '检查失败'), h('span', null, updateInfo.error || '没拿到结果')), updateInfo.ok === true && updateInfo.publishedAt !== '' ? h('div', { className: 'dsh-gw-health-row' }, h('b', null, '发布'), h('span', null, String(updateInfo.publishedAt).slice(0, 10)), h('span', { className: 'dsh-gw-row-meta' }, updateInfo.checkedAt ? '检查于 ' + new Date(updateInfo.checkedAt).toLocaleTimeString() : '')) : null, updateInfo.behind === true ? h('div', { className: 'dsh-gw-health-note' }, '更新方式：' + (updateInfo.installKind === 'git' ? '在插件源码目录里 git pull --ff-only' : '在插件市场里重新安装这个插件') + '，然后重启 DSH —— index.js 改动不能热重载，刷新页面没用。') : null, updateInfo.ok === true && updateInfo.notes !== '' ? h('div', { className: 'dsh-gw-release-notes' }, updateInfo.notes) : null), h('p', { className: 'dsh-gw-row-meta' }, '检查结果缓存 10 分钟：GitHub 匿名配额只有 60 次/小时。'))
         : h('div', { className: 'dsh-gw-settings-pane' }, h(Sect, null, '维护与诊断'), h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', disabled: migrationBusy, onClick: () => { void previewMigration() } }, migrationBusy ? '检查中…' : '预检老数据'), migration === null ? null : h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: migrationBusy || Number(migration.createVariantCount ?? 0) + Number(migration.missingIdCount ?? 0) === 0, onClick: () => { void applyMigration() } }, '执行迁移'), h('button', { className: 'dsh-gw-btn', disabled: healthBusy, onClick: runHealth }, healthBusy ? '测量中…' : '性能体检')), migration === null ? null : h('div', { className: 'dsh-gw-health-out' }, h('div', { className: 'dsh-gw-health-row' }, h('b', null, '选题'), h('span', null, String(migration.totalTopics ?? 0) + ' 篇'), h('span', { className: 'dsh-gw-row-meta' }, '跳过测试目录 ' + String(migration.skippedTestCount ?? 0))), h('div', { className: 'dsh-gw-health-row' }, h('b', null, '缺稳定 ID'), h('span', null, String(migration.missingIdCount ?? 0) + ' 篇')), h('div', { className: 'dsh-gw-health-row' }, h('b', null, '待建平台版本'), h('span', null, String(migration.createVariantCount ?? 0) + ' 个'))), health === null ? null : h('div', { className: 'dsh-gw-health-out' }, h('div', { className: 'dsh-gw-health-row' }, h('b', null, '帧间隔'), h('span', null, health.median.toFixed(1) + 'ms'), h('span', { className: 'dsh-gw-row-meta' }, 'p95 ' + health.p95.toFixed(1) + ' · 最长 ' + Math.round(health.worst) + 'ms')), h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'DOM 节点'), h('span', null, String(health.nodes)), h('span', { className: 'dsh-gw-row-meta' }, '其中工作台 ' + health.paneNodes)), h('div', { className: 'dsh-gw-health-row' }, h('b', null, 'JS 堆'), h('span', null, health.heap === null ? '拿不到' : health.heap + ' MB'), h('span', { className: 'dsh-gw-row-meta' }, health.limit === null ? '' : '上限 ' + health.limit + ' MB')), h('div', { className: 'dsh-gw-health-note' }, healthVerdict(health))), h('p', { className: 'dsh-gw-row-meta' }, '数据目录：' + (state?.dataDir ?? '~/.dsh-growth')))
       return h('div', { className: 'dsh-gw-settings-shell' },
         h(ErrorBar, { error }),
