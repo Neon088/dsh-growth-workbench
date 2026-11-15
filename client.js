@@ -1,11 +1,13 @@
 /**
  * dsh-growth-workbench — 浏览器半边。
  *
- * 三个槽位：
- *   ① conversation.session.header.utilities：会话头部一个「工作台」按钮；
- *   ② 右侧栏标签页（sidebar.right.pane.tab / .title + sidebarRightTabs.register）：
- *      点按钮在右侧栏开一格，不遮挡主对话；
- *   ③ shell.overlay：右侧栏服务不在时的兜底浮层。
+ * 一个入口，两处落点：
+ *   ① 左侧栏图标 + 整页（sidebar.panellist + main，同 id）：点左栏的工作台图标，
+ *      工作台占满主区域（和「自媒体工作台」「乔木 RSS」同一种形态）；
+ *   ② 页内右列：页头「对话」按钮打开一列原生对话（宿主的 conversation.content
+ *      embedded 变体，同一场会话）。对话只能画在页里——工作台占着主区域时，宿主
+ *      会把右侧栏整列隐藏（sidebar-right 的 sync 只在没有全局面板时挂会话），
+ *      所以右栏页签那条路是死的，别再往回走。
  *
  * 面板结构：顶部工作区页签（运营/电商/营销/通用）+ 常驻搜索框，每个工作区首页是
  * 该区各卡的一行摘要（点行进卡），卡片可以单独关掉（cards.json 记忆）。
@@ -61,6 +63,15 @@ window.__ModuleLoader__.load({
     const ZH = {
       open: '工作台',
       title: '增长工作台',
+      chat: '对话',
+      chatOpen: '打开页内对话',
+      chatClose: '收起对话',
+      chatOpening: '正在打开对话…',
+      chatFailed: '对话没打开',
+      chatRetry: '重新连接',
+      chatMissing: '这一格没接上内嵌对话（宿主没暴露 conversation.content）。切回左侧对话继续说。',
+      chatNoService: '对话服务还没就绪，稍等一下再点一次。',
+      chatNoWorkspace: '还没有工作区：先在左侧开一个，再回来对话。',
       close: '关闭',
       refresh: '刷新',
       loading: '读取中…',
@@ -266,13 +277,66 @@ window.__ModuleLoader__.load({
 .dsh-gw-pane{position:relative;display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-4,13px)}
 /* 轻量编辑台：中性表面沿用宿主；铜金只标创作，与真正的 warning 分开。
    installHostAccent 从实际宿主 alias / color-scheme 取色并校验文字对比度，不只跟随 OS。 */
-.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil{--gw-warm:light-dark(#B95F42,#F0A07E);--gw-glass:var(--dsw-alias-bg-overlay);--gw-glass-panel:var(--dsw-alias-bg-layer-1);--gw-fz-1:12px;--gw-fz-2:12px;--gw-fz-3:13px;--gw-fz-4:14px;--gw-fz-5:16px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--dsw-alias-state-warn-primary);--tone-done:var(--dsw-alias-state-success-primary)}
+.dsh-gw-pane,.dsh-gw-panel,.dsh-gw-veil,.dsh-gw-sop-zen{--gw-warm:light-dark(#B95F42,#F0A07E);--gw-glass:var(--dsw-alias-bg-overlay);--gw-glass-panel:var(--dsw-alias-bg-layer-1);--gw-fz-1:12px;--gw-fz-2:12px;--gw-fz-3:13px;--gw-fz-4:14px;--gw-fz-5:16px;--tone-progress:var(--dsw-alias-link);--tone-attention:var(--dsw-alias-state-warn-primary);--tone-done:var(--dsw-alias-state-success-primary)}
 /* 高度一路传下去，专注模式才有满栏的参照系 */
 .dsh-gw-pane > .dsh-gw-panel,.dsh-gw-pane > .dsh-gw-veil > .dsh-gw-panel{flex:1;min-height:0}
 .dsh-gw-pane > .dsh-gw-veil{position:absolute;inset:0;padding:0;background:transparent;backdrop-filter:none;justify-content:stretch;align-items:stretch}
+/* 页面模式下 Panel 被包了一层 .dsh-gw-page-main，veil 不再是 .dsh-gw-pane 的直接子节点；
+   不补这一条，veil 会退回 position:fixed + z-index:9000 的遮罩，把整个 DSH 盖住。
+   —— 2026-11-15 事故：打开工作台后主界面全不见。 */
+.dsh-gw-page-main > .dsh-gw-veil,.dsh-gw-page > .dsh-gw-veil{position:absolute;inset:0;padding:0;background:transparent;backdrop-filter:none;justify-content:stretch;align-items:stretch}
 .dsh-gw-pane .dsh-gw-panel{width:100%;height:100%;max-width:none;max-height:none;border:none;border-radius:0!important;box-shadow:none}
+/* 整页模式（左侧栏入口）：宽屏下正文按阅读宽度居中，别把列表行拉成 1600px 长条。 */
+.dsh-gw-page{height:100%;min-height:0}
+.dsh-gw-page .dsh-gw-head,.dsh-gw-page .dsh-gw-tabs,.dsh-gw-page .dsh-gw-card-tabs{width:100%;max-width:1280px;margin-left:auto;margin-right:auto;box-sizing:border-box;flex:0 0 auto}
+.dsh-gw-page .dsh-gw-body{width:100%;max-width:1280px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+/* 页内右列对话。工作台占着主区域时宿主把右侧栏整列隐藏，所以对话只能画在页里：
+   左列工作台 + 右列原生对话，窄屏时右列退到下方。 */
+.dsh-gw-page-split{flex-direction:row}
+.dsh-gw-page-main{position:relative;display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0}
+.dsh-gw-page-main > .dsh-gw-panel,.dsh-gw-page-main > .dsh-gw-veil > .dsh-gw-panel{flex:1;min-height:0}
+.dsh-gw-chatcol{display:flex;flex-direction:column;flex:0 0 var(--dsh-gw-chat-w,420px);min-height:0;min-width:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+/* 工作台与对话之间的分隔条：拖动改宽度，双击回默认（宽度记在 localStorage）。 */
+.dsh-gw-chat-split{flex:none;width:7px;cursor:col-resize;position:relative;background:transparent;border:none;padding:0;touch-action:none}
+.dsh-gw-chat-split::before{content:'';position:absolute;left:3px;top:0;bottom:0;width:1px;background:var(--dsw-alias-border-l2);transition:background .12s,width .12s}
+.dsh-gw-chat-split:hover::before,.dsh-gw-chat-split[data-dragging=true]::before{left:2px;width:2px;background:var(--dsw-alias-link)}
+.dsh-gw-chatcol-head{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:0 0 auto}
+.dsh-gw-chatcol-title{flex:1;min-width:0;font-size:var(--gw-fz-4,13px);font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-chatcol-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+/* 专注层是 fixed，会脱离普通的左右分栏。打开 Agent 后，把对话栏也提升为同层 fixed，
+   工作台在左边让出对话宽度，避免「按钮显示已开启、对话却被全屏面板盖住」。 */
+.dsh-gw-page-split:has(.dsh-gw-panel[data-zen=true]) .dsh-gw-panel[data-zen=true]{right:var(--dsh-gw-chat-w,420px)}
+.dsh-gw-page-split:has(.dsh-gw-panel[data-zen=true]) .dsh-gw-chatcol{position:fixed;top:var(--dsh-windows-titlebar-height,0);right:0;bottom:0;z-index:8801;width:var(--dsh-gw-chat-w,420px);box-sizing:border-box}
+.dsh-gw-page-split:has(.dsh-gw-panel[data-zen=true]) .dsh-gw-chat-split{position:fixed;top:var(--dsh-windows-titlebar-height,0);right:var(--dsh-gw-chat-w,420px);bottom:0;z-index:8802}
+@media (max-width:900px){.dsh-gw-page-split{flex-direction:column}.dsh-gw-chatcol{flex:0 0 clamp(260px,45%,420px);border-left:none;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-gw-chat-split{display:none}.dsh-gw-page-split:has(.dsh-gw-panel[data-zen=true]) .dsh-gw-panel[data-zen=true]{right:0;bottom:clamp(260px,45%,420px)}.dsh-gw-page-split:has(.dsh-gw-panel[data-zen=true]) .dsh-gw-chatcol{top:auto;width:100%;height:clamp(260px,45%,420px)}}
+/* 原生对话内容自带高度约束，这里只负责把它撑满格子。 */
+.dsh-gw-chat{display:flex;flex-direction:column;height:100%;min-height:0}
+.dsh-gw-chat-empty{padding:14px 12px;display:flex;flex-direction:column;gap:10px;align-items:flex-start;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.dsh-gw-chat-error{color:var(--dsw-alias-state-error-primary);word-break:break-word}
 .dsh-gw-veil{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(8,10,14,.46);backdrop-filter:blur(2px)}
 .dsh-gw-panel{display:flex;flex-direction:column;width:min(1080px,100%);height:min(780px,100%);border-radius:14px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-glass-panel);-webkit-backdrop-filter:blur(32px) saturate(140%);backdrop-filter:blur(32px) saturate(140%);color:var(--dsw-alias-label-primary);box-shadow:0 18px 60px rgba(0,0,0,.34);overflow:hidden;font-size:var(--gw-fz-4,13px)}
+/* 专注模式 = 面板自己变成全屏固定层。
+   这样做的好处：颜色、变量、DOM 都不用搬家——面板本来就是带着主题变量的那个元素，
+   不会出现「portal 出去后背景变量丢失、变成透明」的问题；它自己 fixed，也就不受自己
+   backdrop-filter 的影响（backdrop-filter 只对后代建立包含块）。
+    顶端仍让开 Windows 原生标题栏：那块区域属于系统拖拽和窗口按钮，网页不能安全覆盖。
+    标题栏以下从屏幕最左到最右都是专注层，包含宿主左侧栏；
+    层级高于侧栏（最高 71）、低于模态（9000/9900），且不再为左侧栏预留宽度。 */
+.dsh-gw-panel[data-zen=true]{position:fixed;top:var(--dsh-windows-titlebar-height,0);left:0;right:0;bottom:0;width:auto;height:auto;max-width:none;max-height:none;z-index:8800;-webkit-app-region:no-drag;border:0;border-radius:0;background:var(--gw-canvas,var(--dsw-alias-bg-base,#1b1e24));-webkit-backdrop-filter:none;backdrop-filter:none}
+/* 专注时保留面板头、工作区页签和卡片页签：仍可切换「运营 / 电商」等卡片，
+   第一行右边就是「退出专注」，不会进得去出不来。 */
+/* 页面模式给正文加了 1280 的居中列，专注时要撑满整屏。 */
+.dsh-gw-panel[data-zen=true] .dsh-gw-body{max-width:none;margin-left:0;margin-right:0;padding:12px 16px 16px}
+/* 第一行右侧的退出按钮（文字 + 图标），只在这个面板进专注时出现。 */
+/* Agent 对话框开关：文字按钮（前面带个小对话图标装饰），比旁边那排 30px 图标按钮高一档。
+   两种状态用颜色分开：没开时＝主色胶囊（邀请你去开），开着时＝中性（它现在是「关掉」）。 */
+.dsh-gw-chatbtn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;margin-left:2px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font-size:var(--gw-fz-4,13px);font-weight:600;letter-spacing:.02em;white-space:nowrap;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+.dsh-gw-chatbtn[data-on="false"]{border-color:color-mix(in srgb,var(--gw-accent,var(--dsw-alias-link)) 46%,transparent);background:color-mix(in srgb,var(--gw-accent,var(--dsw-alias-link)) 13%,transparent);color:var(--gw-accent,var(--dsw-alias-link))}
+.dsh-gw-chatbtn[data-on="false"]:hover{background:color-mix(in srgb,var(--gw-accent,var(--dsw-alias-link)) 22%,transparent);border-color:var(--gw-accent,var(--dsw-alias-link))}
+.dsh-gw-chatbtn[data-on="true"]:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-chatbtn:focus-visible{outline:2px solid color-mix(in srgb,var(--gw-accent,var(--dsw-alias-link)) 55%,transparent);outline-offset:2px}
+.dsh-gw-zenexit{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--gw-paper-raised,var(--dsw-alias-bg-layer-1));color:var(--gw-ink,var(--dsw-alias-label-primary));font-size:12px;white-space:nowrap;cursor:pointer}
+.dsh-gw-zenexit:hover{border-color:var(--gw-accent,var(--dsw-alias-link));color:var(--gw-accent,var(--dsw-alias-link))}
 .dsh-gw-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap}
 .dsh-gw-head .dsh-gw-brand{flex:1}
 .dsh-gw-brand{display:flex;flex-direction:column;min-width:0}
@@ -300,7 +364,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-search.has-value input{padding-right:26px}
 .dsh-gw-tab{flex:none;white-space:nowrap;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;padding:6px 12px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:var(--gw-fz-3,12.5px)}
 .dsh-gw-tab[data-on=true]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);box-shadow:inset 0 -2px 0 var(--gw-warm)}
-.dsh-gw-body{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:10px 12px 14px;display:flex;flex-direction:column;min-width:0}
+.dsh-gw-body{flex:1;min-height:0;overflow:auto;padding:10px 12px 14px;display:flex;flex-direction:column;min-width:0}
 /* 卡片页：面包屑行直接顶到页签行下面，不留 body 的 12px 顶距 */
 .dsh-gw-body:has(>.dsh-gw-card-crumb){padding-top:0}
 /* 吸顶行必须直角：面板自身的圆角不能把顶部面包屑裁成圆头。 */
@@ -362,8 +426,9 @@ window.__ModuleLoader__.load({
 .dsh-gw-ledger-table td.dsh-gw-ledger-content .dsh-gw-row-act{white-space:normal;text-align:left;justify-content:flex-start}
 .dsh-gw-ledger-table tr[data-group-start=true] td{border-top:1px solid var(--dsw-alias-border-l1)}
 .dsh-gw-ledger-table td.dsh-gw-ledger-date{white-space:nowrap;font-variant-numeric:tabular-nums}
-.dsh-gw-ledger-table{min-width:1080px}
-.dsh-gw-ledger-table td:not(.dsh-gw-ledger-content){white-space:nowrap}
+.dsh-gw-ledger-table{min-width:0}
+/* 台账列多，死守 1080px 会永远横向溢出；改成允许折行，配合列宽拟合压进一屏。 */
+.dsh-gw-ledger-table td{white-space:normal;overflow-wrap:anywhere}
 .dsh-gw-ledger-miss{color:var(--dsw-alias-state-warn-primary,#b45309);font-weight:600;white-space:nowrap}
 /* 行内小垃圾桶：平时低调，指针移上去才变红，免得一屏都是红按钮。 */
 .dsh-gw-row .dsh-gw-row-del{flex:none;opacity:.62;transition:opacity .12s}
@@ -760,12 +825,15 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-idea-filters{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap;max-width:100%}
 .dsh-gw-idea-filters .dsh-gw-catselect{height:22px;font-size:var(--gw-fz-1,11px);border-radius:6px;padding:0 2px;max-width:104px;box-sizing:border-box}
 .dsh-gw-idea-search{height:22px;width:118px;font-size:var(--gw-fz-1,11px);border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 5px;box-sizing:border-box}
-.dsh-gw-tablebox{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-tablebox{width:100%;max-width:100%;min-width:0;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-topiclist td{vertical-align:middle;padding:5px 8px}
 .dsh-gw-topiclist td:first-child{padding-left:9px}
 .dsh-gw-topiclist-title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .dsh-gw-topiclist-title:hover{color:var(--dsw-alias-link);text-decoration:underline}
-.dsh-gw-topiclist-acts{display:flex;align-items:center;gap:4px;justify-content:flex-start}
+.dsh-gw-topiclist-acts{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+/* 操作列贴右：列宽是设计宽度（变宽时也不摊给这一列），再让按钮靠右边缘，
+   右侧就不会留出一条空白。表头同样靠右对齐，才跟按钮对得上。 */
+.dsh-gw-topiclist th:last-child,.dsh-gw-topiclist td:last-child{text-align:right}
 .dsh-gw-topiclist .dsh-gw-row-act{height:24px;padding:0 8px;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-table thead th,.dsh-gw-matrix thead th,.dsh-gw-rules thead th{position:sticky;top:calc(var(--dsh-gw-crumb-h,34px) + var(--dsh-gw-card-top-h,0px));z-index:6;background-color:var(--dsw-alias-bg-base,#fff);background-image:linear-gradient(var(--dsw-alias-bg-layer-2,transparent),var(--dsw-alias-bg-layer-2,transparent));-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 /* 表格盒自身就是滚动容器；表头要贴住盒顶，不能叠加页面吸顶行高度。 */
@@ -1099,13 +1167,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-ctrls>select{min-width:0}
 @media (max-width:520px){.dsh-gw-cal-cell{min-height:40px;padding:2px 3px}}
 .dsh-gw-sop{display:flex;flex-direction:column;min-height:0;gap:8px}
-/* 专注模式：整个应用窗口铺满（fixed + inset:0），不再只铺右侧栏那一条窄区域。
-   右侧栏只有 300 多像素宽，套一层 absolute 进去写东西等于没专注。
-   层级压在宿主浮层之下（9000 那一档是模态），这样弹窗/通知仍然看得见。 */
-.dsh-gw-sop-zen{position:fixed;inset:0;z-index:8800;padding:14px 18px 18px;background:var(--dsw-alias-bg-base);border-radius:0;border-top:2px solid var(--gw-warm);display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden}
+/* 专注层不再单独做一个 fixed 元素：全屏由面板自己承担（见 .dsh-gw-panel[data-zen=true]），
+   这样配色变量、层级、点击都没有二次转手的风险。SOP 卡在专注时只是「填满面板」。 */
 .dsh-gw-sop-body{display:flex;flex-direction:column;gap:6px;min-height:0;flex:1}
 .dsh-gw-sop-filter input{flex:1 1 auto;min-width:0;height:26px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;padding:0 8px;font-size:var(--gw-fz-3,12.5px)}
-.dsh-gw-sop-zenhint{margin-left:auto;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-sop-zen .dsh-gw-sop-body{height:100%}
 .dsh-gw-sop-head{display:flex;align-items:center;gap:10px}
 .dsh-gw-sop-title{display:flex;align-items:center;gap:8px;font-size:var(--gw-fz-5,14px)}
@@ -1337,9 +1402,17 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-row,.dsh-gw-version-unit{min-width:0}
 .dsh-gw-row-name{font-size:14px;line-height:1.45}
 .dsh-gw-row-meta{font-size:12px;line-height:1.45}
-.dsh-gw-variant-row{flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:8px;border-radius:4px;border:1px solid transparent}
-.dsh-gw-variant-row .dsh-gw-row-main{flex:1 1 160px;min-width:0}
-.dsh-gw-variant-row .dsh-gw-row-side{flex:0 0 auto;gap:4px;flex-wrap:nowrap;align-self:flex-start}
+/* 平台版本：一行一条。标题、平台、账号、发布日期、自检排在同一行，右边是
+   状态选择 + 版本脚本 + 更多；最近数据进 meta 的悬停提示，不再占第二行。 */
+.dsh-gw-variant-row{flex-wrap:nowrap;gap:8px;align-items:center;padding:5px 8px;border-radius:4px;border:1px solid transparent}
+.dsh-gw-variant-row .dsh-gw-row-main{flex:1 1 auto;min-width:0}
+.dsh-gw-row-line{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:nowrap}
+.dsh-gw-variant-row .dsh-gw-row-name{flex:0 1 auto;max-width:46%;font-size:var(--gw-fz-4,13px)}
+.dsh-gw-variant-meta{flex:0 1 auto;min-width:0;margin-top:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--gw-fz-2,11.5px)}
+.dsh-gw-variant-row .dsh-gw-row-side{flex:none;gap:4px;flex-wrap:nowrap;align-self:center}
+/* 窄容器（面板挤窄 / 窄侧栏）里允许折行，否则右侧操作会把标题压没。 */
+.dsh-gw-panel[data-tight=true] .dsh-gw-variant-row,.dsh-gw-body[data-narrow=true] .dsh-gw-variant-row{flex-wrap:wrap}
+.dsh-gw-panel[data-tight=true] .dsh-gw-row-line,.dsh-gw-body[data-narrow=true] .dsh-gw-row-line{flex-wrap:wrap}
 .dsh-gw-variant-row[data-current=true]{background:color-mix(in srgb,var(--gw-warm) 4%,var(--dsw-alias-bg-layer-1));border-color:color-mix(in srgb,var(--gw-warm) 24%,var(--dsw-alias-border-l2))}
 .dsh-gw-variant-row .dsh-gw-row-act[data-tone=primary],.dsh-gw-topiclist .dsh-gw-row-act[data-tone=primary]{color:var(--gw-warm);border-color:color-mix(in srgb,var(--gw-warm) 36%,var(--dsw-alias-border-l2));background:color-mix(in srgb,var(--gw-warm) 8%,var(--dsw-alias-bg-layer-1))}
 .dsh-gw-variant-row .dsh-gw-row-act[data-tone=primary]:hover,.dsh-gw-topiclist .dsh-gw-row-act[data-tone=primary]:hover{background:color-mix(in srgb,var(--gw-warm) 16%,var(--dsw-alias-bg-layer-1));color:var(--gw-warm)}
@@ -1362,14 +1435,14 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-note-sectionhead.dsh-gw-note-boxhead{margin-top:8px;padding:4px 8px;border-radius:6px 6px 0 0;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-annot-wrap.dsh-gw-note-boxbody{border-radius:0 0 6px 6px;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-note-page .dsh-gw-note-acts{gap:4px}
-.dsh-gw-tablebox{min-width:0;max-width:100%;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-tablebox{min-width:0;max-width:100%;overflow:auto;overscroll-behavior:contain}
 .dsh-gw-tablebox>table{max-width:none}
-.dsh-gw-matrixbox,.dsh-gw-fb-box,.dsh-gw-gloss-box{overflow:auto;max-width:100%;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-matrixbox,.dsh-gw-fb-box,.dsh-gw-gloss-box{overflow:auto;max-width:100%;overscroll-behavior:contain}
 .dsh-gw-matrixbox>.dsh-gw-matrix{min-width:520px}
 .dsh-gw-fb-box>.dsh-gw-fb-compact{min-width:560px;table-layout:fixed}
 .dsh-gw-fb-box>.dsh-gw-fb-table:not(.dsh-gw-fb-compact){min-width:860px;table-layout:fixed}
 .dsh-gw-gloss-box>.dsh-gw-gloss-table{min-width:0}
-.dsh-gw-tablebox.dsh-gw-topiclist-box{overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable}
+.dsh-gw-tablebox.dsh-gw-topiclist-box{overflow-x:auto;overflow-y:hidden}
 .dsh-gw-topiclist-box .dsh-gw-topiclist thead th{top:0}
 .dsh-gw-topiclist{min-width:540px}
 .dsh-gw-topiclist td{font-size:12px;padding:4px 6px}
@@ -1426,13 +1499,13 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-row-links>.dsh-gw-field{display:flex;flex-direction:column;gap:2px}
 .dsh-gw-cal-row-links>.dsh-gw-field>select,.dsh-gw-cal-row-links>.dsh-gw-field .dsh-gw-account-picker{width:100%;min-width:0}
 .dsh-gw-tablebox.dsh-gw-pending-box{position:relative;isolation:isolate;overflow:auto;max-width:100%;max-height:min(62vh,580px);font-variant-numeric:tabular-nums}
-.dsh-gw-pending-box .dsh-gw-pending-table{width:852px;min-width:852px;table-layout:fixed;font-size:12px}
+.dsh-gw-pending-box .dsh-gw-pending-table{width:max(100%,852px);min-width:0;table-layout:fixed;font-size:12px}
 .dsh-gw-pending-table th,.dsh-gw-pending-table td{font-size:12px;padding:4px;line-height:1.45;font-variant-numeric:tabular-nums}
 .dsh-gw-pending-table thead th{position:sticky;top:0;z-index:3;background:var(--dsw-alias-bg-layer-2);white-space:nowrap}
 .dsh-gw-pending-table td:not([colspan]):nth-child(-n+3){position:sticky;z-index:2;background:var(--dsw-alias-bg-layer-1)}
 .dsh-gw-pending-table th:nth-child(1),.dsh-gw-pending-table td:not([colspan]):nth-child(1){left:0}
-.dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:64px}
-.dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:152px;border-right:1px solid var(--dsw-alias-border-l2)}
+.dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:var(--gw-pending-left-2,64px)}
+.dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:var(--gw-pending-left-3,152px);border-right:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-pending-table thead th:nth-child(-n+3){z-index:4}
 .dsh-gw-pending-table td:nth-child(n+6):nth-child(-n+9){text-align:right}
 .dsh-gw-more-trigger:focus-visible,.dsh-gw-th-sort:focus-visible,.dsh-gw-account-candidates>summary:focus-visible,.dsh-gw-cal-row-links>summary:focus-visible,.dsh-gw-pending-box:focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:2px}
@@ -1444,15 +1517,25 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-body{background:var(--gw-canvas)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-row,.dsh-gw-panel[data-gw-scheme] .dsh-gw-tablebox,.dsh-gw-panel[data-gw-scheme] .dsh-gw-cal-addform{background:var(--gw-paper)}
 /* One table contract: local scroll, stable headers, bounded cells and visible resize affordances. */
-.dsh-gw-tablebox.dsh-gw-adjustable-box{overflow:auto;max-width:100%;scrollbar-gutter:stable;overscroll-behavior:contain}
+.dsh-gw-tablebox.dsh-gw-adjustable-box{overflow:auto;max-width:100%;overscroll-behavior:contain}
 .dsh-gw-adjustable-box .dsh-gw-adjustable-table thead th{top:0}
 .dsh-gw-adjustable-table{min-width:0}
 /* 排期列表只有 5 个短列，窄侧栏要能整体收紧，不该被通用 620px 画布宽度钉死。 */
 .dsh-gw-table.dsh-gw-upcoming{table-layout:fixed}
 .dsh-gw-adjustable-table th,.dsh-gw-adjustable-table td{overflow:hidden;text-overflow:ellipsis;word-break:normal}
+/* 正文格默认允许换行：列被压窄时靠折行留在格子里，而不是把整张表撑出横向滚动条。
+   表头、序号、操作列仍然单行（后面那条 nowrap 规则特异性更高、写在后面，压得住这里）。 */
+.dsh-gw-adjustable-table td{white-space:normal;overflow-wrap:anywhere}
 .dsh-gw-adjustable-table th,.dsh-gw-cell-nowrap,.dsh-gw-adjustable-table td:last-child{white-space:nowrap;overflow-wrap:normal}
 .dsh-gw-adjustable-table .dsh-gw-cell-wrap{white-space:normal;overflow-wrap:anywhere}
 .dsh-gw-adjustable-table .dsh-gw-row-act,.dsh-gw-adjustable-table .dsh-gw-btn{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* 滚动条统一加粗到 12px 并给出可见轨道：宿主默认的细条在表格/列表溢出时几乎看不出来，
+   用户不知道右边或下面还有内容。竖向、横向、悬停都走同一套。 */
+.dsh-gw-panel ::-webkit-scrollbar{width:12px;height:12px}
+.dsh-gw-panel ::-webkit-scrollbar-track{background:color-mix(in srgb, var(--dsw-alias-border-l1) 26%, transparent);border-radius:6px}
+.dsh-gw-panel ::-webkit-scrollbar-thumb{background-color:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box;min-height:32px;min-width:32px}
+.dsh-gw-panel ::-webkit-scrollbar-thumb:hover,.dsh-gw-panel ::-webkit-scrollbar-thumb:active{background-color:var(--dsw-alias-scrollbar-hover-l2)}
+.dsh-gw-panel ::-webkit-scrollbar-corner{background:transparent}
 .dsh-gw-platform-badge{display:inline-flex;flex:none;white-space:nowrap;overflow-wrap:normal;word-break:keep-all}
 .dsh-gw-rollup-topic{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Account identity and action rails share one label column: the account name sits
@@ -1495,7 +1578,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-rules-scroll>.dsh-gw-rules-frame{overflow:visible;min-width:0}
 .dsh-gw-rules-scroll .dsh-gw-rules thead th{position:sticky;top:0;z-index:6;background:var(--dsw-alias-bg-layer-2)}
 /* Pending keeps its first three identity columns pinned while their widths are adjusted. */
-.dsh-gw-pending-box .dsh-gw-pending-table{width:var(--gw-pending-width,852px);min-width:var(--gw-pending-width,852px)}
+.dsh-gw-pending-box .dsh-gw-pending-table{width:max(100%,var(--gw-pending-width,852px));min-width:0}
 .dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:var(--gw-pending-left-2,64px)}
 .dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:var(--gw-pending-left-3,152px)}
 .dsh-gw-table th,.dsh-gw-table td,.dsh-gw-md-table th,.dsh-gw-md-table td{border-right:none}
@@ -1535,7 +1618,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-tight=true] .dsh-gw-card-tabs{gap:3px 6px;padding-top:7px;padding-bottom:8px}
 .dsh-gw-panel[data-tight=true] .dsh-gw-card-tab{padding-left:13px;padding-right:7px}
 /* Claude-inspired restraint: one warm accent, paper hierarchy, hairline rules, no ornamental lift. */
-.dsh-gw-panel[data-gw-scheme]{--gw-control-h:28px;--gw-radius:5px;--gw-radius-panel:8px;--gw-reading:70ch;font-family:inherit;letter-spacing:0}
+.dsh-gw-panel[data-gw-scheme]{--gw-control-h:28px;--gw-radius:5px;--gw-radius-panel:8px;--gw-reading:82ch;font-family:inherit;letter-spacing:0}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-head,.dsh-gw-tabs,.dsh-gw-card-tabs){background:var(--gw-paper);background-image:none}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-head{padding:9px 12px 8px;border-bottom-color:var(--gw-rule)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-tabs{padding:7px 12px 0;border-bottom-color:var(--gw-rule)}
@@ -1557,7 +1640,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-sect-t{font-size:14px;font-weight:650;color:var(--gw-ink)}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-title,.dsh-gw-note-page-title){font-size:18px;line-height:1.35;font-weight:650;letter-spacing:-.01em}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-row-meta,.dsh-gw-next-meta,.dsh-gw-field label){color:var(--gw-muted)}
-.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-note-preview,.dsh-gw-note-editor)>.dsh-gw-md,.dsh-gw-panel[data-gw-scheme] .dsh-gw-note-preview>.dsh-gw-md{max-width:var(--gw-reading)}
+.dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-note-preview,.dsh-gw-note-editor)>.dsh-gw-md,.dsh-gw-panel[data-gw-scheme] .dsh-gw-note-preview>.dsh-gw-md{max-width:min(var(--gw-reading),100%);margin-left:0;margin-right:auto}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-ms-btn,.dsh-gw-catselect,.dsh-gw-field input,.dsh-gw-field select,.dsh-gw-field textarea,.dsh-gw-search input,.dsh-gw-listfilter-input){border-radius:var(--gw-radius);border-color:var(--gw-rule-strong);box-shadow:none}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-ms-btn,.dsh-gw-catselect){min-height:var(--gw-control-h)}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-btn,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-chip,.dsh-gw-pill,.dsh-gw-pill-btn){transition:color .15s ease,border-color .15s ease,background-color .15s ease;transform:none}
@@ -1566,6 +1649,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-row-act[data-tone=primary],.dsh-gw-btn[data-tone=primary]){border-color:color-mix(in srgb,var(--gw-accent) 52%,var(--gw-rule));background:color-mix(in srgb,var(--gw-accent) 8%,var(--gw-paper));color:var(--gw-accent)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-row{padding:8px 4px;border:0;border-bottom:1px solid var(--gw-rule);border-radius:0;background:transparent}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-row+.dsh-gw-row{margin-top:0}
+/* 平台版本行：一行装下，上下留 5px 就够（控件本身 28px 高）。 */
+.dsh-gw-panel[data-gw-scheme] .dsh-gw-row.dsh-gw-variant-row{padding:5px 4px}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-row:hover{background:color-mix(in srgb,var(--gw-paper) 72%,transparent)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-row[data-current=true]{border-color:var(--gw-rule);background:color-mix(in srgb,var(--gw-accent) 6%,var(--gw-canvas));box-shadow:inset 2px 0 0 var(--gw-accent)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-next{padding:12px 0 14px;border:0;border-bottom:1px solid var(--gw-rule);border-radius:0;background:transparent}
@@ -2321,6 +2406,11 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       external: ['M14.5 4.5H20V10', 'M20 4.5l-8.2 8.2', 'M18 14.2v4.3a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 18.5V7.5A1.5 1.5 0 0 1 5.5 6H10'],
       locate: ['M12 3.6v2.6', 'M12 17.8v2.6', 'M3.6 12h2.6', 'M17.8 12h2.6', 'M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z'],
       search: ['M10.8 17.6a6.8 6.8 0 1 1 0-13.6 6.8 6.8 0 0 1 0 13.6z', 'M15.8 15.8L20 20'],
+      growth: ['M4 19.5h16', 'M7.6 19.5v-4.4', 'M12 19.5v-9.2', 'M16.4 19.5V5.6'],
+      chat: ['M20.4 11.9c0 3.9-3.8 7-8.4 7-1.2 0-2.3-.2-3.3-.6L4 20.6l1.4-3.6c-1.2-1.3-1.9-3-1.9-5.1 0-3.9 3.8-7 8.4-7s8.5 3.2 8.5 7.1z'],
+      // 专注模式：四个角的箭头（进入）与向内的箭头（退出）。
+      expand: ['M9 4H4v5', 'M15 4h5v5', 'M4 15v5h5', 'M20 15v5h-5'],
+      collapse: ['M4 9h5V4', 'M20 9h-5V4', 'M4 15h5v5', 'M20 15h-5v5'],
       settings: ['M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'],
     }
 
@@ -3619,13 +3709,13 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     }
 
     /**
-     * 推动式像素列宽：初始宽度取「默认值等比缩放到容器宽」（scale 可大于或小于 1，
-     * 贴满不溢出；缩完再逐列抬到 minimums 兜底），
+     * 推动式像素列宽：初始宽度取「默认值等比缩放到容器宽」（贴满不溢出），
      * 之后拖动 = expandedPixelColumnWidths：只改被拖列（不低于 minimums[index]），
      * 右侧列宽度不变、整体右移；表比容器宽时容器横向滚动。
-     * 只在首次挂载时拟合一次（dataset.gwFitted 防重入）；之后布局变化不再自动重排，
-     * 传了 storageKey 时：优先读回上次拖好的列宽（localStorage），拖动后自动存，
-     * 重新打开仍然保持你调整过的宽度；没存过才做首次拟合。
+     * 容器宽度变化（主页面开合对话列、窗口缩放、窄侧栏切换）会重新分配一次列宽，
+     * 让表格尽量留在一屏内；用户拖过或读回过的列宽优先，只在整体放不下时按比例收回，
+     * 空间变大时绝不擅自放大。
+     * 传了 storageKey 时：优先读回上次拖好的列宽（localStorage），拖动后自动存。
      */
     function readSavedWidths(key, count) {
       if (!key) return null
@@ -3643,14 +3733,42 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       if (!key) return
       try { window.localStorage.setItem('dsh-gw:colwidths:' + key, JSON.stringify(widths)) } catch (_) { /* 存不了就不存，不影响本次拖拽 */ }
     }
+    /**
+     * 把一组列宽按容器宽度重新分配：正常情况先等比缩放、再逐列抬到 minimums 兜底；
+     * 如果连兜底下限加起来都超过容器，就把下限一起等比压到 28px 硬底线 ——
+     * 宁可窄一点也不横向溢出，文字靠换行折行，尽量让整张表留在一屏里。
+     */
+    function fitPixelColumnWidths(widths, minimums, available) {
+      const total = widths.reduce((sum, width) => sum + width, 0)
+      if (total <= 0 || available <= 0) return null
+      const scale = available / total
+      // 容器比列宽和宽：富余只补给「最宽的那一列」（通常是标题/正文），
+      // 其它列保持设计宽度。浏览器在 fixed 布局下会把富余按比例摊给所有列，
+      // 最后一列（多半是「操作」）也会被撑开 —— 按钮挤在左边、右边空一截，
+      // 看起来就像表格右侧有空白。
+      if (scale > 1) {
+        const next = widths.slice()
+        let widest = 0
+        for (let index = 1; index < next.length; index += 1) if (next[index] > next[widest]) widest = index
+        next[widest] = Math.round(next[widest] + (available - total))
+        return next
+      }
+      const floors = widths.map((width, index) => Math.max(28, Math.round(Number(minimums[index] ?? 48) || 48)))
+      const scaled = widths.map((width, index) => Math.max(floors[index], Math.round(width * scale)))
+      const scaledTotal = scaled.reduce((sum, width) => sum + width, 0)
+      if (scaledTotal <= available) return scaled
+      return scaled.map((width) => Math.max(28, Math.floor((width * available) / scaledTotal)))
+    }
     function usePixelColumnWidths(defaults, minimums = [], storageKey = '') {
       const savedRef = React.useRef(null)
+      const draggedRef = React.useRef(false)
       const state = React.useState(() => {
         const saved = readSavedWidths(storageKey, defaults.length)
         if (saved !== null) { savedRef.current = saved; return saved }
         return defaults.map((width, index) => Math.max(Number(minimums[index] ?? 48), Math.round(width)))
       })
       const setWidths = React.useCallback((updater) => {
+        draggedRef.current = true
         state[1]((current) => {
           const next = typeof updater === 'function' ? updater(current) : updater
           writeSavedWidths(storageKey, next)
@@ -3659,22 +3777,32 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       }, [])
       const ref = React.useRef(null)
       React.useLayoutEffect(() => {
-        const el = ref.current
-        if (el === null) return undefined
-        if (savedRef.current !== null) { el.dataset.gwFitted = '1'; return undefined }
+        const table = ref.current
+        if (table === null) return undefined
+        // 观察「滚动容器」而不是表格本身：表格是行内像素宽，容器变窄时它自己不缩，
+        // 观察表格永远收不到通知 —— 那正是以前只能拟合一次、换宽度就溢出的原因。
+        const box = table.closest('.dsh-gw-tablebox, .dsh-gw-rules-frame, .dsh-gw-rules-scroll') ?? table.parentElement ?? table
+        let fitted = 0
         const fit = () => {
-          if (el.dataset.gwFitted === '1') return
-          const box = el.closest('.dsh-gw-tablebox, .dsh-gw-rules-frame, .dsh-gw-rules-scroll')
-          const available = Math.max(0, Math.round((box?.clientWidth ?? 0) - 2))
+          const available = Math.max(0, Math.round((box.clientWidth ?? 0) - 2))
           if (available < 60) return
-          const total = defaults.reduce((sum, width) => sum + width, 0)
-          if (total <= 0) return
-          const scale = available / total
-          el.dataset.gwFitted = '1'
-          state[1]((current) => current.map((width, index) => Math.max(Number(minimums[index] ?? 48), Math.round(width * scale))))
+          // 同一宽度不重复重排（≥8px 才算换了宽度），免得观察回调自己把自己绕成死循环。
+          // 8px 的门槛是为了让「滚动条出现 / 消失」这种 12px 的变化也能重排一次。
+          if (fitted > 0 && Math.abs(available - fitted) < 8) return
+          fitted = available
+          table.dataset.gwFitted = '1'
+          state[1]((current) => {
+            const pinned = draggedRef.current || savedRef.current !== null
+            const reference = pinned ? current : defaults
+            // 变宽时富余只补给最宽那列（操作列保持设计宽度），变窄时按比例收。
+            // 这里不再「用户拖过就原地不动」：那样表格会停在旧宽度，剩下的空间被浏览器
+            // 按比例摊给所有列（包括最后一列操作），按钮左边贴满、右边空一截。
+            const next = fitPixelColumnWidths(reference, minimums, available)
+            return next === null ? current : next
+          })
         }
         fit()
-        return watchSize(el, () => fit())
+        return watchSize(box, () => fit())
       }, [])
       return [state[0], setWidths, ref]
     }
@@ -3813,7 +3941,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         h('td', { className: 'num' }, String(record.front?.mom ?? '').trim() === '' ? '—' : record.front.mom)))
       return h(Fold, { title: '复盘记录', count: records.length + ' 个周期' },
         h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6 } },
-        h('table', { className: 'dsh-gw-table dsh-gw-data-table', ref: fitRef, style: { width: widths.reduce((sum, width) => sum + width, 0) + 'px' } },
+        h('table', { className: 'dsh-gw-table dsh-gw-data-table', ref: fitRef, style: { width: 'max(100%, ' + widths.reduce((sum, width) => sum + width, 0) + 'px)' } },
           h('colgroup', null, widths.map((width, index) => h('col', { key: String(index), style: { width } }))),
           h('thead', null, head),
           h('tbody', null, rows))))
@@ -3994,7 +4122,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
             ? h(Empty, null, '没有符合当前筛选的笔记，换个分类或清空过滤试试。')
             : h(Fold, { title: '拆解笔记', count: records.length, open: true, className: 'dsh-gw-topic-fold' },
               h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
-              h('table', { className: 'dsh-gw-table dsh-gw-topics-table', ref: topicFitRef, style: { width: topicWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+              h('table', { className: 'dsh-gw-table dsh-gw-topics-table', ref: topicFitRef, style: { width: 'max(100%, ' + topicWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
               h('colgroup', null, ['c-date', 'c-platform', 'c-title', 'c-tags', 'c-views', 'c-sched'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: topicWidths[index] } }))),
               h('thead', null, h('tr', null, ['日期', '平台', '标题', '标签', '数据', '排期'].map((label, index) => h(CollectionSortHead, { key: label + index, label, field: ['date', 'platform', 'title', 'tags', 'views', 'schedule'][index], sort: topicSort, onSort: (field) => setTopicSort((current) => toggledCollectionSort(current, field)), style: index === 4 ? { textAlign: 'right' } : undefined },
                 index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startTopicResize(index), onResize: (delta) => setTopicWidths((current) => expandedPixelColumnWidths(current, index, delta, [88, 64, 140, 72, 64, 100])) }) : null)))),
@@ -4711,7 +4839,7 @@ const STAGE_OF_STATUS = {
             visibleTopicRows.length === 0
               ? h(Empty, null, statusFilters.length === 0 && platformFilters.length === 0 ? '没有符合筛选的选题。' : '没有符合状态或平台筛选的选题。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-topiclist-box dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '选题列表：可横向滚动并拖动表头调整列宽' },
-                h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table', ref: studioFitRef, style: { width: studioWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+                h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table', ref: studioFitRef, style: { width: 'max(100%, ' + studioWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
                   h('colgroup', null, studioWidths.map((width, index) => h('col', { key: index, style: { width } }))),
                   h('thead', null, h('tr', null,
                     ['选题', '平台', '状态', '标签', '版本', '操作'].map((label, index) => h(CollectionSortHead, { key: label, label, field: ['title', 'platform', 'status', 'tags', 'versions', null][index], sort: studioSort, onSort: (field) => setStudioSort((current) => toggledCollectionSort(current, field)) },
@@ -5293,27 +5421,35 @@ const STAGE_OF_STATUS = {
         // 共用主选题正文等于逼你写一份谁都不合适的稿子。
         // 脚本不再在这个行里用小 textarea 改：点「版本脚本」把它开到下方正文区，
         // 那里有预览、批注、分块编辑和冲突提示，和主选题共用同一套编辑器。
+        // 标题通常就是「平台 · 账号」（如「抖音 · 主号」），meta 再抄一遍等于白占地方；
+        // 只补标题没写出来的那部分，剩下的给发布状态和自检。
+        const titleText = String(variant.title ?? variant.id)
+        const platformText = String(variant.front?.platform ?? '')
+        const accountText = accountNameOf(variant) === '' ? '默认账号' : accountNameOf(variant)
+        const metaParts = [
+          ...(platformText === '' || titleText.includes(platformText) ? [] : [platformText]),
+          ...(titleText.includes(accountText) ? [] : [accountText]),
+          // 发布日期来自内容日历，直接放在版本主行；更多菜单只留「排期 / 改期」动作。
+          variant?.schedule === null || variant?.schedule === undefined || String(variant.schedule.date ?? '') === ''
+            ? '未排发布'
+            : '发布 ' + String(variant.schedule.date).slice(0, 10),
+          // 低风险是默认值，说了等于没说；「风险 高/禁发」单独渲染成红色小旗（S5），不混进灰色 meta。
+          '自检 ' + (String(variant.front?.publishCheck ?? '') === '' ? '' : String(variant.front?.publishCheck)),
+        ].filter((part) => part !== '')
+        const dataLine = latest === undefined || latest === null
+          ? ''
+          : '最近数据 ' + String(latest.date ?? '') + ' · 播放 ' + formatCount(latest.views) + ' · 赞 ' + formatCount(latest.likes)
+            + (String(latest.comments ?? '') === '' ? '' : ' · 评 ' + formatCount(latest.comments))
+            + (String(latest.shares ?? '') === '' ? '' : ' · 转 ' + formatCount(latest.shares))
+            + (String(latest.completion ?? '') === '' ? '' : ' · 完播 ' + formatPercent(latest.completion))
+            + (String(latest.avgDuration ?? '') === '' ? '' : ' · 时长 ' + formatDuration(latest.avgDuration))
         return h('div', { key: variant.id, className: 'dsh-gw-version-unit' },
           h('div', { className: 'dsh-gw-row dsh-gw-variant-row', 'data-static': true, 'data-current': String(activeScriptId ?? '') === String(variant.id) },
             h('div', { className: 'dsh-gw-row-main' },
-              h('div', { className: 'dsh-gw-row-title' }, h('span', { className: 'dsh-gw-row-name', title: String(variant.title ?? variant.id) }, String(variant.title ?? variant.id))),
-              h('div', { className: 'dsh-gw-row-meta' }, [
-                String(variant.front?.platform ?? ''),
-                accountNameOf(variant) === '' ? '默认账号' : accountNameOf(variant),
-                // 发布日期来自内容日历，直接放在版本主行；更多菜单只留「排期 / 改期」动作。
-                variant?.schedule === null || variant?.schedule === undefined || String(variant.schedule.date ?? '') === ''
-                  ? '未排发布'
-                  : '发布 ' + String(variant.schedule.date).slice(0, 10),
-                // 低风险是默认值，说了等于没说；「风险 高/禁发」单独渲染成红色小旗（S5），不混进灰色 meta。
-                '自检 ' + (String(variant.front?.publishCheck ?? '') === '' ? '' : String(variant.front?.publishCheck)),
-              ].filter((part) => part !== '').join(' · ')),
-              (String(variant.front?.riskLevel ?? '') !== '' && String(variant.front?.riskLevel) !== '低') ? h('span', { className: 'dsh-gw-risk-flag' }, '风险 ' + String(variant.front?.riskLevel)) : null,
-              latest === undefined || latest === null ? null : h('div', { className: 'dsh-gw-row-meta', title: String(latest.file ?? '') },
-                '最近数据 ' + String(latest.date ?? '') + ' · 播放 ' + formatCount(latest.views) + ' · 赞 ' + formatCount(latest.likes)
-                + (String(latest.comments ?? '') === '' ? '' : ' · 评 ' + formatCount(latest.comments))
-                + (String(latest.shares ?? '') === '' ? '' : ' · 转 ' + formatCount(latest.shares))
-                + (String(latest.completion ?? '') === '' ? '' : ' · 完播 ' + formatPercent(latest.completion))
-                + (String(latest.avgDuration ?? '') === '' ? '' : ' · 时长 ' + formatDuration(latest.avgDuration)))),
+              h('div', { className: 'dsh-gw-row-line' },
+                h('span', { className: 'dsh-gw-row-name', title: titleText + (dataLine === '' ? '' : ' · ' + dataLine) }, titleText),
+                h('span', { className: 'dsh-gw-row-meta dsh-gw-variant-meta', title: dataLine === '' ? undefined : dataLine }, metaParts.join(' · ')),
+                (String(variant.front?.riskLevel ?? '') !== '' && String(variant.front?.riskLevel) !== '低') ? h('span', { className: 'dsh-gw-risk-flag' }, '风险 ' + String(variant.front?.riskLevel)) : null)),
             h('div', { className: 'dsh-gw-row-side' },
               // 状态只给 4 个阶段：写稿的人不用记「待审」和「已排期」差在哪。
               // 选一个阶段，中间该走哪几步由状态机算（moveStage），走不通就原样报错。
@@ -6471,7 +6607,7 @@ const STAGE_OF_STATUS = {
         upcoming.loading ? h(Empty, null, t('loading')) : items.length === 0
           ? h(Empty, null, '这个日期区间还没有排期。')
           : h(React.Fragment, null,
-            h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '排期列表：可横向滚动并拖动表头调整列宽' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table', ref: upcomingFitRef, style: { width: upcomingWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+            h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '排期列表：可横向滚动并拖动表头调整列宽' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table', ref: upcomingFitRef, style: { width: 'max(100%, ' + upcomingWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
               h('colgroup', null, upcomingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
                 ['日期', '选题', '平台', '账号', '状态'].map((label, index) => h('th', { key: label }, label,
@@ -7649,7 +7785,7 @@ const STAGE_OF_STATUS = {
             shownEntries.length === 0
               ? h(Empty, null, '没有符合筛选的灵感')
               : h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
-            h('table', { className: 'dsh-gw-table dsh-gw-ideas', ref: (el) => { tableRef.current = el; ideaFitRef.current = el }, style: { width: ideaWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+            h('table', { className: 'dsh-gw-table dsh-gw-ideas', ref: (el) => { tableRef.current = el; ideaFitRef.current = el }, style: { width: 'max(100%, ' + ideaWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
             h('colgroup', null,
               ['c-date', 'c-src', 'c-url', 'c-body', 'c-out', 'c-act'].map((name, index) => h('col', { key: name, className: name, style: { width: ideaWidths[index] } })),
             ),
@@ -8476,7 +8612,7 @@ const STAGE_OF_STATUS = {
         rolled.length === 0 ? null : h(Fold, { title: '带过内容', count: h(Pill, null, String(totalItemsCount) + ' 条内容') },
           h('div', { className: 'dsh-gw-hint' }, '按日历里挂了商品档案、且已发布的内容明细。点击行可跳转到对应内容日历并定位。'),
           h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '带过内容表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
-            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table dsh-gw-adjustable-table', ref: rollupFitRef, style: { width: rollupWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table dsh-gw-adjustable-table', ref: rollupFitRef, style: { width: 'max(100%, ' + rollupWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
               h('colgroup', null, rollupWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null,
                 h('tr', null,
@@ -8882,7 +9018,7 @@ const STAGE_OF_STATUS = {
             ['全部标签'].concat(tagOptions).map((value) => h('option', { key: value, value }, value === '全部标签' ? '标签：全部' : '标签：' + value)))) : null,
         shown.length === 0 ? h(Empty, null, '没有符合当前筛选的反馈') : h(Fold, { title: '反馈明细', count: shown.length, open: true },
         h('div', { className: 'dsh-gw-tablebox dsh-gw-fb-box', ref: fbTableRef, role: 'region', tabIndex: 0, 'aria-label': '反馈明细表：可横向滚动', style: { marginTop: 10 } },
-          h('table', { className: 'dsh-gw-table dsh-gw-fb-table' + (compact ? ' dsh-gw-fb-compact' : ''), style: { width: fbWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+          h('table', { className: 'dsh-gw-table dsh-gw-fb-table' + (compact ? ' dsh-gw-fb-compact' : ''), style: { width: 'max(100%, ' + fbWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
           compact
             ? h('colgroup', null, ['c-body', 'c-fix', 'c-fix', 'c-state', 'c-act'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbCompactWidths[index] + 'px' } })))
             : h('colgroup', null,
@@ -9027,7 +9163,7 @@ const STAGE_OF_STATUS = {
       return h(Fold, { title: '效果对比（结构化编辑）', open: true, count: h(Pill, null, String(rows.filter((row) => String(row.metric ?? '').trim() !== '').length) + ' 项') },
         h('div', { className: 'dsh-gw-hint' }, '对应正文「### 效果对比」那张表；填指标 / 预期 / 实际，保存时只改这张表。'),
         h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '效果对比表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
-          h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table', ref: metricFitRef, style: { width: metricWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+          h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table', ref: metricFitRef, style: { width: 'max(100%, ' + metricWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
             h('colgroup', null, metricWidths.map((width, index) => h('col', { key: index, style: { width } }))),
             h('thead', null, h('tr', null, ['指标', '预期', '实际', ''].map((label, index) => h('th', { key: label || 'actions' }, label,
               index < 3 ? h(ColumnGrip, { label: label || '操作', pixel: true, onPointerDown: startMetricResize(index), onResize: (delta) => setMetricWidths((current) => expandedPixelColumnWidths(current, index, delta, [120, 96, 96, 56])) }) : null)))),
@@ -10558,7 +10694,7 @@ const STAGE_OF_STATUS = {
             : activeItems.length === 0
               ? h(Empty, null, '「' + activeMeta.label + '」还没有规则。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-rules-frame' },
-                h('table', { className: 'dsh-gw-rules dsh-gw-adjustable-table', ref: ruleFitRef, style: { width: ruleWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+                h('table', { className: 'dsh-gw-rules dsh-gw-adjustable-table', ref: ruleFitRef, style: { width: 'max(100%, ' + ruleWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
                   h('colgroup', null,
                     h('col', { className: 'c-id', style: { width: ruleWidths[0] } }),
                     h('col', { className: 'c-title', style: { width: ruleWidths[1] } }),
@@ -10738,6 +10874,35 @@ const STAGE_OF_STATUS = {
       return total
     }
 
+    // 专注模式的开关放在面板头部那一排（和主题 / 设置 / 刷新 / 对话同列），
+    // 但真正的铺满逻辑在 SOP 卡里：用一个模块级小 store 当桥。
+    // 卡片订阅它，Panel 头部的按钮只负责翻这个开关，两处状态永远一致。
+    const zenStore = { on: false, listeners: new Set() }
+    function setZenOn(next) {
+      const value = next === true
+      if (zenStore.on === value) return
+      zenStore.on = value
+      for (const listener of zenStore.listeners) {
+        try {
+          listener(value)
+        } catch {
+          // 某个订阅者挂了不能连带别人。
+        }
+      }
+    }
+    function useZenOn() {
+      const [on, setOn] = React.useState(zenStore.on)
+      React.useEffect(() => {
+        const listener = (next) => setOn(next)
+        zenStore.listeners.add(listener)
+        setOn(zenStore.on)
+        return () => {
+          zenStore.listeners.delete(listener)
+        }
+      }, [])
+      return on
+    }
+
     function SopCard({ notify, onCrumb, crumb, closeTicket, preset }) {
       // 目录树宽度用百分比存：换个屏幕、进专注模式都对得上同一比例。
       const [treeWidth, setTreeWidth] = React.useState(readSopTreeWidth)
@@ -10757,7 +10922,8 @@ const STAGE_OF_STATUS = {
       // SOP 笔记也会被 Obsidian 那边改；冲突同样给三选一，而不是一句报错。
       const [conflict, setConflict] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
-      const [zen, setZen] = React.useState(false)
+      // 专注模式的状态住在模块级 zenStore 里，面板头部那个按钮才是开关。
+      const zen = useZenOn()
       const [creating, setCreating] = React.useState(null)
       // 编辑 / 预览 两态。原本还有第三个「源码」态，但编辑器本身就是带行号的纯文本，
       // 源码态看到的东西跟编辑态一模一样，纯属多一次点击。
@@ -10824,7 +10990,7 @@ const STAGE_OF_STATUS = {
       // 专注模式：Esc 退出。删东西时不要一键把整块界面收掉。
       React.useEffect(() => {
         if (!zen) return
-        const onKey = (event) => { if (event.key === 'Escape') setZen(false) }
+        const onKey = (event) => { if (event.key === 'Escape') setZenOn(false) }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
       }, [zen])
@@ -11078,17 +11244,16 @@ const STAGE_OF_STATUS = {
       // 列数要跟着大纲有没有走：有大纲是三列（目录|大纲|正文），没有就是两列。
       // 只在 CSS 里写死两列、又往中间塞第三个子节点，就会把正文挤出容器。
       const shell = h('div', { className: zen ? 'dsh-gw-sop dsh-gw-sop-zen' : 'dsh-gw-sop' },
-        // 卡片头：标题 + 徽章，右边是新建 / 专注模式
+        // 卡片头：标题 + 徽章；右侧只有「新建」。专注模式按钮和它右边的「退出专注」
+        // 都在面板头那一行，卡片头在专注时也保持这个样子。
         h('div', { className: 'dsh-gw-sop-head' },
           h('div', { className: 'dsh-gw-sop-title' },
             h('b', null, 'SOP'),
             h('span', { className: 'dsh-gw-badge' }, String(total))),
-          zen ? h('span', { className: 'dsh-gw-sop-zenhint' }, '专注模式 · Esc 退出') : null,
           h('div', { className: 'dsh-gw-sop-tools' },
             creating === null
               ? h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', onClick: () => setCreating({ title: '', folder }) }, '新建')
-              : null,
-            h('button', { className: 'dsh-gw-btn', 'data-on': zen, onClick: () => setZen((prev) => !prev), title: zen ? '回到工作台面板（也可按 Esc）' : '全屏铺满整个窗口' }, zen ? '⊖ 退出专注' : '◉ 专注模式'))),
+              : null)),
         h('div', { className: 'dsh-gw-sop-stats' },
           h('span', null, total + ' 篇'),
           h('span', null, '最近改动 ' + (tree.data?.mtime ?? '—')),
@@ -11143,10 +11308,9 @@ const STAGE_OF_STATUS = {
         // 冲突弹窗也要跟着专注模式一起走：放进 shell 里，portal 时会一并带出去。
         h(ConflictDialog, { conflict, onResolve: (choice) => { void resolveConflict(choice) } }),
       )
-      // 专注模式挂到 body 上：只要有祖先带 transform / filter / contain 之类的性质，
-      // position:fixed 就会变成相对那个盒子定位，铺不满整个窗口。
-      // portal 一挂到 body，fixed/inset:0 才真的等于"整个应用窗口"。
-      return zen && typeof createPortal === 'function' ? createPortal(shell, document.body) : shell
+// 专注时不再把 shell 搬到别处：全屏由面板自己承担（.dsh-gw-panel[data-zen=true]），
+      // 这里只要正常渲染，SOP 卡自然填满变高的面板 body。
+      return shell
     }
 
     // 记住哪些行命中过。目录名/笔记名命中跟正文命中分开记：
@@ -11445,7 +11609,7 @@ const STAGE_OF_STATUS = {
           list.loading ? h(Empty, null, t('loading')) : shown.length === 0
             ? h(Empty, null, '还没有术语。先把团队天天吵的那几个指标口径记下来。')
             : h('div', { className: 'dsh-gw-tablebox dsh-gw-gloss-box', role: 'region', tabIndex: 0, 'aria-label': '术语表：可横向滚动', style: { marginTop: 4 } },
-              h('table', { className: 'dsh-gw-table dsh-gw-gloss-table', ref: glossFitRef, style: { width: glossWidths.reduce((sum, width) => sum + width, 0) + 'px' } },
+              h('table', { className: 'dsh-gw-table dsh-gw-gloss-table', ref: glossFitRef, style: { width: 'max(100%, ' + glossWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
               h('colgroup', null,
                 ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note'].map((name, index) => h('col', { key: name, className: name, style: { width: glossWidths[index] } })),
               ),
@@ -12604,8 +12768,11 @@ const STAGE_OF_STATUS = {
           h('button', { type: 'button', className: 'dsh-gw-btn', onClick: () => onDone(null) }, request.cancelLabel ?? '取消'),
           h('button', { type: 'button', className: 'dsh-gw-btn', 'data-modal-default': true, onClick: submit }, request.submitLabel ?? '保存')))
     }
-    function Panel({ onClose }) {
+
+    function Panel({ onClose, onChat, chatOpen }) {
       const [state, setState] = React.useState({ loading: true, data: null, error: null })
+      // 专注模式：开关在页头图标排里，状态住在模块级 zenStore（SOP 卡订阅同一份）。
+      const zenOn = useZenOn()
       const [workspace, setWorkspaceState] = React.useState(readWorkspace)
       const [cardId, setCardId] = React.useState(() => {
         try {
@@ -12615,6 +12782,18 @@ const STAGE_OF_STATUS = {
         }
       })
       const [summary, setSummary] = React.useState(null)
+      // 专注模式现在是全局的（任何卡片都能进），所以别再「离开 SOP 就自动关」。
+      // Esc 在面板层接管：SOP 卡里那条 Esc 只管自己，其它卡片靠这里退出去。
+      React.useEffect(() => {
+        if (!zenOn) return undefined
+        const onKey = (event) => { if (event.key === 'Escape') setZenOn(false) }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [zenOn])
+
+      // 专注层的左边界 = 工作台这一页自己所在主区域的左边（就是宿主左栏的右边）。
+      // 不去依赖宿主的 CSS 变量：桌面窗口是原生标题栏的版本里根本没有那几个变量，
+      // var() 会安静地吃到兜底值 0，结果专注层又从屏幕最左铺起、把左栏盖掉。
       const [toast, setToast] = React.useState(null)
       const [query, setQuery] = React.useState('')
       const [hits, setHits] = React.useState(null)
@@ -12997,15 +13176,38 @@ const STAGE_OF_STATUS = {
       }
 
       const closable = typeof onClose === 'function'
+      // 整页形态下主区域被工作台占着，对话要有个地方去：右栏。
+      // 侧栏标签页里（onChat 没传）不画这个按钮——那里本来就在会话旁边。
+      const chattable = typeof onChat === 'function'
       return h('div', { className: 'dsh-gw-veil', onMouseDown: (event) => {
         if (!closable || event.target !== event.currentTarget) return
         // 点遮罩 = 关整个工作台，正在编辑的稿子会跟着没：先问一句。
         if (!draftRegistry.allow()) return
         onClose()
       } },
-        h('div', { className: 'dsh-gw-panel', ref: paletteRef },
+        h('div', { className: 'dsh-gw-panel', ref: paletteRef, 'data-zen': zenOn ? 'true' : undefined },
           h('div', { className: 'dsh-gw-head' },
             h('div', { className: 'dsh-gw-brand' }, h('b', null, t('title'))),
+            // 专注模式是全局的：任何卡片都能进来，并覆盖标题栏以下的整个工作区（含左侧栏）。
+            // 进了专注，同一个位置直接换成带字的「退出专注」——第一行就能看见出路，不用猜图标。
+            zenOn
+              ? h('button', {
+                className: 'dsh-gw-zenexit',
+                type: 'button',
+                'aria-pressed': true,
+                title: '退出专注模式（Esc）',
+                'aria-label': '退出专注模式',
+                onClick: () => setZenOn(false),
+              }, h(Icon, { name: 'collapse', size: 13 }), h('span', null, '退出专注'))
+              : h('button', {
+                className: 'dsh-gw-ibtn dsh-gw-ibtn-big',
+                type: 'button',
+                'data-on': false,
+                'aria-pressed': false,
+                title: '专注模式：全屏覆盖工作台',
+                'aria-label': '专注模式',
+                onClick: () => setZenOn(true),
+              }, h(Icon, { name: 'expand' })),
             h('button', {
               className: 'dsh-gw-ibtn dsh-gw-ibtn-big dsh-gw-theme-toggle',
               type: 'button',
@@ -13016,7 +13218,16 @@ const STAGE_OF_STATUS = {
               onClick: () => setTheme((current) => writeTheme(current === 'light' ? 'dark' : 'light')),
             }, h(Icon, { name: theme === 'light' ? 'moon' : 'sun' })),
             h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('settings'), 'aria-label': t('settings'), onClick: () => { leaveCard(() => setShowSettings((prev) => !prev)) } }, h(Icon, { name: 'settings' })),
-            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { if (!draftRegistry.allow('还有没保存的改动。保留草稿并重新读取磁盘数据吗？')) return; loadState(); loadSummary(); setRefreshVersion((n) => n + 1) } }, h(Icon, { name: 'refresh' }))),
+            h('button', { className: 'dsh-gw-ibtn dsh-gw-ibtn-big', type: 'button', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => { if (!draftRegistry.allow('还有没保存的改动。保留草稿并重新读取磁盘数据吗？')) return; loadState(); loadSummary(); setRefreshVersion((n) => n + 1) } }, h(Icon, { name: 'refresh' })),
+            chattable ? h('button', {
+              className: 'dsh-gw-chatbtn',
+              type: 'button',
+              'data-on': chatOpen === true ? 'true' : 'false',
+              'aria-pressed': chatOpen === true,
+              title: chatOpen === true ? '关闭 Agent 对话框' : '开启 Agent 对话框',
+              'aria-label': chatOpen === true ? '关闭 Agent 对话框' : '开启 Agent 对话框',
+              onClick: () => onChat(),
+            }, h(Icon, { name: 'chat', size: 14 }), h('span', null, chatOpen === true ? '关闭 Agent 对话框' : '开启 Agent 对话框')) : null),
           h('div', { className: 'dsh-gw-tabs' },
             h('div', { className: 'dsh-gw-tablist', role: 'tablist', 'aria-label': '工作区' },
               WORKSPACES.map((item) => h('button', {
@@ -13094,19 +13305,326 @@ const STAGE_OF_STATUS = {
       )
     }
 
-    // 侧栏里的一格：不再是盖住对话的遮罩，面板撑满所在栏位。
-    // 这里的「关闭」在侧栏语境下是「收起右栏」——面板本身就是那一格，
-    // 把它自己设成关闭并不会让格子消失，看起来就像按钮没反应。
-    function TabBody({ sessionId }) {
-      // 侧栏语境里不画关闭按钮：栏头自带 ✕，两个叉号只会让人犯嘀咕。
-      return h('div', { className: 'dsh-gw-pane' }, h(Panel, { onClose: null }))
+    /* ────────────── 页内右列：对话 ────────────── */
+
+    // 对话怎么进到这页里：main 条目自己声明一个 session 子槽（growth-workbench.chat），
+    // ────────────── 页内对话（照「乔木 RSS」的做法） ──────────────
+    //
+    // 宿主没有「把当前会话借给别人渲染」的入口，所以别指望从主区域继承一场会话：
+    // 工作台占住主区域时，主区域里根本没有 conversation 条目在跑，session-maybe 拿到
+    // 的是空绑定，面板就是一片白。乔木 RSS 的做法是**自己拿一场会话**：
+    //   1) ctx.inject(['sessions','uiSession','uiWorkspace']) 拿到三个客户端服务；
+    //   2) 拿当前会话的 id（uiSession.current 的 key 就是 sessionId），没有就 create 一场；
+    //   3) sessions.retain(id, { source }) 换一份引用——宿主靠它知道这场会话还有人在看；
+    //   4) 页面里用宿主给的 SessionProvider 把这份引用包住自己的 session 子槽。
+    // 子槽是 scope:'session'（严格会话域，不是 session-maybe）：由 renderer 给
+    // sessionId / useSession / useConversation / useSessions / renderFactorySlot，
+    // 再交给宿主的 conversation.content（embedded）去画消息流和输入框。
+    const CHAT_SLOT = 'growth-workbench.chat'
+    const CHAT_SOURCE = 'growth-workbench'
+
+    // 客户端服务作用域（sessions / uiSession / uiWorkspace），apply 里 inject 进来。
+    let chatScope = null
+
+    function logChat(label, data) {
+      try {
+        void postClientLog({ label, data })
+      } catch {
+        // 记不上不影响功能。
+      }
+    }
+
+    // 拿一场能给工作台用的会话：优先当前这一场（同一场对话，上下文是连着的）；
+    // 主区域没有会话时再新建一场，放进第一个工作区。
+    async function acquireChatSession() {
+      const scope = chatScope
+      if (scope === null || scope === void 0) throw new Error(t('chatNoService'))
+      const { sessions, uiSession, uiWorkspace } = scope
+      if (sessions === void 0 || uiSession === void 0) throw new Error(t('chatNoService'))
+      const binding = uiSession.current.getSnapshot()
+      const currentId = binding === null || binding === void 0 ? void 0 : binding.key
+      let sessionId = typeof currentId === 'string' && currentId !== '' ? currentId : undefined
+      if (sessionId === void 0) {
+        const items = (uiWorkspace !== void 0 && uiWorkspace.workspaces.list.getSnapshot().items) || []
+        const workspaceId = items.length > 0 ? items[0].workspaceId : undefined
+        if (typeof workspaceId !== 'string' || workspaceId === '') throw new Error(t('chatNoWorkspace'))
+        sessionId = await sessions.create({ workspaceId })
+      }
+      const reference = sessions.retain(sessionId, { source: CHAT_SOURCE })
+      logChat('chat session:acquired', {
+        sessionId,
+        reused: typeof currentId === 'string' && currentId !== '',
+        release: typeof reference.release,
+      })
+      return {
+        sessionId,
+        reference,
+        release: () => reference.release(),
+      }
+    }
+
+    // 把视图钉死在 chat：工厂的 slots.views 只有这一个视图，选择器就不会冒出来。
+    function ChatView({ renderSlot }) {
+      return renderSlot('conversation.session', { view: 'chat' })
+    }
+
+    // 宿主自己的「内嵌对话」渲染路径——dsh-client-ui-subagent 的 ConversationSlotPanel
+    // 用的就是同一条：conversation.content 的 embedded 变体 =
+    // 消息流 + 输入框 + 工具卡/审批。phase/hero 按会话真实状态算（乔木 RSS 的
+    // NativeConversation 同款判断）：写死 'active' 会让空会话直接进聊天态、丢掉开场那一屏。
+    function WorkbenchChat({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, renderSlot }) {
+      const session = useSession((s) => s)
+      const conversation = useConversation((s) => s)
+      const blank = useSessions((s) => s.byId[sessionId]?.blank)
+      // 挂载一次就记一笔：这一格到底有没有拿到会话、宿主给没给工厂槽。
+      // 空白的时候，日志比截图可靠（这里看不到宿主的控制台）。
+      const mounted = React.useRef(false)
+      React.useEffect(() => {
+        if (mounted.current) return
+        mounted.current = true
+        logChat('chat view:mounted', {
+          sessionId: typeof sessionId === 'string' ? sessionId : null,
+          factory: typeof renderFactorySlot,
+          renderSlot: typeof renderSlot,
+        })
+      }, [sessionId, renderFactorySlot, renderSlot])
+      if (typeof renderFactorySlot !== 'function') {
+        return h('div', { className: 'dsh-gw-chat-empty' }, t('chatMissing'))
+      }
+      const active = conversation.activeTargets.size > 0 || !session.blank && !session.awaitingFirstTurn || session.running
+      const settling = !active && session.openState === 'loading' && blank !== true
+      const hero = !active && (session.openState === 'open' || blank === true)
+      try {
+        return h('div', { className: 'dsh-gw-chat' }, renderFactorySlot('conversation.content', {
+          variant: 'embedded',
+          phase: settling ? 'settling' : hero ? 'hero' : 'active',
+          hero,
+        }, {
+          slots: { views: ChatView },
+          fallback: h('div', { className: 'dsh-gw-chat-empty' }, t('chatMissing')),
+        }))
+      } catch {
+        return h('div', { className: 'dsh-gw-chat-empty' }, t('chatMissing'))
+      }
+    }
+
+    // 页内对话栏的宽度：拖动分隔条改，双击回默认，记在 localStorage 里（和 SOP 目录、
+    // 批注栏那几处一致：只影响本机，不写进 vault）。
+    const CHAT_WIDTH_KEY = 'dsh-growth.chat.width'
+    const CHAT_WIDTH_DEFAULT = 420
+    const CHAT_WIDTH_MIN = 300
+    const CHAT_WIDTH_MAX = 760
+
+    function readChatWidth() {
+      try {
+        const raw = Number(localStorage.getItem(CHAT_WIDTH_KEY))
+        if (!Number.isFinite(raw) || raw <= 0) return CHAT_WIDTH_DEFAULT
+        return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, raw))
+      } catch {
+        return CHAT_WIDTH_DEFAULT
+      }
+    }
+
+    // 对话框默认开着：第一次打开工作台就能直接说话，不用先去点按钮。
+    function readChatOpen() {
+      try {
+        const raw = localStorage.getItem('dsh-growth.chat.open')
+        if (raw === null) return true
+        return raw !== '0'
+      } catch {
+        return true
+      }
+    }
+
+    function saveChatOpen(on) {
+      try {
+        localStorage.setItem('dsh-growth.chat.open', on === true ? '1' : '0')
+      } catch {
+        // 存不了就算了，只是下次回到默认开。
+      }
+    }
+
+    function saveChatWidth(width) {
+      try {
+        localStorage.setItem(CHAT_WIDTH_KEY, String(Math.round(width)))
+      } catch {
+        // 存不下只会丢下次的默认值，不影响这次拖。
+      }
+    }
+
+    // 工作台与对话之间的分隔条。实现照抄 SOP 目录/批注栏那两个 splitter：
+    // 按父容器的右边缘算宽度（对话贴右），并给左边的工作台留出最小宽度。
+    function ChatSplitter({ onResize }) {
+      const [dragging, setDragging] = React.useState(false)
+      const splitRef = React.useRef(null)
+
+      React.useEffect(() => {
+        if (!dragging) return undefined
+        function onMove(event) {
+          const split = splitRef.current
+          const pane = split === null ? null : split.parentElement
+          if (pane === null) return
+          const rect = pane.getBoundingClientRect()
+          // 左边工作台至少留 360px，否则拖到尽头会把表格挤成一条。
+          const maxByPane = Math.max(CHAT_WIDTH_MIN, Math.min(CHAT_WIDTH_MAX, rect.width - 360))
+          const next = rect.right - event.clientX
+          onResize(Math.min(maxByPane, Math.max(CHAT_WIDTH_MIN, next)))
+        }
+        function onUp() {
+          setDragging(false)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+        return () => {
+          document.removeEventListener('mousemove', onMove)
+          document.removeEventListener('mouseup', onUp)
+        }
+      }, [dragging, onResize])
+
+      return h('button', {
+        type: 'button',
+        ref: splitRef,
+        className: 'dsh-gw-chat-split',
+        'data-dragging': dragging ? 'true' : 'false',
+        'aria-label': '调整对话栏宽度',
+        title: '拖动调整工作台与对话的宽度（双击恢复默认）',
+        onMouseDown: (event) => { event.preventDefault(); setDragging(true) },
+        onDoubleClick: () => { onResize(CHAT_WIDTH_DEFAULT); saveChatWidth(CHAT_WIDTH_DEFAULT) },
+      })
+    }
+
+    // 左侧栏那一页：同一个工作台，只是占满主区域（「自媒体工作台」「乔木 RSS」那种形态）。
+    // 这一页没有「关闭」按钮——离开它靠侧栏切回对话，所以 onClose 传 null。
+    // onChat 是页头上的「对话」按钮：把这一场会话的对话开到右列，再点一次收起。
+    function MainPanel(props) {
+      const kit = props || {}
+      const canChat = typeof kit.renderSlot === 'function' && typeof kit.SessionProvider === 'function'
+      const [open, setOpen] = React.useState(readChatOpen)
+      const [state, setState] = React.useState({ phase: 'idle', chat: null, error: '' })
+      const [chatWidth, setChatWidth] = React.useState(readChatWidth)
+      const owned = React.useRef(null)
+      const generation = React.useRef(0)
+
+      const resizeChat = React.useCallback((next) => {
+        setChatWidth(next)
+        saveChatWidth(next)
+      }, [])
+
+      const releaseOwned = React.useCallback(() => {
+        const chat = owned.current
+        owned.current = null
+        if (chat === null) return
+        try {
+          chat.release()
+        } catch {
+          // 引用已经失效，没必要再报。
+        }
+      }, [])
+
+      const openChat = React.useCallback(async () => {
+        const current = ++generation.current
+        releaseOwned()
+        setState({ phase: 'loading', chat: null, error: '' })
+        try {
+          const chat = await acquireChatSession()
+          if (current !== generation.current) {
+            chat.release()
+            return
+          }
+          owned.current = chat
+          setState({ phase: 'ready', chat, error: '' })
+        } catch (error) {
+          if (current !== generation.current) return
+          const message = String((error && error.message) || error)
+          logChat('chat session:failed', { message })
+          setState({ phase: 'error', chat: null, error: message })
+        }
+      }, [releaseOwned])
+
+      const closeChat = React.useCallback(() => {
+        generation.current += 1
+        releaseOwned()
+        setState({ phase: 'idle', chat: null, error: '' })
+        setOpen(false)
+        saveChatOpen(false)
+      }, [releaseOwned])
+
+      // 页头那颗「开启 / 关闭 Agent 对话框」：开的时候顺手把选择记下来。
+      const toggleChat = React.useCallback(() => {
+        if (open) {
+          closeChat()
+          return
+        }
+        saveChatOpen(true)
+        setOpen(true)
+      }, [open, closeChat])
+
+      // 页面卸载就还掉引用，不然宿主会以为这场会话一直有人看。
+      React.useEffect(() => () => {
+        generation.current += 1
+        releaseOwned()
+      }, [releaseOwned])
+
+      React.useEffect(() => {
+        if (!open || state.phase !== 'idle') return
+        void openChat()
+      }, [open, state.phase, openChat])
+
+      // 状态里的会话引用：拿到之后一路用它把子槽包住，直到收起/卸载才 release。
+      const chatSession = state.chat
+      const column = open && canChat
+        ? h('div', {
+          className: 'dsh-gw-chatcol',
+          style: { '--dsh-gw-chat-w': chatWidth + 'px' },
+        },
+          h('div', { className: 'dsh-gw-chatcol-head' },
+            h('span', { className: 'dsh-gw-chatcol-title' }, t('chat')),
+            h('button', {
+              type: 'button',
+              className: 'dsh-gw-ibtn',
+              title: t('chatClose'),
+              'aria-label': t('chatClose'),
+              onClick: closeChat,
+            }, h(Icon, { name: 'close', size: 12 }))),
+          h('div', { className: 'dsh-gw-chatcol-body' },
+            chatSession === null
+              ? h('div', { className: 'dsh-gw-chat-empty' },
+                h('span', null, state.phase === 'error' ? t('chatFailed') : t('chatOpening')),
+                state.phase === 'error' ? h('span', { className: 'dsh-gw-chat-error' }, state.error) : null,
+                state.phase === 'error'
+                  ? h('button', {
+                    type: 'button',
+                    className: 'dsh-gw-btn',
+                    onClick: () => { void openChat() },
+                  }, t('chatRetry'))
+                  : null)
+              : h(kit.SessionProvider, { session: chatSession.reference }, kit.renderSlot(CHAT_SLOT, {}))))
+        : null
+
+      return h('div', {
+        className: 'dsh-gw-pane dsh-gw-page' + (column === null ? '' : ' dsh-gw-page-split'),
+        // 让专注层和 fixed 的 Agent 栏共用同一个实时宽度，拖动后两边同时贴合。
+        style: column === null ? undefined : { '--dsh-gw-chat-w': chatWidth + 'px' },
+      },
+        h('div', { className: 'dsh-gw-page-main' }, h(Panel, {
+          onClose: null,
+          onChat: canChat ? toggleChat : null,
+          chatOpen: open,
+        })),
+        column === null ? null : h(ChatSplitter, { onResize: resizeChat }),
+        column)
+    }
+
+    // 侧栏图标组件的契约是 { size, active }：只有尺寸，不管点击。
+    function PanelGlyph({ size }) {
+      return h(Icon, { name: 'growth', size })
     }
 
     /* ────────────── 插件入口 ────────────── */
 
-    const TAB_KIND = 'growth-workbench'
-    const TAB_ID = TAB_KIND
-    const TAB_KIND_ID = TAB_KIND
+    // 左侧栏的注册 id：sidebar.panellist 的列表项和 main 的 panel key 必须是同一个值，
+    // 侧栏点开时拿它去 main 里找组件。
+    const PANEL_ID = 'growth-workbench'
     const inject = ['slots']
 
     function apply(ctx) {
@@ -13144,247 +13662,63 @@ const STAGE_OF_STATUS = {
       }
       report('apply', {
         slots: face('slots'),
-        sidebarRight: face('sidebarRight'),
-        sidebarRightTabs: face('sidebarRightTabs'),
-        register: typeof (ctx.get('sidebarRightTabs') || {}).register,
-        openTab: typeof (ctx.get('sidebarRight') || {}).openTab,
+        layout: face('layout'),
+        sessions: face('sessions'),
       })
 
-      // 右侧栏的两个句柄。Cordis 的服务必须经 ctx.inject 才保证拿得到——
-      // 裸 ctx.get 在依赖还没就绪时只会还回 undefined，而那样会一路退回浮层。
-      let rightService = null
-      let tabsService = null
-
-      const openRight = (sessionId) => {
-        if (rightService === void 0 || rightService === null || typeof rightService.openTab !== 'function') {
-          report('openRight:missService', {
-            right: rightService === void 0 || rightService === null ? 'null' : Object.keys(rightService).slice(0, 12).join(','),
-            tabs: tabsService === void 0 || tabsService === null ? 'null' : 'present',
-          })
-          // 右侧栏服务真的不在（比如用户关掉了 better-sidebar）：这一下是用户自己点的，
-          // 开浮层是合理的；但浮层自带关闭按钮和 Esc，不会变成关不掉的遮罩。
-          setOpenAll(true)
-          return
+      // 页内对话要用的三个客户端服务，照「乔木 RSS」的 nativeChatBridge 抓进模块级：
+      // sessions（建会话 / retain 引用）、uiSession（当前会话是谁、会话绑定长什么样）、
+      // uiWorkspace（要新建会话时得有个工作区）。缺哪个都不影响工作台本体，只影响对话。
+      guard('chat services', () => ctx.inject(['sessions', 'uiSession', 'uiWorkspace'], (scope) => {
+        chatScope = scope
+        logChat('chat services:ready', {
+          sessions: typeof (scope.sessions || {}).retain,
+          create: typeof (scope.sessions || {}).create,
+          uiSession: typeof (scope.uiSession || {}).current,
+          uiWorkspace: typeof (scope.uiWorkspace || {}).workspaces,
+        })
+        return () => {
+          chatScope = null
         }
-        try {
-          // 签名是 openTab(kind, options)——kind 是位置参数，不是选项里的一个字段。
-          // 传成对象，它就会拿 "[object Object]" 去注册表里查，然后报「没有这个类型」。
-          rightService.openTab(TAB_KIND, { params: {} })
-          report('openRight:ok', { via: 'openTab' })
-        } catch (error) {
-          // openTab 要求右栏已挂在当前会话上；没挂上时退到显式指定会话的那条路。
-          try {
-            rightService.openTabIn(sessionId, TAB_KIND, { params: {} })
-            report('openRight:ok', { via: 'openTabIn' })
-          } catch (inner) {
-            console.error('[growth-workbench] 打开侧栏失败', error)
-            report('openRight:threw', {
-              openTab: String(error && error.message),
-              openTabIn: String(inner && inner.message),
-            })
-            // 有右侧栏服务却打不开，说明 tab 类型没注册上（契约问题），不是「没有侧栏」。
-            // 这一支原来会退回浮层——那正是点一下就把主对话框整个盖住的来路。
-            // 现在只记录，不弹任何东西。
+      }))
+
+      // 左侧栏的插件入口，和「自媒体工作台」「乔木 RSS」同一套契约：
+      //   · sidebar.panellist 是列表（图标组件 + id/label/order），宿主自己画行和选中态；
+      //   · main 是 keyed slot，键就是这个 id，点开时整页替换掉对话那一块。
+      // 两边 id 必须相同，缺一半的话侧栏点开会报「没有这个面板」并停在原处。
+      // main 条目声明一个 session 子槽（CHAT_SLOT）：注册时带了 children，页面 kit 里
+      // 才有 renderSlot 和 SessionProvider，页内对话才能把“自己 retain 的那场会话”包住。
+      guard('sidebar panel', () => ctx.effect(() => {
+        const releaseList = ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: PANEL_ID,
+          order: 30,
+          label: () => t('title'),
+        }, PanelGlyph))
+        const releaseMain = ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main',
+          key: PANEL_ID,
+          children: { [CHAT_SLOT]: { kind: 'single', scope: 'session' } },
+        }, MainPanel))
+        const releaseChat = ctx.slots.inject(CHAT_SLOT, () => ctx.slots.register({
+          name: CHAT_SLOT,
+        }, WorkbenchChat))
+        report('sidebar panel:registered', { id: PANEL_ID, chatSlot: CHAT_SLOT })
+        return () => {
+          for (const release of [releaseChat, releaseMain, releaseList]) {
+            if (typeof release !== 'function') continue
+            try { release() } catch { /* 已失效 */ }
           }
         }
-      }
+      }, 'growth-workbench: sidebar panel'))
 
-      // 收起右栏。store 是每个会话一份、框架自己持有，插件不能直接往里面写；
-      // 对外只有动作命令：close(tabId) 关掉这一格，作为唯一停靠格的普通 tab，
-      // 整列随之收起、布局留空（见 sidebar-right 的 README「停靠面的最后一个 tab」）。
-      const closeRight = (sessionId) => {
-        report('closeRight:called', { hasSession: typeof sessionId === 'string' })
-        if (rightService === null || typeof rightService !== 'object') { setOpenAll(false); return false }
-        // 先找这一格真实的 tabId。页 tab 的 id 是宿主在 claim 时另起的，
-        // 既不是 kind 也不是 type id——直接从屏幕上的布局里按 kind 认领它。
-        const ids = []
-        try {
-          const active = typeof rightService.active === 'function' ? rightService.active() : void 0
-          if (active !== void 0 && active !== null && active.kind === TAB_KIND && typeof active.id === 'string') ids.push(active.id)
-        } catch (error) {
-          report('closeRight:activeThrew', { message: String(error && error.message) })
-        }
-        if (typeof tabsService === 'object' && tabsService !== null && typeof tabsService.get === 'function') {
-          const definition = tabsService.get(TAB_KIND_ID)
-          if (definition !== void 0 && definition !== null && typeof definition.id === 'string') ids.push(definition.id)
-        }
-        ids.push(TAB_ID)
-        // 全屏（或分隔栏里的浮动格）时动作命令会提前 return，收不起整列；
-        // 这种情况下先看 isExpanded()，真正的收起交给 toggleExpanded()。
-        const tried = new Set()
-        for (const tabId of ids) {
-          if (tried.has(tabId)) continue
-          tried.add(tabId)
-          try {
-            rightService.close(tabId)
-            let stillOpen = false
-            try {
-              const active = typeof rightService.active === 'function' ? rightService.active() : void 0
-              stillOpen = active !== void 0 && active !== null && active.kind === TAB_KIND
-            } catch { /* 读不到就当没开 */ }
-            report('closeRight:ok', { via: 'close(' + tabId + ')', stillOpen })
-            if (!stillOpen) return true
-          } catch (error) {
-            report('closeRight:threw', { via: tabId, message: String(error && error.message) })
-          }
-        }
-        // 关不掉这一格时，退而收起整列——那是「关闭」在侧栏语境里真正的意思。
-        try {
-          if (typeof rightService.toggleExpanded === 'function') {
-            const expanded = typeof rightService.isExpanded === 'function' ? rightService.isExpanded() : true
-            if (expanded !== false) rightService.toggleExpanded()
-            report('closeRight:ok', { via: 'toggleExpanded', expanded })
-            return true
-          }
-        } catch (error) {
-          report('closeRight:toggleThrew', { message: String(error && error.message) })
-        }
-        setOpenAll(false)
-        return false
-      }
-
-      const store = { open: false, listeners: new Set() }
-      const setOpenAll = (value) => {
-        store.open = value
-        for (const listener of store.listeners) listener(value)
-      }
-      const useOpen = () => {
-        const [value, setValue] = React.useState(store.open)
-        React.useEffect(() => {
-          const listener = (next) => setValue(next)
-          store.listeners.add(listener)
-          setValue(store.open)
-          return () => { store.listeners.delete(listener) }
-        }, [])
-        return value
-      }
-
-      function EntryButton({ sessionId }) {
-        return h('button', {
-          className: 'dsh-gw-btn',
-          onClick: () => openRight(sessionId),
-          title: t('title'),
-        }, t('open'))
-      }
-
-      function Overlay() {
-        const open = useOpen()
-        // Esc 关闭：浮层是最后一道防线，必须自己可以退出去。
-          if (!open) return null
-        return h(Panel, { onClose: () => setOpenAll(false) })
-      }
-
-      guard('header button', () => ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-        name: 'conversation.session.header.utilities',
-        id: 'growth-workbench',
-        order: 20,
-      }, EntryButton)), 'growth-workbench: header button'))
-
-      // 把会话输入框的操作句柄抓到模块级：右侧栏里的笔记详情靠它把正文推送进对话。
+      // 把会话输入框的操作句柄抓到模块级：笔记详情靠它把正文推送进对话。
       // order 999 只为不跟宿主自带按钮抢位置；这个组件本身不渲染任何东西。
       guard('input bridge', () => ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
         name: 'conversation.session.header.utilities',
         id: 'growth-workbench-input-bridge',
         order: 999,
       }, InputBridge)), 'growth-workbench: input bridge'))
-
-      // 右侧栏那一格。Cordis 的服务要靠 ctx.inject 等它就绪——裸 ctx.get 只会
-      // 拿到 undefined，于是每次点击都退回浮层。
-      //
-      // 注册契约（对着 asar 里 @deepseek-ai/dsh-client-ui-sidebar-right 的源码核过）：
-      //   · 注册表按 kind 索引（tabs.get(kind)），openTab(kind) 查的也是 kind，
-      //     所以「开启用的 kind」就是 kind 本身，id 只是 provider 身份；
-      //   · slot 是 keyed + session scope，键是 definition.id（TabSlot 用
-      //     `definition?.id ?? tab.kind` 找渲染者）。id 必须等于 slot key，
-      //     kind 必须等于 openTab 传进来的值——两个值各归其位，不能互相顶替。
-      guard('sidebar tab', () => ctx.effect(() => ctx.inject(['sidebarRight', 'sidebarRightTabs'], (injected) => {
-        rightService = injected.get('sidebarRight')
-        tabsService = injected.get('sidebarRightTabs')
-        let disposed = false
-        report('inject', {
-          right: rightService === void 0 ? 'undefined' : Object.keys(rightService).slice(0, 14).join(','),
-          tabs: tabsService === void 0 ? 'undefined' : Object.keys(tabsService).slice(0, 14).join(','),
-          register: typeof (tabsService || {}).register,
-          openTab: typeof (rightService || {}).openTab,
-        })
-        if (tabsService === void 0 || typeof tabsService.register !== 'function') return
-        // 右侧栏确实在：浮层这条路整体撤掉，之后的打开一律走栏位。
-        dropFallback()
-        store.open = false
-        if (typeof tabsService.get === 'function' && tabsService.get(TAB_KIND_ID) !== void 0) {
-          report('sidebar tab:already', { kind: TAB_KIND_ID })
-          return
-        }
-
-        // 先注册类型：类型一进表，registry 立刻 refresh，guide 里就能出现这一项。
-        // 用 try 把失败原因写进日志——register 抛的错会被 cordis 吞掉，只剩「什么都没有」。
-        // 同一个 id 还留在 ids 里（上一轮卸载没走 clean，或热重载重复进 effect）时，
-        // 不能再抛一次把后面的 slot 也带走——那种情况接着注册 slot 就好。
-        let disposeType = null
-        try {
-          disposeType = tabsService.register({
-            id: TAB_ID,
-            kind: TAB_KIND_ID,
-            keepMounted: true,
-            priority: 'extension',
-            title: () => t('title'),
-            guide: [{ id: TAB_ID, order: 30, title: () => t('title') }],
-          })
-          report('sidebar tab:registered', { id: TAB_ID, kind: TAB_KIND_ID })
-        } catch (error) {
-          report('sidebar tab:register-threw', { message: String(error && error.message) })
-        }
-
-        let disposeBody = null
-        let disposeTitle = null
-        try {
-          disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-            name: 'sidebar.right.pane.tab',
-            key: TAB_ID,
-          }, TabBody))
-          disposeTitle = ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
-            name: 'sidebar.right.pane.tab.title',
-            key: TAB_ID,
-          }, () => h('span', null, t('open'))))
-          report('sidebar tab:slots', { key: TAB_ID })
-        } catch (error) {
-          // slot 注册失败就把类型也退掉，否则那个 id 会被占着，重载后永远注册不上。
-          report('sidebar tab:slot-threw', { message: String(error && error.message) })
-          if (disposeType !== null) { try { disposeType() } catch { /* 已失效 */ } }
-          return
-        }
-
-        return () => {
-          if (disposed) return
-          disposed = true
-          for (const dispose of [disposeTitle, disposeBody, disposeType]) {
-            if (typeof dispose !== 'function') continue
-            try { dispose() } catch { /* 已失效 */ }
-          }
-        }
-      })))
-
-      // 兜底浮层只在没有右侧栏的情况下出现——在 apply 时就按服务在不在决定，
-      // 而不是留一个「随时会盖住对话」的注册在那儿等。服务要晚一点才就绪时，
-      // 由 sidebar tab 那一段把浮层撤掉。
-      let disposeFallback = null
-      const dropFallback = () => {
-        if (disposeFallback === null) return
-        try { disposeFallback() } catch { /* 已失效 */ }
-        disposeFallback = null
-      }
-      guard('fallback overlay', () => {
-        const present = (() => {
-          try { return ctx.get('sidebarRight') !== void 0 } catch { return false }
-        })()
-        if (present) { report('fallback overlay:skipped', { reason: 'sidebarRight present' }); return }
-        disposeFallback = ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-          name: 'shell.overlay',
-          id: 'growth-workbench:panel',
-          order: 30,
-        }, Overlay)), 'growth-workbench: fallback overlay')
-        report('fallback overlay:on', { reason: 'sidebarRight absent' })
-      })
 
       // 来源预览挂在主对话输入框上方（session 作用域），右侧栏不挡对话。
       guard('conversation preview dock', () => ctx.effect(() => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({

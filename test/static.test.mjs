@@ -399,7 +399,9 @@ test('host client remains one module with no relative imports and 14 public card
   assert.match(src, /\.dsh-gw-body\[data-narrow=true\] \.dsh-gw-sop-head\{[^}]*flex-wrap:wrap/)
   assert.match(src, /\.dsh-gw-body\[data-tight=true\] \.dsh-gw-ms-pop\{max-width:calc\(100% - 8px\)/)
   assert.match(src, /\.dsh-gw-notetable\{[^}]*overflow:auto/)
-  assert.match(src, /\.dsh-gw-tablebox\{[^}]*overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain/)
+  assert.match(src, /\.dsh-gw-tablebox\{[^}]*overflow:auto;overscroll-behavior:contain/)
+  // 不许预留常显滚动条槽：scrollbar-gutter:stable 会在表格右边留一条 12px 的纯空白。
+  assert.doesNotMatch(src, /scrollbar-gutter/)
   assert.match(src, /\.dsh-gw-tablebox>\.dsh-gw-table>thead>tr>th,\.dsh-gw-tablebox>\.dsh-gw-matrix>thead>tr>th\{top:0\}/)
   assert.doesNotMatch(src, /\.dsh-gw-tablebox\{[^}]*overflow:visible/)
   assert.match(src, /className: 'dsh-gw-tablebox dsh-gw-gloss-box'[^\n]+aria-label': '术语表：可横向滚动'/)
@@ -563,7 +565,7 @@ test('feedback table keeps status visible in a real column and expands later bou
   assert.match(body, /className: 'dsh-gw-fb-actions-cell'[\s\S]*className: 'dsh-gw-acts'/)
   assert.match(body, /expandingPixelColResizeStart\(fbFullWidths/)
   assert.match(body, /expandedPixelColumnWidths\(current, index, delta/)
-  assert.match(body, /width: fbWidths\.reduce\(\(sum, width\) => sum \+ width, 0\) \+ 'px'/)
+  assert.match(body, /width: 'max\(100%, ' \+ fbWidths\.reduce\(\(sum, width\) => sum \+ width, 0\) \+ 'px\)'/)
 })
 test('account rows and product rollups have bounded identity layout and stable platform badges', () => {
   assert.match(src, /\.dsh-gw-account-row\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/)
@@ -578,10 +580,63 @@ test('account rows and product rollups have bounded identity layout and stable p
   assert.match(src, /\.dsh-gw-platform-badge\{[^}]*white-space:nowrap/)
   assert.match(src, /\.dsh-gw-rollup-topic\{[^}]*text-overflow:ellipsis/)
 })
-test('workbench tab fills its sidebar without scaling the canvas', () => {
+test('workbench fills the main page and its own chat column hosts the native conversation', () => {
   assert.doesNotMatch(src, /dsh-gw-fit|FitSidebarStage|GW_FIT_WIDTH/)
-  const tab = actualFunction('TabBody')
-  assert.match(tab, /h\('div', \{ className: 'dsh-gw-pane' \}, h\(Panel, \{ onClose: null \}\)\)/)
+  // 工作台只占主区域（左侧栏那一页），对话画在同一页的右列里。
+  // 右栏页签那条路是死的：宿主在全局面板占着主区域时会把右侧栏整列隐藏。
+  assert.doesNotMatch(src, /sidebarRightTabs|sidebar\.right\.pane\.tab|openTabIn/)
+  // 会话域必须是严格的 session：工作台占住主区域时主区域里没有 conversation 条目在跑，
+  // session-maybe 继承到的是空绑定，格子里一片白。乔木 RSS 同样用 scope:"session"
+  // 加自己 retain 的引用，这里照做。
+  assert.doesNotMatch(src, /scope: 'session-maybe'/)
+  const page = actualFunction('MainPanel')
+  assert.match(page, /className: 'dsh-gw-pane dsh-gw-page' \+ \(column === null \? '' : ' dsh-gw-page-split'\)/)
+  assert.match(page, /h\('div', \{ className: 'dsh-gw-page-main' \}, h\(Panel, \{/)
+  // 自己 retain 的那份引用由宿主的 SessionProvider 包住子槽——这一步不能省，
+  // 少了它子槽拿不到 sessionId，宿主的 embedded 对话也不认这份会话。
+  assert.match(page, /h\(kit\.SessionProvider, \{ session: chatSession\.reference \}, kit\.renderSlot\(CHAT_SLOT, \{\}\)\)/)
+  // 会话从「当前这一场」来；主区域没有会话时新建一场。
+  assert.match(src, /uiSession\.current\.getSnapshot\(\)/)
+  assert.match(src, /sessions\.create\(\{ workspaceId \}\)/)
+  assert.match(src, /sessions\.retain\(sessionId, \{ source: CHAT_SOURCE \}\)/)
+  assert.match(src, /ctx\.inject\(\['sessions', 'uiSession', 'uiWorkspace'\]/)
+  // 主条目必须声明 session 子槽，否则页面 kit 里根本没有 renderSlot / SessionProvider。
+  assert.match(src, /children: \{ \[CHAT_SLOT\]: \{ kind: 'single', scope: 'session' \} \}/)
+  assert.match(src, /ctx\.slots\.inject\(CHAT_SLOT, /)
+  // 那一格渲染的是这一场会话的原生对话：宿主的 conversation.content embedded 工厂。
+  const chat = actualFunction('WorkbenchChat')
+  assert.match(chat, /renderFactorySlot\('conversation\.content'/)
+  assert.match(chat, /variant: 'embedded'/)
+  assert.match(chat, /phase: settling \? 'settling' : hero \? 'hero' : 'active'/)
+  // 只认工厂入口：组件自己不去 renderSlot conversation.session，钉死视图那层由工厂的
+  // local slot（ChatView）来做。
+  assert.doesNotMatch(chat, /renderSlot\(/)
+  assert.doesNotMatch(chat, /h\(Panel,/)
+  const view = actualFunction('ChatView')
+  assert.match(view, /renderSlot\('conversation\.session', \{ view: 'chat' \}\)/)
+  // 对话栏要能拖宽度：分隔条 + 自定义属性 + 本地持久化，窄屏退成上下排时隐藏分隔条。
+  assert.match(page, /h\(ChatSplitter, \{ onResize: resizeChat \}\)/)
+  assert.match(page, /style: \{ '--dsh-gw-chat-w': chatWidth \+ 'px' \}/)
+  assert.match(src, /\.dsh-gw-chat-split\{[^}]*cursor:col-resize/)
+  assert.match(src, /\.dsh-gw-chatcol\{[^}]*flex:0 0 var\(--dsh-gw-chat-w,420px\)/)
+  // 专注时 Panel 是 fixed；打开 Agent 后，对话栏也必须升到专注层上方，且工作台让出相同宽度。
+  assert.match(src, /\.dsh-gw-page-split:has\(\.dsh-gw-panel\[data-zen=true\]\) \.dsh-gw-panel\[data-zen=true\]\{right:var\(--dsh-gw-chat-w,420px\)\}/)
+  assert.match(src, /\.dsh-gw-page-split:has\(\.dsh-gw-panel\[data-zen=true\]\) \.dsh-gw-chatcol\{position:fixed;[^}]*z-index:8801;[^}]*width:var\(--dsh-gw-chat-w,420px\)/)
+  assert.match(page, /style: column === null \? undefined : \{ '--dsh-gw-chat-w': chatWidth \+ 'px' \}/)
+  assert.match(src, /@media \(max-width:900px\)\{[\s\S]*?\.dsh-gw-chat-split\{display:none\}/)
+  const splitter = actualFunction('ChatSplitter')
+  assert.match(splitter, /parentElement/)
+  assert.match(splitter, /rect\.right - event\.clientX/)
+})
+test('page mode neutralizes the panel veil so it cannot cover the app', () => {
+  // 2026-11-15 事故：页面模式把 Panel 包进 .dsh-gw-page-main 之后，veil 不再是
+  // .dsh-gw-pane 的直接子节点，`.dsh-gw-pane > .dsh-gw-veil` 失效，veil 退回
+  // position:fixed + inset:0 + z-index:9000 的遮罩 —— 一打开工作台，整个 DSH
+  // 主界面连同左侧栏都被盖住。这两条规则缺一条就会重现。
+  assert.match(src, /\.dsh-gw-pane > \.dsh-gw-veil\{position:absolute;inset:0;padding:0;background:transparent/)
+  assert.match(src, /\.dsh-gw-page-main > \.dsh-gw-veil,\.dsh-gw-page > \.dsh-gw-veil\{position:absolute;inset:0;padding:0;background:transparent/)
+  // 绝对定位要有参照物：page-main 必须是 position:relative，否则 veil 会相对视口铺满。
+  assert.match(src, /\.dsh-gw-page-main\{position:relative;/)
 })
 test('sticky top rows keep square corners in every card', () => {
   assert.match(src, /\.dsh-gw-panel:has\(> \.dsh-gw-body > \.dsh-gw-card-crumb\),\.dsh-gw-panel:has\(\.dsh-gw-body \.dsh-gw-card-crumb\)[^\{]*\{border-top-left-radius:0!important;border-top-right-radius:0!important\}/)
@@ -685,6 +740,47 @@ test('account picker keeps a readable select width and wraps the create button',
 test('upcoming schedule table can shrink below the generic adjustable minimum', () => {
   assert.match(src, /\.dsh-gw-adjustable-table\{min-width:0\}/)
   assert.match(actualFunction('UpcomingQueue'), /dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table/)
+})
+
+test('tables refit into one screen and every scrollbar stays visible', () => {
+  // 滚动条：12px 宽高 + 可见轨道 + 悬停加深，溢出时用户看得见（宿主默认细条几乎不可见）。
+  assert.match(src, /\.dsh-gw-panel ::-webkit-scrollbar\{width:12px;height:12px\}/)
+  assert.match(src, /\.dsh-gw-panel ::-webkit-scrollbar-track\{background:color-mix\(in srgb, var\(--dsw-alias-border-l1\) 26%, transparent\);border-radius:6px\}/)
+  assert.match(src, /\.dsh-gw-panel ::-webkit-scrollbar-thumb\{background-color:var\(--dsw-alias-scrollbar-bg-l2\);border:3px solid transparent;border-radius:6px;background-clip:content-box;min-height:32px;min-width:32px\}/)
+  assert.match(src, /\.dsh-gw-panel ::-webkit-scrollbar-thumb:hover,.dsh-gw-panel ::-webkit-scrollbar-thumb:active\{background-color:var\(--dsw-alias-scrollbar-hover-l2\)\}/)
+  // 正文格允许折行，把长文本压回格内，而不是撑出横向滚动。
+  assert.match(src, /\.dsh-gw-adjustable-table td\{white-space:normal;overflow-wrap:anywhere\}/)
+  // 列宽拟合按容器宽度重跑（不再只在首屏跑一次），拖过的宽度只在放不下时收回。
+  const hook = actualFunction('usePixelColumnWidths')
+  // 必须观察滚动容器：表格是行内像素宽，容器变窄时表格自身尺寸不变，观察它收不到通知。
+  assert.match(hook, /table\.closest\('\.dsh-gw-tablebox, \.dsh-gw-rules-frame, \.dsh-gw-rules-scroll'\)/)
+  assert.match(hook, /Math\.abs\(available - fitted\) < 8/)
+  assert.match(hook, /watchSize\(box, \(\) => fit\(\)\)/)
+  assert.match(hook, /draggedRef\.current \|\| savedRef\.current !== null/)
+  // 变宽时富余只补给最宽那列；操作列保持设计宽度，否则最后一列被摊宽、按钮右边空一截。
+  assert.match(hook, /const next = fitPixelColumnWidths\(reference, minimums, available\)/)
+  assert.doesNotMatch(hook, /if \(pinned && available >= total\) return current/)
+  const fit = actualFunction('fitPixelColumnWidths')
+  assert.match(fit, /Math\.max\(28, Math\.round\(Number\(minimums\[index\] \?\? 48\) \|\| 48\)\)/)
+  assert.match(fit, /Math\.max\(28, Math\.floor\(\(width \* available\) \/ scaledTotal\)\)/)
+  // 不再有钉死超宽的表格：台账 1080px 的横向溢出必须去掉（正文改折行）；
+  // 拆解笔记 / 榜单这种带数字或标题的窄表保留一个适度的下限（≤640px），
+  // 超出时靠加粗的横向滚动条提示，而不是把数字压成省略号。
+  assert.doesNotMatch(src, /\.dsh-gw-ledger-table\{min-width:1080px\}/)
+  assert.match(src, /\.dsh-gw-ledger-table\{min-width:0\}/)
+  assert.match(src, /\.dsh-gw-ledger-table td\{white-space:normal;overflow-wrap:anywhere\}/)
+  // 表格必须铺满所在容器：宽度取 max(100%, 各列之和)，列宽和小于容器时由浏览器
+// 把余量分给各列，右缘不留一条空白；列宽和大于容器时才横向滚动。
+  assert.equal((src.match(/width: 'max\(100%, ' \+/g) ?? []).length, 10, 'every adjustable table must fill its box')
+  // 待回填表同理：宽度跟着列宽变量走，但至少铺满容器；伸缩时前三列的 sticky 偏移跟着列宽走。
+  assert.match(src, /\.dsh-gw-pending-box \.dsh-gw-pending-table\{width:max\(100%,var\(--gw-pending-width,852px\)\);min-width:0\}/)
+  assert.match(src, /left:var\(--gw-pending-left-2,64px\)/)
+  assert.match(src, /left:var\(--gw-pending-left-3,152px\)/)
+  for (const rule of [/\.dsh-gw-notetable-head,\.dsh-gw-notetable-row\{width:100%;min-width:(\d+)px\}/, /\.dsh-gw-rank-table\{width:100%;min-width:(\d+)px;/]) {
+    const found = rule.exec(src)
+    assert.ok(found !== null, 'expected a bounded min-width rule: ' + rule)
+    assert.ok(Number(found[1]) <= 900, 'table min-width must stay bounded: ' + found[0])
+  }
 })
 
 test('upcoming schedule list paginates at ten rows with explicit pager controls', () => {
@@ -853,6 +949,20 @@ test('platform versions use one actionable list with metrics and script controls
   assert.match(body, /formatDuration\(latest\.avgDuration\)/)
   assert.match(body, /'版本脚本'/)
 })
+test('platform version rows are compact: one line per version', () => {
+  const body = actualFunction('PlatformVariantsPanel')
+  // 平台版本曾排成三行（标题 / 平台·账号·发布·自检 / 最近数据），四个版本就要滚一屏。
+  // 现在标题和 meta 同排，最近数据只作为 meta 的悬停提示存在。
+  assert.match(body, /className: 'dsh-gw-row-line'/, 'title and meta must share one row line')
+  assert.match(body, /dsh-gw-variant-meta/)
+  assert.equal((body.match(/最近数据 /g) ?? []).length, 1, 'latest metrics must not render a second row')
+  assert.match(body, /title: dataLine === '' \? undefined : dataLine/, 'latest metrics belong in the meta tooltip')
+})
+test('platform version row CSS keeps one line and ellipsizes meta', () => {
+  assert.match(src, /\.dsh-gw-variant-row\{flex-wrap:nowrap/)
+  assert.match(src, /\.dsh-gw-row-line\{display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:nowrap\}/)
+  assert.match(src, /\.dsh-gw-variant-meta\{[^}]*overflow:hidden[^}]*text-overflow:ellipsis[^}]*white-space:nowrap/)
+})
 test('platform-version checklist is per-version and missing SOP is explicit', () => {
   const body = actualFunction('PlatformVariantsPanel')
   // 勾选状态曾写成面板级 useState(() => readCheckSelection(variant?.front))：
@@ -919,6 +1029,69 @@ test('SOP card honors a requested note path', () => {
   assert.match(body, /function SopCard\(\{ notify, onCrumb, crumb, closeTicket, preset \}\)/)
   assert.match(body, /preset\.path \?\? preset\.note/)
   assert.match(body, /setActivePath\(target\)/)
+})
+
+test('focus mode turns the panel itself into a full-window layer', () => {
+  const panel = actualFunction('Panel')
+  // 开关在页头图标排里，任何卡片都能进来（不是 SOP 专属）；Esc 在面板层退出。
+  assert.doesNotMatch(panel, /cardId === 'sop' \? h\('button', \{/, 'focus toggle is no longer SOP-only')
+  assert.match(panel, /h\(Icon, \{ name: 'expand' \}\)/)
+  assert.doesNotMatch(panel, /h\(Icon, \{ name: zenOn \? 'collapse' : 'expand' \}\)/)
+  assert.match(panel, /'data-zen': zenOn \? 'true' : undefined/)
+  assert.match(panel, /if \(event\.key === 'Escape'\) setZenOn\(false\)/)
+  assert.doesNotMatch(panel, /if \(cardId !== 'sop' && zenOn\) setZenOn\(false\)/, 'leaving SOP must not drop focus mode')
+  const sop = actualFunction('SopCard')
+  assert.doesNotMatch(sop, /◉ 专注模式/)
+  assert.doesNotMatch(sop, /setZen\(/)
+  // 不再把 shell 搬出去（portal 到 body 会丢面板配色、背景变透明；挂进面板又容易在
+  // 祖先容器里打架）。专注全由面板自己变成 fixed 层承担。
+  assert.doesNotMatch(sop, /createPortal\(/)
+  assert.match(sop, /return shell/)
+  assert.equal((sop.match(/h\('button', \{ className: 'dsh-gw-btn', 'data-tone': 'primary', onClick: \(\) => setCreating/) ?? []).length, 1, '新建 stays the only card-header action')
+  // SOP 卡片头在专注时也是普通形态；退出按钮统一放面板头第一行，卡片头不重复。
+  assert.doesNotMatch(sop, /dsh-gw-sop-zenhead/)
+  assert.doesNotMatch(sop, /dsh-gw-sop-zenhint/)
+  assert.doesNotMatch(sop, /dsh-gw-zenexit/)
+  assert.match(sop, /h\('div', \{ className: 'dsh-gw-sop-head' \}/)
+  // 共享开关 + 面板自己 fixed 铺满主区域 + 实色背景。
+  assert.match(src, /const zenStore = \{ on: false, listeners: new Set\(\) \}/)
+  assert.match(src, /function useZenOn\(\)/)
+  // 专注层应覆盖标题栏以下的整个网页，包括宿主左侧栏；Windows 原生标题栏仍保留。
+  assert.match(src, /\.dsh-gw-panel\[data-zen=true\]\{position:fixed;top:var\(--dsh-windows-titlebar-height,0\);left:0;right:0;bottom:0/)
+  assert.doesNotMatch(src, /--gw-zen-left/, 'focus mode must not reserve space for the host sidebar')
+  // 面板头、工作区页签和卡片页签都留着：进得去也出得来，还能在专注里切换「运营 / 电商」等卡片。
+  assert.doesNotMatch(src, /\.dsh-gw-panel\[data-zen=true\] \.dsh-gw-tabs\{display:none\}/)
+  assert.doesNotMatch(src, /\.dsh-gw-panel\[data-zen=true\] \.dsh-gw-head,/)
+  assert.doesNotMatch(src, /\.dsh-gw-panel\[data-zen=true\] \.dsh-gw-card-tabs,/)
+  assert.match(src, /\.dsh-gw-panel\[data-zen=true\] \.dsh-gw-body\{max-width:none;margin-left:0;margin-right:0;padding:12px 16px 16px\}/)
+  // 退出专注就在第一行（替换掉那颗专注图标），文字 + 图标，不是浮在右上角的兜底小按钮。
+  assert.match(panel, /zenOn\s*\n\s*\? h\('button', \{\s*\n\s*className: 'dsh-gw-zenexit'/)
+  assert.match(panel, /h\('span', null, '退出专注'\)/)
+  assert.equal((panel.match(/className: 'dsh-gw-zenexit'/g) ?? []).length, 1, '只有一颗退出按钮')
+  assert.doesNotMatch(panel, /dsh-gw-zen-chip/)
+  assert.doesNotMatch(src, /\.dsh-gw-zen-chip\{position:absolute/)
+  assert.match(src, /--gw-reading:82ch/)
+  // 正文阅读列贴左（用户明确要求「编辑区内容还是靠左」）。
+  assert.match(src, /\.dsh-gw-md\{max-width:min\(var\(--gw-reading\),100%\);margin-left:0;margin-right:auto\}/)
+  assert.doesNotMatch(src, /\.dsh-gw-md\{max-width:min\(var\(--gw-reading\),100%\);margin-left:auto/)
+})
+
+test('agent chat is open by default and the head button mirrors that state', () => {
+  // 默认开：localStorage 里没有记录时返回 true；关掉之后会记住。
+  assert.match(src, /function readChatOpen\(\) \{/)
+  assert.match(src, /if \(raw === null\) return true/)
+  assert.match(src, /localStorage\.setItem\('dsh-growth\.chat\.open', on === true \? '1' : '0'\)/)
+  const main = actualFunction('MainPanel')
+  assert.match(main, /const \[open, setOpen\] = React\.useState\(readChatOpen\)/, '对话框默认展开')
+  assert.match(main, /saveChatOpen\(false\)/, '关掉时记住')
+  assert.match(main, /saveChatOpen\(true\)/, '打开时记住')
+  assert.match(main, /chatOpen: open/)
+  // 页头那颗按钮：开着时写「关闭 Agent 对话框」，关掉后写「开启 Agent 对话框」，前面带小图标。
+  const panel = actualFunction('Panel')
+  assert.match(panel, /'data-on': chatOpen === true \? 'true' : 'false'/)
+  assert.match(panel, /'关闭 Agent 对话框' : '开启 Agent 对话框'/)
+  assert.match(panel, /h\(Icon, \{ name: 'chat', size: 14 \}\)/)
+  assert.match(src, /\.dsh-gw-chatbtn\[data-on="false"\]\{border-color:color-mix\(in srgb,var\(--gw-accent/)
 })
 console.log('\n' + pass + ' passed, ' + failures.length + ' failed')
 process.exitCode = failures.length === 0 ? 0 : 1
