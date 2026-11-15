@@ -6,7 +6,7 @@
 
 DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回填和复盘集中在一个侧边栏里，业务数据直接保存在你自己的 Obsidian vault 中。
 
-当前版本 `0.2.2`，仍在快速迭代。项目面向个人创作者和小型内容运营团队，**目前只支持 DSH**，不是 Codex、Claude Code 等通用 Agent 插件。
+当前版本 `0.2.3`，仍在快速迭代。项目面向个人创作者和小型内容运营团队，**目前只支持 DSH**，不是 Codex、Claude Code 等通用 Agent 插件。
 
 ---
 
@@ -217,7 +217,14 @@ node rollback.mjs --confirm
 
 跨站请求（`sec-fetch-site: cross-site`）一律拒绝。领取 token 的接口只按这一条判断——桌面端页面有时不带 `sec-fetch-site`，所以不能因为「没有这个头」就拒绝它；其余接口一律要求 `x-dsh-growth-token` 头，不带任何 `sec-fetch-site` 头的本机脚本也必须带。
 
+这些路由挂在 DSH 的 `webServer` 上，这本身**不会**套上 DSH 自己的接入检查，所以每个请求进来先问一次 DSH 的 `ctx.connection.requestRejection`：Host/Origin 不可信（跨站页面、DNS rebinding）直接 403；它认出是已登录的 DSH 页面就放行；认不出时（桌面端渲染进程有时不带 DSH 的会话 cookie）才落到上面那套插件 token。两道门都不认的请求才会被拒。判定结果写在 `~/.dsh-growth/access-probe.log`，排查「页面打不开数据」先看它。
+
 ## 更新记录
+
+### 0.2.3
+
+- 所有 API 路由在入口先过 DSH 自己的接入检查（`ctx.connection.requestRejection`），不再只依赖插件 token：跨站调用与 DNS rebinding 一律 403。宿主没有 `connection` 服务时（老版本 DSH）自动降级，行为退回上一版。
+- 新增 `~/.dsh-growth/access-probe.log`：记录 DSH 对请求的判定（`ok` / `401` / `403` / `no-service`）与请求对象指纹，同样的结论 30 秒只记一条。
 
 ### 0.2.2
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-growth-workbench",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "Growth workbench for DeepSeek Harness: conversation-header button + right-sidebar panels for new-media ops, ecommerce and marketing — accounts, topics, platform variants, calendar, metrics ledgers, products, feedback, campaigns, SOP, glossary and copy rules, all backed by your Obsidian vault.",
   "scripts": {

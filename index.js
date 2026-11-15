@@ -4,6 +4,9 @@
  * 架构照搬 dsh-legal-workbench：Cordis 插件 inject:['webServer']，把
  * /api/dsh-growth 用 kind:'prefix' 挂到 DSH 自己的 webServer 上（不开新端口）。
  * 统一响应 { ok:true, ... } / { ok:false, code, message }。
+ *
+ * 接入检查：webServer.register 挂的路由不会被 DSH 自动罩上 Host/Origin 栅栏，
+ * 所以每个请求自己先问一次 connection 服务（dshAdmission），过了再验插件 token。
  */
 import { spawn, execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
@@ -3539,10 +3542,73 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     res.on('close', done)
   }
 
+  /**
+   * DSH 自己的接入栅栏。
+   *
+   * 路由是用 ctx.webServer.register 挂上去的，DSH 只给自己的路由做 Host/Origin
+   * 检查，不会替我们做。所以每个请求都得自己问一次 connection 服务 —— 官方插件
+   * 都是这么写的（dsh-host-open-in-app、dsh-experimental-inspector 的 handler
+   * 第一行都先 requestRejection）。
+   *
+   * 三种结果：
+   *   403        Host/Origin 不可信（跨站页面、DNS rebinding）—— 一律拒；
+   *   401        栅栏过了，但 DSH 不认识调用方（没有 dsh-auth-* cookie）—— 交回插件
+   *              自己的 token 判定。这里硬拒的风险是桌面端渲染进程一旦不带 cookie
+   *              就整页停摆，而 token 才是我们真正的凭证；
+   *   undefined  DSH 认了，照常走 token。
+   *
+   * 老版本 DSH 没有 connection 服务时 applied=false，插件自己的 isLoopback + token
+   * 照旧生效，不会因为宿主升降级而失效。
+   */
+  function dshAdmission(ctx, req) {
+    let service
+    try {
+      service = typeof ctx?.get === 'function' ? ctx.get('connection') : undefined
+    } catch { service = undefined }
+    if (service === undefined || service === null) {
+      try { service = ctx?.connection } catch { service = undefined }
+    }
+    if (service === undefined || service === null || typeof service.requestRejection !== 'function') {
+      return { applied: false, rejection: undefined }
+    }
+    try {
+      return { applied: true, rejection: service.requestRejection(req) }
+    } catch {
+      return { applied: false, rejection: undefined }
+    }
+  }
+
+  // 栅栏判定的现场记录：重启一次就能看清桌面端到底带不带 DSH cookie。
+  // 同一结论 30 秒只记一条，轮询请求不会把日志刷满。
+  const accessProbeAt = new Map()
+  function probeAccess(req, admission) {
+    const verdict = admission.applied ? String(admission.rejection ?? 'ok') : 'no-service'
+    const now = Date.now()
+    if (now - (accessProbeAt.get(verdict) ?? 0) < 30_000) return
+    accessProbeAt.set(verdict, now)
+    try {
+      rotateAppend(join(dataDir(), 'access-probe.log'), `${new Date().toISOString()} ${JSON.stringify({
+        dsh: verdict,
+        host: String(req.headers?.host ?? ''),
+        site: String(req.headers?.['sec-fetch-site'] ?? ''),
+        origin: String(req.headers?.origin ?? ''),
+        cookie: typeof req.headers?.cookie === 'string' && req.headers.cookie !== '',
+      })}\n`, 128 * 1024)
+    } catch { /* 日志失败不影响判定 */ }
+  }
+
   const handler = async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     res.setHeader('content-type', 'application/json; charset=utf-8')
     res.setHeader('cache-control', 'no-store')
+    // DSH 的 Host/Origin 栅栏在最外层：403 直接拒，401 留给下面的 token 判定。
+    const admission = dshAdmission(ctx, req)
+    probeAccess(req, admission)
+    if (admission.applied && admission.rejection === 403) {
+      res.statusCode = 403
+      res.end(JSON.stringify({ ok: false, code: 'forbidden', message: '不接受来自其它站点的请求' }))
+      return
+    }
     if (!isLoopback(req)) {
       res.statusCode = 403
       res.end(JSON.stringify({ ok: false, code: 'forbidden', message: '只允许本机访问' }))

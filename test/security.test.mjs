@@ -13,10 +13,16 @@ const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-sec-vault-'))
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gw-sec-data-'))
 
 let handler = null
+// DSH connection 服务的替身：requestRejection 的返回值由用例控制（403/401/undefined），
+// 再模拟「老版本 DSH 没有这个服务」（serveConnection=false）。
+let serveConnection = true
+let dshRejection
+const connection = { requestRejection() { return dshRejection } }
 plugin.apply({
   webServer: { register(route) { handler = route.handler; return () => {} } },
   effect(fn) { return fn() },
   logger: { info() {}, warn() {}, error() {} },
+  get(name) { return serveConnection && name === 'connection' ? connection : undefined },
 }, { pluginDataDir: dataDir })
 await new Promise((resolve) => setTimeout(resolve, 150))
 
@@ -107,6 +113,42 @@ r = await request('GET', base + '/v2/events?path=Topics/a.md&ticket=' + encodeUR
 log('ticket 建立事件流', r.status === 200 && /: connected/.test(r.raw), { status: r.status, head: r.raw.slice(0, 24) })
 r = await request('GET', base + '/v2/events?path=Topics/a.md&ticket=' + encodeURIComponent(ticket))
 log('同一张 ticket 不能复用', r.status === 401, { status: r.status })
+
+// 12. DSH 栅栏 403（跨站/DNS rebinding）：即使带着我们的票也拒
+dshRejection = 403
+r = await request('GET', base + '/overview', { 'x-dsh-growth-token': scriptToken })
+log('DSH 栅栏 403 一律拒（带票也不例外）', r.status === 403 && /其它站点/.test(r.json.message), r)
+
+// 12a. 栅栏 403 时 /token 也拿不到票
+r = await request('GET', base + '/token')
+log('DSH 栅栏 403 挡住 /token', r.status === 403 && r.json.token === undefined, { status: r.status })
+
+// 13. DSH 栅栏 401（DSH 不认识调用方）：交回插件 token 判定 —— 带票放行
+dshRejection = 401
+r = await request('GET', base + '/overview', { 'x-dsh-growth-token': scriptToken })
+log('栅栏 401 + 插件票 → 放行（桌面端无 cookie 也不停摆）', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })
+
+// 13a. 栅栏 401 + 没有插件票 → 仍是 401
+r = await request('GET', base + '/overview')
+log('栅栏 401 + 无票 → 401', r.status === 401 && r.json.code === 'unauthorized', { status: r.status, code: r.json.code })
+
+// 14. DSH 认了（undefined）：照常放行（此时还没配 vault，业务层回 400 是正常的）
+dshRejection = undefined
+r = await request('GET', base + '/overview', { 'x-dsh-growth-token': scriptToken })
+log('栅栏放行 → 过门', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })
+
+// 15. 老版本 DSH 没有 connection 服务：插件自己的检查照旧，不崩、/token 能领
+serveConnection = false
+r = await request('GET', base + '/token')
+log('无 connection 服务时降级运行', r.status === 200 && typeof r.json?.token === 'string', { status: r.status })
+serveConnection = true
+
+// 15a. 栅栏判定写进了 access-probe.log（诊断桌面端到底带不带 DSH cookie）
+const probeLog = path.join(dataDir, 'access-probe.log')
+const probeText = fs.existsSync(probeLog) ? fs.readFileSync(probeLog, 'utf8') : ''
+log('access-probe.log 记录了 403/401/ok/no-service 四种结论',
+  ['"dsh":"403"', '"dsh":"401"', '"dsh":"ok"', '"dsh":"no-service"'].every((needle) => probeText.includes(needle)),
+  { lines: probeText.split('\n').filter(Boolean).length })
 
 // 7. vaultRoot 填盘符根 → 拒绝
 r = await request('PUT', base + '/config', { 'x-dsh-growth-token': scriptToken }, { vaultRoot: 'C:\\' })
