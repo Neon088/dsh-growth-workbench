@@ -92,6 +92,15 @@ DeepSeek Harness 的内容运营工作台。选题、排期、发布、数据回
 
 > 注意：安装脚本**不会**安装依赖，也**不会**自动重启 DSH。装完需要你手动重启或重载 DSH。
 
+不想克隆仓库的话，直接下载 Release 里的包（插件市场的一键安装指向的就是它）：
+
+```powershell
+Invoke-WebRequest "https://github.com/Neon088/dsh-growth-workbench/releases/latest/download/dsh-growth-workbench.tgz" -OutFile dsh-growth-workbench.tgz
+tar -xzf dsh-growth-workbench.tgz
+cd package
+node install.mjs        # 先看预览，确认后加 --confirm
+```
+
 ### 方式一：用安装脚本（推荐）
 
 克隆仓库并进入目录：
