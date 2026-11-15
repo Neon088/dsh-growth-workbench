@@ -61,6 +61,11 @@ r = await request('GET', base + '/token', { 'sec-fetch-site': 'same-origin' })
 const token = r.json?.token
 log('/token 同源可领', r.status === 200 && typeof token === 'string' && token.length === 48, { status: r.status, len: token?.length })
 
+// 4a. /token：桌面端渲染进程的 fetch 不带 sec-fetch-site，必须也能领
+// （2026-11-15 现场故障的根因：把它限成 same-origin 后页面永远领不到票）
+r = await request('GET', base + '/token', { origin: 'http://127.0.0.1:58377' })
+log('/token 无 sec-fetch-site 也能领（桌面端）', r.status === 200 && typeof r.json?.token === 'string', { status: r.status, len: r.json?.token?.length })
+
 // 5. 带 token 的浏览器请求 → 放行
 r = await request('GET', base + '/overview', { 'sec-fetch-site': 'same-origin', 'x-dsh-growth-token': token })
 log('带 token 放行（不再 401/403）', r.status !== 401 && r.status !== 403, { status: r.status, code: r.json.code })

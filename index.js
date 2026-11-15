@@ -296,11 +296,19 @@ export const inject = ['webServer']
  * DSH 的 GUI 有登录态，插件的路由却挂在它外面（同端口、不同路径），
  * 任何网页都能对 http://127.0.0.1:<port>/api/dsh-growth/... 发请求 ——
  * 旧版连 token 都不要，等于把「读写 vault」开给了互联网。
- * 现在：所有 API 请求都必须带这个进程级 token —— 浏览器页面从 /token 领
- * （只发给同源调用方，跨站拿不到），本机脚本从 <dataDir>/session-token 读
- * （0600，只有当前用户能读）；跨站请求直接 403。
+ * 现在：所有 API 请求都必须带这个进程级 token —— 浏览器页面从 /token 领，
+ * 本机脚本从 <dataDir>/session-token 读（0600，只有当前用户能读）；
+ * 跨站请求（sec-fetch-site: cross-site）直接 403。
  * 「没有 sec-fetch-site 头就整体放行」那条后门已经删掉：curl 和任何本机进程
  * 一样要带票，否则等于没设门槛。
+ *
+ * 但 /token 这一处不能只认 sec-fetch-site。实测（2026-11-15，见 token-probe.log）
+ * 桌面端渲染进程发出的 fetch 根本没有 sec-fetch-site 头，只有 Origin。
+ * 早先版本把 /token 限成「必须 same-origin」，页面就永远领不到票，读写全部
+ * 401「缺少访问凭证」，刷新也没用 —— 当时「无头就放行」的后门恰好把数据路由
+ * 捞了回来，所以看着是好的。现在 /token 只拒 cross-site：浏览器一定带这个头，
+ * 跨站页面必被 403；就算漏过去，没有 CORS 响应头也读不到 JSON（同源策略）；
+ * 真正会改数据的路由仍然逐个校验 token，CSRF 面没有变大。
  *
  * 事件流（EventSource 加不了自定义头）另给一张一次性 ticket：
  * POST 不了就 GET /events-ticket 换票，60 秒内有效、用一次即作废，
@@ -3509,10 +3517,10 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
     }
     const route = url.pathname.slice(API_PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '')
     // ── 门槛：所有路由都要凭证，只有 /token 自己例外 ──
-    // sec-fetch-site 是浏览器自己加的、网页改不了：cross-site 一律拒。
-    // 同一页面里的 fetch 会带 same-origin，它可以到 /token 领票；
-    // 没有这个头的调用方（curl、测试脚本、本机命令行）不再被整体放行 ——
-    // 它们读 <dataDir>/session-token（0600）带 x-dsh-growth-token 头。
+    // sec-fetch-site 是浏览器自己加的、网页改不了：cross-site 一律拒（上面已处理）。
+    // /token 只对「确认是跨站」的调用关死；桌面端的 fetch 不带这个头，它必须能领票，
+    // 否则整页停在「缺少访问凭证」。领到的票只在本进程有效，跨站页面即使发出
+    // 请求也读不到响应（没有 CORS 头，受同源策略限制）。
     const site = String(req.headers?.['sec-fetch-site'] ?? '')
     if (site === 'cross-site') {
       res.statusCode = 403
@@ -3520,11 +3528,16 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       return
     }
     if (route === 'token' && String(req.method ?? 'GET').toUpperCase() === 'GET') {
-      if (site !== 'same-origin' && site !== 'same-site' && site !== 'none') {
-        res.statusCode = 401
-        res.end(JSON.stringify({ ok: false, code: 'unauthorized', message: 'token 只能从工作台页面领取' }))
-        return
-      }
+      // 把调用方的来源指纹记下来：判断「桌面端到底发了什么头」靠这条日志，
+      // 别再拿 curl 的 header 去猜浏览器。
+      try {
+        rotateAppend(join(dataDir(), 'token-probe.log'), `${new Date().toISOString()} ${JSON.stringify({
+          site,
+          origin: String(req.headers?.origin ?? ''),
+          referer: String(req.headers?.referer ?? ''),
+          ua: String(req.headers?.['user-agent'] ?? '').slice(0, 120),
+        })}\n`, 256 * 1024)
+      } catch { /* 日志失败不影响领票 */ }
       res.statusCode = 200
       res.end(JSON.stringify({ ok: true, token: AUTH_TOKEN }))
       return

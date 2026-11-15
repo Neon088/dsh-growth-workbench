@@ -175,14 +175,22 @@ window.__ModuleLoader__.load({
         if (token !== '') return token
         if (tokenRequest !== null) return tokenRequest
         tokenRequest = (async () => {
-          try {
-            // 令牌刷新是所有并发请求共享的；不能把某个调用方的 signal 传进来，
-            // 否则取消一张卡片的读取会把其它正在等令牌的请求一起取消。
-            const response = await timedFetch(apiBase + '/token', { headers: { 'content-type': 'application/json' } }, readTimeoutMs, 'GET')
-            const payload = await response.json()
-            token = typeof payload?.token === 'string' ? payload.token : ''
-          } catch {
-            token = ''
+          // 令牌刷新是所有并发请求共享的；不能把某个调用方的 signal 传进来，
+          // 否则取消一张卡片的读取会把其它正在等令牌的请求一起取消。
+          // 领不到就再试一次：宿主重启的那几百毫秒里 /token 会 404 或连接被拒，
+          // 一次失败就让整页停在「缺少访问凭证」，其实点一下重试就好 —— 这里自己重试掉。
+          token = ''
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (attempt > 0) await new Promise((resolve) => { setTimer(resolve, 400) })
+            try {
+              // 不看 response.ok：401 的 body 也是 JSON，token 字段在就够了。
+              const response = await timedFetch(apiBase + '/token', { headers: { 'content-type': 'application/json' } }, readTimeoutMs, 'GET')
+              const payload = await response.json()
+              if (typeof payload?.token === 'string' && payload.token !== '') {
+                token = payload.token
+                return token
+              }
+            } catch { /* 下一次 */ }
           }
           return token
         })()
