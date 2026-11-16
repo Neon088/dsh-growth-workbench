@@ -10551,6 +10551,11 @@ const STAGE_OF_STATUS = {
       const state = useAsync((signal) => get('/rules', { signal }), [])
       const [busy, setBusy] = React.useState(false)
       const [draft, setDraft] = React.useState({ id: '', section: 'hard', title: '', fields: {} })
+      // 自动填入的「下一条编号」不是用户输入：它一进来就让旧判据（id 非空 = 脏）恒真，
+      // 于是每次离开这张卡都弹「还有没保存的改动」。这两项把「用户真的碰过」和
+      // 「那串编号本来是什么」分开记，dirty 只在人动过之后才算。
+      const [draftTouched, setDraftTouched] = React.useState(false)
+      const autoDraftId = React.useRef('')
       // 行内编辑：点「编辑」把这一条变成输入框，保存时按 id 走同一个 PUT
       // （后端 items 分支对已存在的 id 是合并，不会新建一条）。
       const [editing, setEditing] = React.useState(null)
@@ -10558,8 +10563,10 @@ const STAGE_OF_STATUS = {
 
       React.useEffect(() => {
         const next = data?.nextIds?.[draft.section] ?? data?.nextId
-        if (next !== undefined && draft.id === '') setDraft((prev) => ({ ...prev, id: next }))
-      }, [data, draft.section])
+        if (next === undefined || draft.id !== '') return
+        autoDraftId.current = String(next)
+        setDraft((prev) => ({ ...prev, id: next }))
+      }, [data, draft.section, draft.id])
 
       async function patch(items) {
         setBusy(true)
@@ -10567,8 +10574,10 @@ const STAGE_OF_STATUS = {
           const result = await put('/rules', { items, expectedSha1: data.sha1 })
           notify('规则库已更新（计数表自动重算）')
           state.setData({ ...data, ...result })
+          return true
         } catch (error) {
           notify(String(error.message), true)
+          return false
         } finally {
           setBusy(false)
         }
@@ -10576,8 +10585,10 @@ const STAGE_OF_STATUS = {
 
       async function addRule() {
         const target = draft.section
-        await patch([draft])
+        // 保存失败时保留输入：这里以前无论成败都清空，等于把你刚敲的那条规则直接抹掉。
+        if (!(await patch([draft]))) return
         setDraft({ id: '', section: target, title: '', fields: {} })
+        setDraftTouched(false)
         setActiveSection(target)
       }
 
@@ -10678,7 +10689,11 @@ const STAGE_OF_STATUS = {
         const first = RULE_SECTIONS.find((section) => data.items.some((item) => item.section === section.key))
         if (first) setActiveSection(first.key)
       }, [data, activeSection])
-      useDraftGuard(String(draft.id ?? '').trim() !== '' || String(draft.title ?? '').trim() !== '' || Object.values(draft.fields ?? {}).some((value) => String(value ?? '').trim() !== ''), busy)
+      // 只有「人碰过 + 现在确实有内容（或编号被改成了别的）」才算脏；
+      // 卡片打开时自动填的下一个编号不参与判定。
+      const draftHasInput = String(draft.title ?? '').trim() !== '' || Object.values(draft.fields ?? {}).some((value) => String(value ?? '').trim() !== '')
+      const draftIdChanged = String(draft.id ?? '').trim() !== '' && String(draft.id ?? '') !== autoDraftId.current
+      useDraftGuard(draftTouched && (draftHasInput || draftIdChanged), busy)
 
       if (state.loading && state.data === null) return h(Empty, null, t('loading'))
 
@@ -10828,11 +10843,11 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-rules-add' },
           h(Sect, null, '加一条规则', h(Pill, null, '共 ' + String(totalRules) + ' 条')),
           h('div', { className: 'dsh-gw-rules-form' },
-            h(Field, { label: '编号' }, h('input', { value: draft.id, onChange: (event) => setDraft({ ...draft, id: event.target.value }), placeholder: 'H7' })),
+            h(Field, { label: '编号' }, h('input', { value: draft.id, onChange: (event) => { setDraftTouched(true); setDraft({ ...draft, id: event.target.value }) }, placeholder: 'H7' })),
             h(Field, { label: '分组' }, h('select', { value: draft.section, onChange: (event) => setDraft({ ...draft, section: event.target.value, id: '' }) }, RULE_SECTIONS.map((option) => h('option', { key: option.key, value: option.key }, option.label)))),
-            h(Field, { label: '规则（一句话）' }, h('input', { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: '例：不写「最」「第一」这类绝对化用语' }))),
+            h(Field, { label: '规则（一句话）' }, h('input', { value: draft.title, onChange: (event) => { setDraftTouched(true); setDraft({ ...draft, title: event.target.value }) }, placeholder: '例：不写「最」「第一」这类绝对化用语' }))),
           h('div', { className: 'dsh-gw-rules-form dsh-gw-rules-form-fields' },
-            RULE_FIELDS.map((name) => h(Field, { key: name, label: name }, h('input', { value: draft.fields[name] ?? '', onChange: (event) => setDraft({ ...draft, fields: { ...draft.fields, [name]: event.target.value } }) })))),
+            RULE_FIELDS.map((name) => h(Field, { key: name, label: name }, h('input', { value: draft.fields[name] ?? '', onChange: (event) => { setDraftTouched(true); setDraft({ ...draft, fields: { ...draft.fields, [name]: event.target.value } }) } })))),
           h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '', onClick: addRule }, '加进规则库'))),
       )
     }

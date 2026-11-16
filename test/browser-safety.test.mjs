@@ -225,7 +225,7 @@ function inBrowser(fixture) {
     if (path === '/ideas') return { ok: true, entries: copy(fixture.ideas), rows: [], schema: [], path: 'Workbench/isolated.md', sha1: 'table-0' }
     if (path === '/feedback') return { ok: true, entries: copy(fixture.feedback), rows: [], schema: [], path: 'Workbench/isolated.md', sha1: 'table-0' }
     if (path === '/glossary') return { ok: true, entries: copy(fixture.glossary), rows: [], schema: [], path: 'Workbench/isolated.md', sha1: 'table-0' }
-    if (path === '/rules') return { ok: true, items: copy(fixture.rules.items), counts: copy(fixture.rules.counts), sha1: 'rules-0', body: '# 硬规则\n\n# 软规则\n\n# 待观察' }
+    if (path === '/rules') return { ok: true, items: copy(fixture.rules.items), counts: copy(fixture.rules.counts), nextId: 'H1', nextIds: { hard: 'H1', soft: 'S1', watch: 'W1' }, sha1: 'rules-0', body: '# 硬规则\n\n# 软规则\n\n# 待观察' }
     if (path === '/sop') return { ok: true, root: 'SOP', notes: [], entries: [], tree: [] }
     if (path === '/sop/search') return { ok: true, matches: [] }
     if (path === '/boards') return { ok: true, content: [], unmeasured: [], roi: [] }
@@ -558,6 +558,19 @@ try {
         return { boxTop: box.top, headTop: head.top }
       })
       assert.ok(Math.abs(headerOffset.headTop - headerOffset.boxTop) <= 2, 'Copy Rules header scrolled away: ' + JSON.stringify(headerOffset))
+      // 回归：卡片自己填的「下一条编号」不是改动，没输入就切走不该弹「还有没保存的改动」。
+      const rulesDialogs = []
+      page.on('dialog', async (dialog) => { rulesDialogs.push(dialog.message()); await dialog.dismiss().catch(() => {}) })
+      await page.getByRole('tab', { name: '账号档案', exact: true }).click()
+      await page.waitForTimeout(400)
+      assert.deepEqual(rulesDialogs, [], 'leaving an untouched Copy Rules card must not prompt')
+      // 真的敲了字才该拦。
+      await page.getByRole('tab', { name: '文案规则 / 语调库', exact: true }).click()
+      await page.locator('.dsh-gw-rules').waitFor()
+      await page.getByPlaceholder('例：不写「最」「第一」这类绝对化用语').fill('测试：这条不该被当成自动编号')
+      await page.getByRole('tab', { name: '账号档案', exact: true }).click()
+      await page.waitForTimeout(400)
+      assert.equal(rulesDialogs.length, 1, 'typed Copy Rules input must still guard the leave')
       await page.screenshot({ path: join(runDir, 'ui-600-' + theme + '-copyrules.png') })
       await page.close()
 
