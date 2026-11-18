@@ -1099,5 +1099,87 @@ test('agent chat is open by default and the head button mirrors that state', () 
   assert.match(panel, /h\(Icon, \{ name: 'chat', size: 14 \}\)/)
   assert.match(src, /\.dsh-gw-chatbtn\[data-on="false"\]\{border-color:color-mix\(in srgb,var\(--gw-accent/)
 })
+test('列表随磁盘变化自动重取，切回窗口有兜底', () => {
+  const serverSrc = fs.readFileSync(path.join(here, '..', 'index.js'), 'utf8')
+  // 客户端：一个总闸 + 列表订阅它；整库 SSE 换票走 path=*；可见性/焦点兜底
+  assert.match(src, /const VaultChangeContext = React\.createContext\(0\)/, '缺少文件变化总闸')
+  assert.match(src, /const vaultChange = React\.useContext\(VaultChangeContext\)/, '列表没订阅文件变化')
+  assert.match(src, /\[path, query, state\.request, refresh, vaultChange\]/, '列表的依赖里没有文件变化')
+  assert.match(src, /'\/v2\/events\?path=\*&ticket='/, '没有整库事件订阅')
+  assert.match(src, /document\.addEventListener\('visibilitychange', onVisible\)/, '缺少切回页面的兜底刷新')
+  // 服务端：path=* 走整库，且只认 .md（排除 .bak / .obsidian / 隐藏目录）
+  assert.match(serverSrc, /const WATCH_ALL = '\*'/)
+  assert.match(serverSrc, /entry\.path === WATCH_ALL && broad/)
+  assert.match(serverSrc, /IGNORED_EVENT_SEGMENTS = new Set\(\['\.obsidian'/)
+  assert.match(serverSrc, /JSON\.stringify\(\{ changed: true \}\)/)
+})
+
+test('来源预览浮窗四边四角都能拖，旧的单角把手已撤掉', () => {
+  assert.match(src, /\['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'\]\.map\(\(dir\) => h\('div'/, '八个缩放把手不在')
+  assert.match(src, /className: 'dsh-gw-chat-preview-handle'/)
+  for (const dir of ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']) {
+    assert.ok(src.includes('.dsh-gw-chat-preview-handle[data-dir="' + dir + '"]'), '缺少 ' + dir + ' 方向的把手样式')
+  }
+  assert.ok(!src.includes("className: 'dsh-gw-chat-preview-grip'"), '旧的单角把手还留着')
+  assert.match(src, /function resizeRect\(start, dir, dx, dy, bounds\)/, '缺少缩放几何函数')
+})
+
+test('来源预览只拿能定位到具体内容的链接，裸域名不算数', () => {
+  const serverSrc = fs.readFileSync(path.join(here, '..', 'index.js'), 'utf8')
+  assert.match(src, /function concreteLinkOf\(values\)/, '缺少链接判定助手')
+  assert.match(src, /const sourceLink = concreteLinkOf\(\[front\.sourceUrl, front\.link, front\.url\]\)/, '预览来源没走判定')
+  assert.match(src, /const sourceOf = \(item\) => concreteLinkOf\(/, '列表来源行没走判定')
+  assert.match(serverSrc, /function usableSourceLink\(\.\.\.values\)/, '服务端缺少同样的判定')
+  assert.match(serverSrc, /link: usableSourceLink\(source\.front\?\.sourceUrl, source\.front\?\.link\)/, '派生选题没走判定')
+})
+
+test('拖动光标挂在窗口上，不改写 document.body', () => {
+  assert.match(src, /const \[dragDir, setDragDir\] = React\.useState\(''\)/)
+  assert.match(src, /'data-drag': dragDir === '' \? undefined : dragDir/)
+  assert.match(src, /\.dsh-gw-chat-preview\[data-drag\] \.dsh-gw-chat-preview-frame\{pointer-events:none\}/)
+  assert.ok(!src.includes('document.body.style.cursor = dir === \'move\''), '仍在改写 body 光标')
+  assert.ok(!src.includes("className: 'dsh-gw-chat-preview-resize'"), '死掉的隐藏缩放条还在')
+})
+
+test('预览浮窗的 state 声明齐全，补丁不许再把 anchor 吃掉', () => {
+  const start = src.indexOf('    function ChatSourcePreviewDock(')
+  assert.ok(start > 0, '找不到预览浮窗组件')
+  const dock = src.slice(start, src.indexOf('\n    }\n', start))
+  for (const line of [
+    "const [floating, setFloating] = React.useState(true)",
+    "const [fullscreen, setFullscreen] = React.useState(false)",
+    "const [floatRect, setFloatRect] = React.useState(null)",
+    "const [dragDir, setDragDir] = React.useState('')",
+    'const previewRef = React.useRef(null)',
+  ]) assert.ok(dock.includes(line), '预览浮窗缺少声明：' + line)
+})
+
+test('编辑界面的操作行钉在下方的悬浮条里', () => {
+  assert.match(src, /className: 'dsh-gw-note-footbar'/, '缺少底部操作条')
+  assert.match(src, /\.dsh-gw-note-footbar\{position:sticky;bottom:0/, '底部操作条没钉住')
+  const at = src.indexOf("className: 'dsh-gw-note-footbar'")
+  const block = src.slice(at, src.indexOf('h(ConflictDialog', at))
+  for (const label of ['dsh-gw-note-acts', 'dsh-gw-note-acts-sep', 'AnnotationPill']) {
+    assert.ok(block.includes(label), '悬浮条里缺少 ' + label)
+  }
+  // 框头里不该再留一份操作行（否则屏幕上会出现两组一样的按钮）
+  const head = src.slice(src.indexOf("className: 'dsh-gw-note-headleft'"), at)
+  assert.ok(!head.includes("h('span', { className: 'dsh-gw-note-acts' }"), '框头里还留着操作行')
+})
+
+test('四个板块的操作行也钉在底部（SOP / 文案规则 / 术语表 / 营销方案）', () => {
+  // client.js 是 CRLF，比对前先归一，否则 '\n' 永远对不上。
+  const srcLf = src.replace(/\r\n/g, '\n')
+  assert.match(srcLf, /\.dsh-gw-footbar\{position:sticky;bottom:0/, '缺少通用底部条样式')
+  const count = (srcLf.match(/className: 'dsh-gw-actions dsh-gw-footbar'/g) || []).length
+  assert.ok(count >= 15, '新建类表单 + 四个板块共 15 处以上要贴底，现在只有 ' + count + ' 处')
+  // SOP 预览区：操作行搬进了底部悬浮条，笔记头只剩标题和路径
+  const headAt = srcLf.indexOf("className: 'dsh-gw-note-head'")
+  const footAt = srcLf.indexOf("className: 'dsh-gw-note-footbar' },", headAt)
+  assert.ok(headAt > 0 && footAt > headAt, 'SOP 底部悬浮条不在笔记头之后')
+  assert.ok(!srcLf.slice(headAt, footAt).includes('dsh-gw-note-actions'), 'SOP 笔记头里还留着操作行')
+  assert.ok(srcLf.slice(footAt).includes("className: 'dsh-gw-note-actions'"), 'SOP 操作行没进悬浮条')
+})
+
 console.log('\n' + pass + ' passed, ' + failures.length + ' failed')
 process.exitCode = failures.length === 0 ? 0 : 1

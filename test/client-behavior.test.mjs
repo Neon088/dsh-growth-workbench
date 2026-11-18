@@ -27,6 +27,8 @@ const names = [
   'parseSurfaceColor', 'surfaceLuminance', 'surfaceContrast', 'hostAccent', 'installHostAccent',
   'activeOperationalProfile', 'trustedAiContextSummary', 'automationPolicy', 'operationalReviewDays', 'runAutomationPolicy',
   'installActionMenu', 'ActionMenu', 'calendarAccountName', 'CalendarCard', 'shiftMonth', 'monthTitle', 'monthGrid',
+  'resizeRect', 'windowCursorFor', 'clampNumber', 'safeLinkTarget', 'concreteLinkOf',
+  'ChatSourcePreviewDock', 'embedFor', 'embedUrlFor',
 ]
 const transitionStart = source.indexOf('    const VARIANT_NEXT = ')
 const transitionEnd = source.indexOf('\n    }', transitionStart)
@@ -43,6 +45,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const tick = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 let currentMount = null
 let refresh = 0
+let vaultChange = 0
 let registry = null
 const timers = new Map()
 let timerId = 0
@@ -53,7 +56,7 @@ const React = {
   isValidElement(node) { return node !== null && typeof node === 'object' && 'type' in node && 'props' in node },
   cloneElement(node, props) { return { ...node, props: { ...node.props, ...props } } },
   Children: { map(children, fn) { return [children].flat(Infinity).filter((node) => node !== null && node !== undefined && typeof node !== 'boolean').map(fn) } },
-  useContext(context) { return context === 'refresh' ? refresh : registry },
+  useContext(context) { return context === 'refresh' ? refresh : context === 'vault' ? vaultChange : registry },
   useRef(initial) { const mount = currentMount, index = mount.cursor++; return mount.slots[index] ?? (mount.slots[index] = { current: initial }) },
   useState(initial) {
     const mount = currentMount, index = mount.cursor++
@@ -100,16 +103,20 @@ function mount(fn, props = {}) {
 }
 const context = vm.createContext({
   React, h: React.createElement, console, Promise, Map, Set, Symbol, Object, Array, JSON, Number, String,
-  Boolean, Math, Error, URLSearchParams, AbortController,
+  Boolean, Math, Error, URL, URLSearchParams, AbortController,
   setTimeout: timer, clearTimeout: (id) => timers.delete(id),
-  window: { confirm: () => false }, document: { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} },
+  window: { confirm: () => false, innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+  document: { visibilityState: 'visible', body: { style: {} }, documentElement: {}, addEventListener() {}, removeEventListener() {} },
+  getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  parseFloat,
+  isFinite,
   get: () => { throw new Error('unmocked get') }, post: () => { throw new Error('unmocked post') },
   put: () => { throw new Error('unmocked put') }, del: () => { throw new Error('unmocked del') },
   askConfirm: () => false, Icon: () => null, normalizeStatus: (value) => String(value ?? ''), normalizePlatform: (value) => String(value ?? '').trim(),
   platformOptions: (items) => [...new Set(items.filter((value) => value !== undefined && value !== null && value !== ''))],
   PLATFORMS: ['抖音', '小红书'],
 })
-vm.runInContext("const DraftContext = 'draft', RefreshContext = 'refresh'; let fieldSerial = 0; const modalStack = [];\n" + comboLine + '\n' + operationalHelperConstants + '\n' + source.slice(transitionStart, transitionEnd + 6) + '\n' + names.map(bodyOf).join('\n') + '\nglobalThis.api = { ' + names.join(', ') + ' };', context)
+vm.runInContext("const DraftContext = 'draft', RefreshContext = 'refresh', VaultChangeContext = 'vault'; const chatPreviewState = { url: '' }; function useChatPreview() { return chatPreviewState.url } function setChatPreview(url) { chatPreviewState.url = String(url ?? '') } globalThis.__setPreview = (url) => { chatPreviewState.url = String(url ?? '') }; let fieldSerial = 0; const modalStack = [];\n" + comboLine + '\n' + operationalHelperConstants + '\n' + source.slice(transitionStart, transitionEnd + 6) + '\n' + names.map(bodyOf).join('\n') + '\nglobalThis.api = { ' + names.join(', ') + ' };', context)
 const api = context.api
 // Render the actual cards; only unrelated visual leaves are inert VNodes.
 for (const name of [...(bodyOf('TopicsCard') + bodyOf('StudioCard') + bodyOf('CalendarCard')).matchAll(/\bh\(\s*([A-Z]\w*)/g)].map((match) => match[1])) if (context[name] === undefined) context[name] = function VisualLeaf() {}
@@ -786,9 +793,85 @@ test('operational review days reject malformed or unbounded checkpoints', () => 
   assert.equal(api.operationalReviewDays(null), 7)
 })
 
+// 来源预览浮窗：四边四角都能拖，且拖动时「被拖的那条边动、对边钉住」——
+// 以前每次 pointermove 都回读 DOM，读到的值比 setState 晚一帧，窗口就会跳一下 / 跑位。
+test('预览浮窗缩放：对边钉住、最小尺寸不翻面、不出视口', () => {
+  const bounds = { minW: 320, minH: 200, minX: 8, minY: 12, rightLimit: 1600, bottomLimit: 1000 }
+  const start = { x: 100, y: 100, w: 400, h: 300 }
+  // 右下角往外拖：左上角一动不动
+  assert.deepEqual(plain(api.resizeRect(start, 'se', 60, 40, bounds)), { x: 100, y: 100, w: 460, h: 340 })
+  // 拖左边缘：右边缘必须钉在 500，窗口不许整体平移
+  const west = api.resizeRect(start, 'w', -30, 0, bounds)
+  assert.equal(west.x, 70); assert.equal(west.x + west.w, 500); assert.equal(west.y, 100)
+  // 拖上边缘：下边缘必须钉在 400
+  const north = api.resizeRect(start, 'n', 0, -50, bounds)
+  assert.equal(north.y, 50); assert.equal(north.y + north.h, 400)
+  // 整体移动：宽高不变，只是位置变
+  assert.deepEqual(plain(api.resizeRect(start, 'move', -20, 10, bounds)), { x: 80, y: 110, w: 400, h: 300 })
+  // 缩到极限：停在最小尺寸，右/下边缘仍然钉住，不许翻面成负宽
+  const tiny = api.resizeRect(start, 'nw', 500, 500, bounds)
+  assert.equal(tiny.w, 320); assert.equal(tiny.h, 200)
+  assert.equal(tiny.x + tiny.w, 500); assert.equal(tiny.y + tiny.h, 400)
+  // 拖到视口外：只有被拖的那条边停在边界上，左边不动
+  const wide = api.resizeRect({ x: 1000, y: 100, w: 400, h: 300 }, 'e', 400, 0, bounds)
+  assert.equal(wide.x, 1000); assert.equal(wide.x + wide.w, 1600)
+  // 移动也不许跑出视口
+  const stuck = api.resizeRect(start, 'move', 9000, 9000, bounds)
+  assert.equal(stuck.x + stuck.w, 1600); assert.equal(stuck.y + stuck.h, 1000)
+  // 八个方向都有对应的光标
+  assert.equal(api.windowCursorFor('n'), 'ns-resize')
+  assert.equal(api.windowCursorFor('e'), 'ew-resize')
+  assert.equal(api.windowCursorFor('ne'), 'nesw-resize')
+  assert.equal(api.windowCursorFor('nw'), 'nwse-resize')
+  assert.equal(api.windowCursorFor('se'), 'nwse-resize')
+})
+
+// 磁盘一变，列表就该自己重取第一页 —— 以前只有在 Obsidian 里改完再「点进详情 / 换卡片」时
+// 才顺带刷新，看起来就是「跳好几次才看到新的」。
+test('磁盘变化后列表自己重取第一页，不用等下一次挂载', async () => {
+  const pages = [
+    { records: [{ path: 'Accounts/a.md', front: { audience: '旧人群' } }], total: 1, offset: 0, limit: 200, truncated: false, nextOffset: 1 },
+    { records: [{ path: 'Accounts/a.md', front: { audience: '新人群' } }], total: 1, offset: 0, limit: 200, truncated: false, nextOffset: 1 },
+  ]
+  let calls = 0
+  const view = mount(() => api.usePagedList('/accounts/list?limit=300', async () => pages[Math.min(calls++, 1)]))
+  await view.flush()
+  assert.equal(view.value.data.records[0].front.audience, '旧人群')
+  assert.equal(calls, 1)
+  vaultChange = 1; view.dirty = true; await view.flush()
+  assert.equal(calls, 2, '文件变化后必须再读一次')
+  assert.equal(view.value.data.records[0].front.audience, '新人群')
+  view.unmount()
+})
+
+// 拆解笔记里 sourceUrl 只有域名、link 才是完整视频地址时，预览要打开视频而不是首页。
+test('来源链接只在能定位到具体内容时才算数', () => {
+  assert.equal(api.concreteLinkOf(['https://www.bilibili.com', 'https://www.bilibili.com/video/BV1X74b6qE4i/']),
+    'https://www.bilibili.com/video/BV1X74b6qE4i/')
+  assert.equal(api.concreteLinkOf(['https://www.bilibili.com']), '', '裸域名不能当目标')
+  assert.equal(api.concreteLinkOf(['https://www.bilibili.com/?x=1']), '', '带查询串的首页也不算')
+  assert.equal(api.concreteLinkOf(['随手写的来源', 'https://b23.tv/abc']), 'https://b23.tv/abc')
+  assert.equal(api.concreteLinkOf([]), '')
+})
+
+// 预览浮窗崩过一次：补丁把 floatRect 的声明连同锚点一起吃掉，结果一点「预览来源」就
+// ReferenceError，整个预览面板打不开。这条用例把「能渲染出节点」钉住。
+test('来源预览浮窗能渲染出来，没有地址时不出空窗', async () => {
+  context.__setPreview('https://www.bilibili.com/video/BV1X74b6qE4i/')
+  const view = mount(() => api.ChatSourcePreviewDock())
+  await view.flush()
+  assert.ok(view.value !== null && typeof view.value === 'object', '有地址时应渲染出浮窗节点')
+  view.unmount()
+  context.__setPreview('')
+  const empty = mount(() => api.ChatSourcePreviewDock())
+  await empty.flush()
+  assert.equal(empty.value, null, '没有地址时不该出一个空窗')
+  empty.unmount()
+})
+
 let failed = 0
 for (const item of tests) {
-  registry = null; refresh = 0; timers.clear()
+  registry = null; refresh = 0; vaultChange = 0; timers.clear()
   try { await item.run(); console.log('ok  ', item.name) }
   catch (error) { failed++; console.error('FAIL', item.name); console.error(error.stack ?? error) }
 }

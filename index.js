@@ -3258,7 +3258,7 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         date: today(),
         tags: String(source.front?.tags ?? ''),
         // 原视频链接跟着选题走：写自己的稿子时还要回头参照原文。
-        link: String(source.front?.sourceUrl ?? source.front?.link ?? ''),
+        link: usableSourceLink(source.front?.sourceUrl, source.front?.link),
         status: '在写',
         type: '选题',
         sourceId: String(source.front?.id ?? source.id ?? ''),
@@ -3462,7 +3462,27 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
    * 只推 sha1，不推正文：页面收到之后自己走原来的 /topics/record 或 /v2/variants/:id，
    * 采纳/冲突的逻辑完全复用，推送这一层不碰内容。
    */
+  // 「来源链接」只拿到域名时（https://www.bilibili.com）不能当内容地址用：
+  // 派生选题会把它继承下去，点「预览来源」就只会打开首页。这里按「有没有路径」判，
+  // 认不出就退回下一个候选。
+  function usableSourceLink(...values) {
+    for (const value of values) {
+      const text = String(value ?? '').trim()
+      if (!/^https?:\/\//i.test(text)) continue
+      try {
+        const parsed = new URL(text)
+        const path = String(parsed.pathname ?? '').trim()
+        if (path === '' || path === '/') continue
+        return text
+      } catch { continue }
+    }
+    return ''
+  }
   const changeListeners = new Set()
+  // path='*' 是列表卡用的整库订阅：任何一篇 md 变了都推一条「有变化」。
+  const WATCH_ALL = '*'
+  const MARKDOWN_FILE = /\.md$/i
+  const IGNORED_EVENT_SEGMENTS = new Set(['.obsidian', '.trash', '.git', 'node_modules'])
   let vaultWatcher = null
   let vaultWatcherRoot = ''
 
@@ -3480,8 +3500,12 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
         if (filename === null || filename === undefined) return
         const rel = String(filename).split(sep).join('/')
         if (rel === '') return
+        // 整库订阅只认内容文件：一次保存会带出临时件、.bak 备份和 .obsidian 配置，
+        // 这些都不该让列表重取。
+        const broad = MARKDOWN_FILE.test(rel)
+          && !rel.split('/').some((segment) => segment.startsWith('.') || IGNORED_EVENT_SEGMENTS.has(segment))
         for (const entry of changeListeners) {
-          if (entry.path !== rel) continue
+          if (entry.path !== rel && !(entry.path === WATCH_ALL && broad)) continue
           // 编辑器存盘常常是「写临时文件 + 改名」，一次保存会来好几条事件：合并一下。
           if (entry.timer !== null) clearTimeout(entry.timer)
           entry.timer = setTimeout(() => { entry.timer = null; void entry.fire() }, 40)
@@ -3501,7 +3525,9 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
   }
 
   async function serveEvents(req, res, url) {
-    const rel = String(url.searchParams.get('path') ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+    const requested = String(url.searchParams.get('path') ?? '').trim()
+    // '*' = 订阅整库（列表卡用）。它不读任何一篇正文，只当「有东西变了」的信号。
+    const rel = requested === WATCH_ALL ? WATCH_ALL : requested.replace(/\\/g, '/').replace(/^\/+/, '')
     res.statusCode = 200
     res.setHeader('content-type', 'text/event-stream; charset=utf-8')
     res.setHeader('cache-control', 'no-store')
@@ -3512,6 +3538,11 @@ function scheduledDateOf(variant, schedule, siblingCount = 1) {
       path: rel,
       timer: null,
       fire: async () => {
+        if (rel === WATCH_ALL) {
+          // 整库订阅只发一个信号：具体哪张卡该重取，由前端自己决定。
+          try { res.write('data: ' + JSON.stringify({ changed: true }) + '\n\n') } catch { /* 连接已断 */ }
+          return
+        }
         let sha1 = ''
         try {
           if (vault !== null && vault !== undefined) sha1 = String((await vault.readNote(rel)).sha1 ?? '')

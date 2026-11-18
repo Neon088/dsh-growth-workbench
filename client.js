@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
     // 每个实际面板自己的草稿/刷新作用域；不与其它侧栏实例共享可变的文档状态。
     const DraftContext = React.createContext(null)
     const RefreshContext = React.createContext(0)
+    // vault 里「有 md 变了」的总闸：列表卡订阅它重取第一页；详情页仍走自己的 useExternalSync。
+    const VaultChangeContext = React.createContext(0)
     const modalStack = []
 
     /**
@@ -475,6 +477,15 @@ window.__ModuleLoader__.load({
 .dsh-gw-note-acts .dsh-gw-row-act[data-tone=primary]{border-color:color-mix(in srgb,var(--dsw-alias-link) 55%,transparent);color:var(--dsw-alias-link)}
 .dsh-gw-note-acts .dsh-gw-row-act[data-tone=primary]:disabled{opacity:.55;border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
 .dsh-gw-note-acts-sep{flex:none;align-self:center;width:1px;height:14px;margin:0 1px;background:var(--dsw-alias-border-l1)}
+/* 编辑界面底部那条操作行：始终钉在可视区底部。
+   以前它挂在框头里，面板一窄、正文一长，保存/删除就被推到看不见的地方。 */
+.dsh-gw-note-footbar{position:sticky;bottom:0;z-index:6;display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;margin:10px -12px 0;padding:8px 12px;background:var(--gw-glass);border-top:1px solid var(--dsw-alias-border-l1);box-shadow:0 -8px 18px color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent)}
+.dsh-gw-note-footbar .dsh-gw-note-acts{flex:1 1 auto;justify-content:flex-end}
+.dsh-gw-note-footbar .dsh-gw-row-act{background:var(--dsw-alias-bg-layer-1)}
+/* 表单类操作行（新建方案 / 加进规则库 / 加术语 / 指标保存）：同样贴住可视区底部，
+   面板一窄、列表一长，按钮也不会被推到看不见的地方。 */
+.dsh-gw-footbar{position:sticky;bottom:0;z-index:6;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;padding:8px 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l1)}
+.dsh-gw-annot-wrap.dsh-gw-note-boxbody.dsh-gw-note-boxtop{border-top:1px solid var(--dsw-alias-border-l1);border-radius:10px 10px 0 0;margin-top:12px}
 .dsh-gw-note-headleft{display:flex;align-items:center;gap:8px;min-width:0}
 .dsh-gw-note-title{font-size:var(--gw-fz-2,13px);font-weight:600;line-height:1.3;color:var(--dsw-alias-label-primary);white-space:nowrap}
 .dsh-gw-headact{background:transparent;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;color:var(--dsw-alias-label-secondary);font-size:var(--gw-fz-1,11px);font-weight:400;line-height:1.4;min-height:22px;padding:1px 7px;cursor:pointer}
@@ -833,7 +844,29 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-chat-preview[data-fullscreen="true"] .dsh-gw-chat-preview-head{background:#f5f6f8;justify-content:center;position:relative;z-index:3;padding-right:calc(var(--dsh-windows-titlebar-avoid,140px) + 14px)}
 .dsh-gw-chat-preview[data-fullscreen="true"] .dsh-gw-chat-preview-title{position:absolute;left:14px;top:50%;transform:translateY(-50%)}
 .dsh-gw-chat-preview[data-fullscreen="true"] .dsh-gw-chat-preview-url{display:none}
-.dsh-gw-chat-preview-grip{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;touch-action:none;background:linear-gradient(135deg,transparent 50%,var(--dsw-alias-border-l2) 50%);border-bottom-right-radius:12px;z-index:2}
+/* 浮窗的八个缩放把手：四边四角都能拖，中间那条 8px 细带不遮正文。
+   角落压住标题栏两侧时，标题栏右侧按钮留了 16px 内边距（见下），不会互相抢点击。 */
+.dsh-gw-chat-preview-handle{position:absolute;z-index:5;touch-action:none;background:transparent}
+.dsh-gw-chat-preview-handle[data-dir="n"]{top:0;left:16px;right:16px;height:6px;cursor:ns-resize}
+.dsh-gw-chat-preview-handle[data-dir="s"]{bottom:0;left:16px;right:16px;height:8px;cursor:ns-resize}
+.dsh-gw-chat-preview-handle[data-dir="e"]{right:0;top:16px;bottom:16px;width:8px;cursor:ew-resize}
+.dsh-gw-chat-preview-handle[data-dir="w"]{left:0;top:16px;bottom:16px;width:8px;cursor:ew-resize}
+.dsh-gw-chat-preview-handle[data-dir="ne"]{top:0;right:0;width:14px;height:14px;cursor:nesw-resize}
+.dsh-gw-chat-preview-handle[data-dir="nw"]{top:0;left:0;width:14px;height:14px;cursor:nwse-resize}
+.dsh-gw-chat-preview-handle[data-dir="se"]{bottom:0;right:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 62%,var(--dsw-alias-border-l2) 62%)}
+.dsh-gw-chat-preview-handle[data-dir="sw"]{bottom:0;left:0;width:14px;height:14px;cursor:nesw-resize}
+.dsh-gw-chat-preview-handle:hover{background:color-mix(in srgb,var(--dsw-alias-link) 24%,transparent)}
+.dsh-gw-chat-preview-handle[data-dir="se"]:hover{background:linear-gradient(135deg,transparent 62%,var(--dsw-alias-link) 62%)}
+/* 拖动期间：光标挂在窗口上、视频暂时不吃指针事件。这样手划过画面不会中断拖动，
+   指针抬起也一定落在本页 —— body 上那种「抬不起就永远卡住」的光标因此不会再出现。 */
+.dsh-gw-chat-preview[data-drag]{user-select:none}
+.dsh-gw-chat-preview[data-drag] .dsh-gw-chat-preview-frame{pointer-events:none}
+.dsh-gw-chat-preview[data-drag="move"]{cursor:move}
+.dsh-gw-chat-preview[data-drag="n"],.dsh-gw-chat-preview[data-drag="s"]{cursor:ns-resize}
+.dsh-gw-chat-preview[data-drag="e"],.dsh-gw-chat-preview[data-drag="w"]{cursor:ew-resize}
+.dsh-gw-chat-preview[data-drag="ne"],.dsh-gw-chat-preview[data-drag="sw"]{cursor:nesw-resize}
+.dsh-gw-chat-preview[data-drag="nw"],.dsh-gw-chat-preview[data-drag="se"]{cursor:nwse-resize}
+.dsh-gw-chat-preview[data-floating="true"]:not([data-fullscreen="true"]) .dsh-gw-chat-preview-head{padding-right:18px}
 .dsh-gw-chat-preview-resize:hover{background:var(--dsw-alias-link)}
 /* 操作列（「加入选题」/「改选题」+ 删除）：
    这一列的宽度是 ideaWidths 的百分比（默认 13%），侧栏一缩它就只剩四五十像素。
@@ -2665,6 +2698,9 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     }
     function usePagedList(path, loader = get) {
       const refresh = React.useContext(RefreshContext)
+      // 磁盘变了也要重取：否则在 Obsidian 里改完切回来，列表还是旧值，
+      // 得点进详情再退回来才顺带刷新一次（这就是「跳好几次才看到新的」）。
+      const vaultChange = React.useContext(VaultChangeContext)
       const [query, setQueryState] = React.useState('')
       const [state, setState] = React.useState({ data: null, loading: true, error: null, request: 0, offset: 0 })
       const reads = React.useRef(null)
@@ -2672,13 +2708,16 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const loaderRef = React.useRef(loader)
       loaderRef.current = loader
       const refreshSeen = React.useRef(refresh)
+      const vaultSeen = React.useRef(vaultChange)
       const scope = path + '|' + query.trim()
       const scopeRef = React.useRef(scope)
       scopeRef.current = scope
       React.useEffect(() => {
         const changedRefresh = refreshSeen.current !== refresh
         refreshSeen.current = refresh
-        const offset = changedRefresh ? 0 : state.offset
+        const changedVault = vaultSeen.current !== vaultChange
+        vaultSeen.current = vaultChange
+        const offset = changedRefresh || changedVault ? 0 : state.offset
         const ticket = reads.current.begin(scope)
         const previous = state.data?._listScope === scope ? state.data : null
         const controller = new AbortController()
@@ -2694,7 +2733,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         })
         }, query.trim() === '' ? 0 : 220)
         return () => { clearTimeout(timer); controller.abort(); reads.current.invalidate() }
-      }, [path, query, state.request, refresh])
+      }, [path, query, state.request, refresh, vaultChange])
       const pageData = state.data?._listScope === scope ? state.data : null
       return {
         data: pageData, error: state.error, loading: state.loading || (pageData === null && state.error === null), query,
@@ -4144,7 +4183,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           h(Field, { label: '标签' }, h(ComboField, { value: draft.tags, onChange: (value) => setDraft({ ...draft, tags: value }), options: tagOptions, placeholder: '输入后回车，或点 ▾ 选已用过的' })),
         ),
         h('div', { className: 'dsh-gw-hint' }, '这里建的是拆解（别人的案例）：标题填原文标题、平台填它的发布平台。想拍同款→详情里点「用这条建选题」；自己的选题去我的选题新建。日期自动取今天（' + draft.date + '）。'),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建拆解笔记'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建拆解笔记'))),
         list.loading ? h(Empty, null, t('loading')) : (list.data?.records ?? []).length === 0
           ? h(Empty, null, '还没有拆解笔记。在上面填一条；或去「灵感箱」，把某条灵感「收为拆解」。')
           : records.length === 0
@@ -4586,7 +4625,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '内容目标' }, h('input', { value: draft.goal, onChange: (event) => setDraft({ ...draft, goal: event.target.value }), placeholder: '想让他看完做什么' })),
           h(Field, { label: '一句话角度' }, h('input', { value: draft.angle, onChange: (event) => setDraft({ ...draft, angle: event.target.value }), placeholder: '这条凭什么值得看' })),
           h(Field, { label: '创建日期（只记录）' }, h('input', { type: 'date', value: draft.date, onChange: (event) => setDraft({ ...draft, date: event.target.value }) }))),
-        h('div', { className: 'dsh-gw-actions' },
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' },
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', title: '新建一篇状态为「创作中」的选题；案例拆解请到「爆款拆解」，再从详情中建立自己的选题', onClick: create }, '建选题')))
       const newTopicFold = list.loading && list.data === null ? null : h(Fold, { title: '新建选题', className: 'dsh-gw-create-card', open: allRecords.length === 0 || preset?.createTopic === true }, newTopicForm)
 
@@ -5619,7 +5658,7 @@ const STAGE_OF_STATUS = {
             // 建版本时先不填日期，回到行上点「未排期」选一天，那一步会同时写日历和版本。
             // 「版本脚本」输入框撤掉了：脚本只有一个文本框，就是下面那个编辑器——
             // 建完版本自动打开它接着写；有版本在编时点行上的「版本脚本」也是开它。
-            h('div', { className: 'dsh-gw-actions' },
+            h('div', { className: 'dsh-gw-actions dsh-gw-footbar' },
               h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || String(draft.platform).trim() === '', onClick: create }, '新建平台版本')))) : null,
         list.loading && variants.length === 0 ? h(Empty, null, t('loading')) : variants.length === 0
           ? h(Empty, null, '还没有平台版本。选好平台点右上角「＋ 新建」，建好直接在下方写脚本。')
@@ -5748,7 +5787,9 @@ const STAGE_OF_STATUS = {
         return () => window.clearTimeout(timer)
       }, [autoEdit, body === null ? '' : path])
 
-      const sourceLink = String(front.sourceUrl ?? '').trim() !== '' ? String(front.sourceUrl) : String(front.link ?? '')
+      // 只认能定位到具体内容的地址：裸域名（https://www.bilibili.com）会让「预览来源」
+      // 打开 B 站首页而不是那条视频 —— 这时退回 front.link 里的完整地址。
+      const sourceLink = concreteLinkOf([front.sourceUrl, front.link, front.url])
       const sourceTitle = String(front.sourceTitle ?? '').trim()
       // 拆解 ↔ 选题（2026-11-08 拆分）：
       // - type==='拆解' 是拆解别人的案例，只留在爆款拆解卡；type==='选题' 是自己的，进我的选题管线。
@@ -5781,10 +5822,7 @@ const STAGE_OF_STATUS = {
       // 类型不再手动归：新建入口都自动写 type（爆款拆解/灵感箱→拆解，我的选题/日历/派生→选题），
       // 老笔记没写 type 就两边都显示，要归类在 Obsidian 属性面板里加 type 字段即可。
       // 列表每行的来源：优先 sourceUrl（从来源抓来的原链接），退回 front.link（手填的）。
-      const sourceOf = (item) => {
-        const src = String(item?.front?.sourceUrl ?? '').trim()
-        return src !== '' ? src : String(item?.front?.link ?? '')
-      }
+      const sourceOf = (item) => concreteLinkOf([item?.front?.sourceUrl, item?.front?.link, item?.front?.url])
       const dirty = body !== null && (doc === null
         ? record !== null && (body !== String(record.body ?? '') || JSON.stringify(front) !== JSON.stringify(record.front ?? {}))
         : body !== docBody || JSON.stringify(front) !== JSON.stringify(record?.front ?? {}))
@@ -6190,6 +6228,9 @@ const STAGE_OF_STATUS = {
         onScriptDeleted: (id) => { if (String(liveRef.current.doc?.id ?? '') === String(id)) closeVariantScript({ discardConfirmed: true }) },
       })) : null
 
+      // 框头现在只放「预览来源」和「版本脚本」标题：两者都没有时整条不画，
+      // 否则编辑框上方会留一条空边框。这时框身自己补顶边和圆角（dsh-gw-note-boxtop）。
+      const headVisible = doc !== null || safeLinkTarget(sourceLink) !== ''
       return h('div', { className: 'dsh-gw-note-page' },
         showOwnCrumb === false ? null : h(Sect, null,
           h(Breadcrumb, {
@@ -6383,7 +6424,7 @@ const STAGE_OF_STATUS = {
         //    才是真的拆解，同一件事摆两份草稿只会让人重复填。字段仍在 schema 里，老值原样保留。
         h('div', { style: { order: 3 } }, h(ExternalUpdateBar, { pending: sync.pending, onTake: sync.take, onDrop: sync.drop })),
         // 拆解脚本默认收着：我的选题里不点笔记就不出现这一整块（标题 + 功能行 + 编辑器）。
-        showBody === false ? null : h('div', {
+        showBody === false || !headVisible ? null : h('div', {
           className: 'dsh-gw-note-sectionhead dsh-gw-note-boxhead' + (doc === null ? '' : ' dsh-gw-note-boxmid'),
           style: { order: doc === null ? 3 : 5 },
         },
@@ -6399,85 +6440,13 @@ const STAGE_OF_STATUS = {
             doc === null && safeLinkTarget(sourceLink) !== ''
               ? h('button', {
                 className: 'dsh-gw-headact',
-                title: sourceTitle !== '' ? '预览来源：' + sourceTitle : '在右侧对话里预览这条内容的来源',
+                title: (sourceTitle !== '' ? '预览来源：' + sourceTitle + ' · ' : '预览来源：')
+                  + String(sourceLink).replace(/^https?:\/\//i, '').slice(0, 90),
                 onClick: () => setChatPreview(sourceLink),
               }, '预览来源')
               : null),
-          h('span', { className: 'dsh-gw-note-acts' },
-            h('button', {
-              className: 'dsh-gw-row-act',
-              'data-tone': 'primary',
-              disabled: busy || !dirty,
-              title: dirty ? (doc === null ? '保存这篇' : '保存这个平台版本') : '没有未保存的改动',
-              onClick: save,
-            }, dirty ? t('save') : '已保存'),
-            // 两组按钮，用细线隔开：存盘 / 送出去和杂事。
-            h('span', { className: 'dsh-gw-note-acts-sep' }),
-            // 原来这里是两颗（「交给对话」+「让 AI 写」），做的是同一件事：把这份内容推给 agent。
-            // 现在列表行不再放 AI 写，所以这里留一颗，按当前编的是拆解还是版本脚本选提示词。
-            h('button', {
-              className: 'dsh-gw-row-act',
-              title: doc === null ? '把这条拆解发给 agent（附提示词：补完整钩子/结构/可复用点）' : '把这个版本脚本 + 这一版的资料（标题备选 / 封面文案 / 目标人群 / 发布目的等）一起发给 agent',
-              onClick: () => {
-                if (!confirmUnsavedIfNeeded(dirty, notify)) return
-                // 两个分支各写各的，别用三元拼 promptKey：静态守卫要能看见字面量的调用点。
-                if (doc === null) {
-                  pushToAgent(path, body, notify, { promptKey: 'topic' })
-                  return
-                }
-                void pushVariantWithBrief()
-              },
-            }, '发送至Agent'),
-            studio === true || typeValue === '选题' ? h('button', {
-              className: 'dsh-gw-row-act',
-              disabled: busy || body === null || String(body).trim() === '',
-              title: '把当前稿子发给 agent，先读文案规则和发布前检查清单，再逐条审稿（只审不改）',
-              onClick: () => { void reviewWithRules() },
-            }, '按规则审稿') : null,
-            studio === true || typeValue === '选题' ? h('button', {
-              className: 'dsh-gw-row-act',
-              disabled: busy,
-              title: '打开 SOP/运营SOP/发布前检查清单.md，改清单条目会同步到平台版本的自检',
-              onClick: () => { void openReleaseSop() },
-            }, '打开发布 SOP') : null,
-            // 拆解详情的主按钮按类型分流（2026-11-08 拆分）：
-            // 拆解案例（type!=='选题'）→「用这条建选题」，派生一篇自己的选题进我的选题；
-            // 归类成「选题」的 → 原样去我的选题建平台版本写稿。
-            studio === true || doc !== null || typeof openCard !== 'function' ? null
-              : typeValue === '选题' ? h('button', {
-                className: 'dsh-gw-row-act',
-                title: '去我的选题：先建平台版本，再写初稿',
-                onClick: () => {
-                  if (!confirmUnsavedIfNeeded(dirty, notify)) return
-                  openCard('studio', { path })
-                },
-              }, '我的选题')
-              : h('button', {
-                className: 'dsh-gw-row-act',
-                'data-tone': 'primary',
-                disabled: deriving,
-                title: '用这条拆解派生一篇「自己的选题」进我的选题：标题/平台/标签先照搬，正文留空自己写',
-                onClick: () => {
-                  if (!confirmUnsavedIfNeeded(dirty, notify)) return
-                  void deriveTopic()
-                },
-              }, deriving ? '建选题…' : '用这条建选题'),
-            h('span', { className: 'dsh-gw-note-acts-sep' }),
-            // 拆解脚本不提供「打开」和「排期」：拆解本身不进 Obsidian 看，
-            // 排期是发出去的事，等有了平台版本再排。版本脚本也不再给「打开」——
-            // 这块编辑区本来就是版本脚本本体，再开一次 Obsidian 是重复动作。
-            h(ModeButtons, { mode, setMode }),
-            // 版本脚本里不再放「删除」：版本自己那一行已经有删除（删的是这一版），
-            // 两颗都叫「删除」摆在同一屏只会让人点错，删掉整个主选题不该在这里做。
-            doc === null ? h('button', {
-              className: 'dsh-gw-row-act',
-              'data-tone': 'danger',
-              disabled: busy,
-              title: '删除这篇（先备份）',
-              onClick: () => deleteNote(path, notify, onBack),
-            }, '删除') : null,
-            h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }))),
-        showBody === false ? null : h('div', { className: 'dsh-gw-annot-wrap dsh-gw-note-boxbody', style: { order: doc === null ? 3 : 5 } },
+        ),
+        showBody === false ? null : h('div', { className: 'dsh-gw-annot-wrap dsh-gw-note-boxbody' + (headVisible ? '' : ' dsh-gw-note-boxtop'), style: { order: doc === null ? 3 : 5 } },
           mode === 'source'
             ? h('textarea', { className: 'dsh-gw-note-editor', ref: editorRef, value: bodyForView, spellCheck: false, onChange: (event) => editBody(event.target.value) })
             : h('div', { className: 'dsh-gw-note-preview', ref: previewRef },
@@ -6507,6 +6476,81 @@ const STAGE_OF_STATUS = {
               onAnnotate: (needle, annotationNote) => { void annotate(needle, annotationNote) },
               onRemove: (needle, alsoNote) => { void unannotate(needle, alsoNote) },
             }),
+        showBody === false ? null : h('div', { className: 'dsh-gw-note-footbar', style: { order: 9 } },
+            h('span', { className: 'dsh-gw-note-acts' },
+              h('button', {
+                className: 'dsh-gw-row-act',
+                'data-tone': 'primary',
+                disabled: busy || !dirty,
+                title: dirty ? (doc === null ? '保存这篇' : '保存这个平台版本') : '没有未保存的改动',
+                onClick: save,
+              }, dirty ? t('save') : '已保存'),
+              // 两组按钮，用细线隔开：存盘 / 送出去和杂事。
+              h('span', { className: 'dsh-gw-note-acts-sep' }),
+              // 原来这里是两颗（「交给对话」+「让 AI 写」），做的是同一件事：把这份内容推给 agent。
+              // 现在列表行不再放 AI 写，所以这里留一颗，按当前编的是拆解还是版本脚本选提示词。
+              h('button', {
+                className: 'dsh-gw-row-act',
+                title: doc === null ? '把这条拆解发给 agent（附提示词：补完整钩子/结构/可复用点）' : '把这个版本脚本 + 这一版的资料（标题备选 / 封面文案 / 目标人群 / 发布目的等）一起发给 agent',
+                onClick: () => {
+                  if (!confirmUnsavedIfNeeded(dirty, notify)) return
+                  // 两个分支各写各的，别用三元拼 promptKey：静态守卫要能看见字面量的调用点。
+                  if (doc === null) {
+                    pushToAgent(path, body, notify, { promptKey: 'topic' })
+                    return
+                  }
+                  void pushVariantWithBrief()
+                },
+              }, '发送至Agent'),
+              studio === true || typeValue === '选题' ? h('button', {
+                className: 'dsh-gw-row-act',
+                disabled: busy || body === null || String(body).trim() === '',
+                title: '把当前稿子发给 agent，先读文案规则和发布前检查清单，再逐条审稿（只审不改）',
+                onClick: () => { void reviewWithRules() },
+              }, '按规则审稿') : null,
+              studio === true || typeValue === '选题' ? h('button', {
+                className: 'dsh-gw-row-act',
+                disabled: busy,
+                title: '打开 SOP/运营SOP/发布前检查清单.md，改清单条目会同步到平台版本的自检',
+                onClick: () => { void openReleaseSop() },
+              }, '打开发布 SOP') : null,
+              // 拆解详情的主按钮按类型分流（2026-11-08 拆分）：
+              // 拆解案例（type!=='选题'）→「用这条建选题」，派生一篇自己的选题进我的选题；
+              // 归类成「选题」的 → 原样去我的选题建平台版本写稿。
+              studio === true || doc !== null || typeof openCard !== 'function' ? null
+                : typeValue === '选题' ? h('button', {
+                  className: 'dsh-gw-row-act',
+                  title: '去我的选题：先建平台版本，再写初稿',
+                  onClick: () => {
+                    if (!confirmUnsavedIfNeeded(dirty, notify)) return
+                    openCard('studio', { path })
+                  },
+                }, '我的选题')
+                : h('button', {
+                  className: 'dsh-gw-row-act',
+                  'data-tone': 'primary',
+                  disabled: deriving,
+                  title: '用这条拆解派生一篇「自己的选题」进我的选题：标题/平台/标签先照搬，正文留空自己写',
+                  onClick: () => {
+                    if (!confirmUnsavedIfNeeded(dirty, notify)) return
+                    void deriveTopic()
+                  },
+                }, deriving ? '建选题…' : '用这条建选题'),
+              h('span', { className: 'dsh-gw-note-acts-sep' }),
+              // 拆解脚本不提供「打开」和「排期」：拆解本身不进 Obsidian 看，
+              // 排期是发出去的事，等有了平台版本再排。版本脚本也不再给「打开」——
+              // 这块编辑区本来就是版本脚本本体，再开一次 Obsidian 是重复动作。
+              h(ModeButtons, { mode, setMode }),
+              // 版本脚本里不再放「删除」：版本自己那一行已经有删除（删的是这一版），
+              // 两颗都叫「删除」摆在同一屏只会让人点错，删掉整个主选题不该在这里做。
+              doc === null ? h('button', {
+                className: 'dsh-gw-row-act',
+                'data-tone': 'danger',
+                disabled: busy,
+                title: '删除这篇（先备份）',
+                onClick: () => deleteNote(path, notify, onBack),
+              }, '删除') : null,
+              h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }))),
         h(ConflictDialog, { conflict, onResolve: (choice) => { void resolveConflict(choice) } }),
       )
     }
@@ -7378,7 +7422,7 @@ const STAGE_OF_STATUS = {
                           type: 'button', key: record.path, role: 'option', className: 'dsh-gw-cal-candidate', onClick: () => pickProductRecord(record),
                         }, h('span', { className: 'dsh-gw-cal-candidate-name' }, String(record.title ?? record.path ?? '')), h('span', { className: 'dsh-gw-cal-candidate-path' }, String(record.path ?? ''))))) : null
               )),
-            h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', title: '先关联已有选题及明确的平台版本；去建资料时会保留预填', disabled: busy || draft.topicPath === '' || variantList.loading || variantList.error !== null, onClick: add }, '排进 ' + selected.slice(5)))),
+            h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', title: '先关联已有选题及明确的平台版本；去建资料时会保留预填', disabled: busy || draft.topicPath === '' || variantList.loading || variantList.error !== null, onClick: add }, '排进 ' + selected.slice(5)))),
             h('div', { className: 'dsh-gw-cal-listhead' }, '当天排期' + (selectedEntries.length === 0 ? '' : ' · ' + selectedEntries.length + ' 条')),
             selectedEntries.length === 0
               ? h('div', { className: 'dsh-gw-row-meta', style: { padding: '2px 4px 8px' } }, '这天还没有排期。')
@@ -7796,7 +7840,7 @@ const STAGE_OF_STATUS = {
         h(Field, { label: '丢一条想法进来' }, h('input', { value: content, onChange: (event) => setContent(event.target.value), onKeyDown: (event) => { if (event.key === 'Enter' && content.trim() !== '') add() }, placeholder: '一句话就行，回车保存' })),
         h(Field, { label: '来源（选填）' }, h('input', { value: source, onChange: (event) => setSource(event.target.value), placeholder: '评论区 / 同事 / 自己想到' })),
         h(Field, { label: '来源URL（选填）' }, h('input', { value: sourceUrl, onChange: (event) => setSourceUrl(event.target.value), placeholder: 'https://… 视频或文章链接' })),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || content.trim() === '', onClick: add }, '记下')),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || content.trim() === '', onClick: add }, '记下')),
         
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         h(ListPager, { list }),
@@ -8370,10 +8414,10 @@ const STAGE_OF_STATUS = {
           h(Field, { label: 'ROI' }, h('input', { value: draft.roi, onChange: (event) => setDraft({ ...draft, roi: event.target.value }) })),
           h(Field, { label: '环比' }, h('input', { value: draft.mom, onChange: (event) => setDraft({ ...draft, mom: event.target.value }) })),
         ),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.period.trim() === '', onClick: create }, '建复盘'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.period.trim() === '', onClick: create }, '建复盘'))),
         h(Fold, { title: '导入平台导出的 CSV' },
         h(Field, { label: '把 CSV 内容粘进来（第一行是表头）' }, h('textarea', { style: { minHeight: 96 }, value: csvText, onChange: (event) => setCsvText(event.target.value), placeholder: '日期,GMV,流量,转化率,ROI\n2026-11-01,12000,3400,3.2%,4.1' })),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', disabled: busy || csvText.trim() === '', onClick: importCsv }, '解析并存档'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', disabled: busy || csvText.trim() === '', onClick: importCsv }, '解析并存档'))),
       )
     }
 
@@ -8485,7 +8529,7 @@ const STAGE_OF_STATUS = {
               h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '给谁看：年龄 / 场景 / 痛点' })),
               h(Field, { label: '状态' }, h('select', { value: draft.status, onChange: (event) => setDraft({ ...draft, status: event.target.value }) }, ACCOUNT_STATUSES.map((status) => h('option', { key: status, value: status }, status)))),
               h(Field, { label: '备注' }, h('input', { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), placeholder: '登录人 / 更新频率 / 注意事项' }))),
-            h('div', { className: 'dsh-gw-actions' },
+            h('div', { className: 'dsh-gw-actions dsh-gw-footbar' },
               h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建账号档案'))))
       )
     }
@@ -8727,7 +8771,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '标签' }, h('input', { value: draft.tags, onChange: (event) => setDraft({ ...draft, tags: event.target.value }) })),
           h(Field, { label: '链接（商品页/拆解来源）' }, h('input', { value: draft.link, onChange: (event) => setDraft({ ...draft, link: event.target.value }), placeholder: 'https://…（可选）' })),
         ),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '', onClick: create }, '建档案'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '', onClick: create }, '建档案'))),
         )),
       )
     }
@@ -9027,7 +9071,7 @@ const STAGE_OF_STATUS = {
         h(Field, { label: '来源' }, h(SourceSelect, { value: draft.source, groups: sourceGroups, onChange: (value) => setDraft({ ...draft, source: value }), extra: { title: '这条反馈从哪来：平台 / 文章或视频笔记 / 自家或竞品商品' } })),
         h(Field, { label: '原文' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.content, onChange: (event) => setDraft({ ...draft, content: event.target.value }), placeholder: '客户原话' })),
         h(Field, { label: '标签' }, h('input', { value: draft.tags, onChange: (event) => setDraft({ ...draft, tags: event.target.value }), placeholder: '物流 / 尺码 / 客服' })),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         h(ErrorBar, { error: sourceTopicList.error, onRetry: sourceTopicList.reload }), h(ErrorBar, { error: sourceProductList.error, onRetry: sourceProductList.reload }),
         h('div', { className: 'dsh-gw-source-pages' },
@@ -9201,7 +9245,7 @@ const STAGE_OF_STATUS = {
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.expected, placeholder: '预期值', onChange: (event) => updateRow(index, { expected: event.target.value }), style: { width: '100%' } })),
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.actual, placeholder: '实际值', onChange: (event) => updateRow(index, { actual: event.target.value }), style: { width: '100%' } })),
               h('td', null, h('button', { className: 'dsh-gw-ibtn dsh-gw-row-del', title: '删掉这一行', onClick: () => setRows((prev) => (prev.length <= 1 ? [{ metric: '', expected: '', actual: '' }] : prev.filter((item, at) => at !== index))) }, h(Icon, { name: 'trash' }))))))),
-        h('div', { className: 'dsh-gw-actions', style: { display: 'flex', gap: 8 } },
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar', style: { display: 'flex', gap: 8 } },
           h('button', { className: 'dsh-gw-btn', onClick: () => setRows((prev) => [...prev, { metric: '', expected: '', actual: '' }]) }, '+ 加一行指标'),
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: !canSave, onClick: save }, busy ? '保存中…' : '保存效果对比'))))
     }
@@ -9276,7 +9320,7 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '结束' }, h('input', { type: 'date', value: draft.end, onChange: (event) => setDraft({ ...draft, end: event.target.value }) })),
         ),
         h(Field, { label: '目标' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.goal, onChange: (event) => setDraft({ ...draft, goal: event.target.value }), placeholder: '这次活动想达成什么' })),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建方案'))),
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '' || draft.platform.trim() === '', onClick: create }, '建方案'))),
       )
     }
 
@@ -9533,7 +9577,8 @@ const STAGE_OF_STATUS = {
               onAnnotate: (needle, annotationNote) => { void annotate(needle, annotationNote) },
               onRemove: (needle, alsoNote) => { void unannotate(needle, alsoNote) },
             }),
-        h('div', { className: 'dsh-gw-actions' },
+        // 操作行钉在可视区底部：面板一窄、正文一长，保存/删除就滑到看不见的地方了。
+        h('div', { className: 'dsh-gw-note-footbar' },
           h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy, onClick: save }, t('save')),
           h('button', { className: 'dsh-gw-btn', title: '把这篇的正文放进对话输入框', onClick: () => {
             const record = detail.data?.record ?? {}
@@ -10119,6 +10164,22 @@ const STAGE_OF_STATUS = {
       return /^(https?:\/\/|mailto:)/i.test(value) ? value : ''
     }
 
+    // 「能定位到具体内容」的链接：https://www.bilibili.com 这种只有域名的地址，
+    // 打开只会看到首页，预览里根本找不到那条视频 —— 所以按「有没有路径」判一次，
+    // 认不出就试下一个候选（裸域名不再把真正的视频地址挡在外面）。
+    function concreteLinkOf(values) {
+      for (const value of values) {
+        const safe = safeLinkTarget(value)
+        if (safe === '') continue
+        let parsed
+        try { parsed = new URL(safe) } catch { continue }
+        const path = String(parsed.pathname ?? '').trim()
+        if (path === '' || path === '/') continue
+        return safe
+      }
+      return ''
+    }
+
     // 来源站点的短名字：表格里那一列只有一个胶囊的宽度，写全域名放不下。
     // 认不出来的站就退回去掉 www. 的域名主体（example.com → example）。
     const SOURCE_SITES = [
@@ -10223,6 +10284,62 @@ const STAGE_OF_STATUS = {
       return embedFor(target).src
     }
 
+    // 移动 / 缩放的几何：只吃「按下时冻结的矩形 + 累计位移」，不读 DOM。
+    // 以前是每次 pointermove 都回读 getBoundingClientRect 再叠加位移，读到的值比
+    // setState 晚一帧，窗口就会跳一下、跑位。现在位移只从起点算一次。
+    // dir: 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+    function windowCursorFor(dir) {
+      if (dir === 'n' || dir === 's') return 'ns-resize'
+      if (dir === 'e' || dir === 'w') return 'ew-resize'
+      if (dir === 'ne' || dir === 'sw') return 'nesw-resize'
+      return 'nwse-resize'
+    }
+
+    function clampNumber(value, low, high) {
+      return Math.min(Math.max(value, low), Math.max(low, high))
+    }
+
+    function resizeRect(start, dir, dx, dy, bounds) {
+      const minX = bounds.minX, minY = bounds.minY
+      const rightLimit = bounds.rightLimit, bottomLimit = bounds.bottomLimit
+      const minW = Math.min(bounds.minW, Math.max(1, rightLimit - minX))
+      const minH = Math.min(bounds.minH, Math.max(1, bottomLimit - minY))
+      if (dir === 'move') {
+        // 整体平移：宽高不变，只把整块夹回视口里。
+        const w = Math.min(start.w, Math.max(minW, rightLimit - minX))
+        const h = Math.min(start.h, Math.max(minH, bottomLimit - minY))
+        return {
+          x: Math.round(clampNumber(start.x + dx, minX, rightLimit - w)),
+          y: Math.round(clampNumber(start.y + dy, minY, bottomLimit - h)),
+          w: Math.round(w), h: Math.round(h),
+        }
+      }
+      // 缩放：按四条边算，只动被拖的那条边 —— 对边天然钉住，所以不会「跑位」。
+      let left = start.x, top = start.y
+      let right = start.x + start.w, bottom = start.y + start.h
+      if (dir.includes('w')) left = Math.min(start.x + dx, right - minW)
+      if (dir.includes('e')) right = Math.max(right + dx, left + minW)
+      if (dir.includes('n')) top = Math.min(start.y + dy, bottom - minH)
+      if (dir.includes('s')) bottom = Math.max(bottom + dy, top + minH)
+      // 夹进视口：碰到视口边时，被拖的那条边停住、对边不动。
+      left = clampNumber(left, minX, rightLimit)
+      right = clampNumber(right, minX, rightLimit)
+      top = clampNumber(top, minY, bottomLimit)
+      bottom = clampNumber(bottom, minY, bottomLimit)
+      if (right - left < minW) {
+        if (dir.includes('w') && !dir.includes('e')) left = Math.max(minX, right - minW)
+        else right = Math.min(rightLimit, left + minW)
+      }
+      if (bottom - top < minH) {
+        if (dir.includes('n') && !dir.includes('s')) top = Math.max(minY, bottom - minH)
+        else bottom = Math.min(bottomLimit, top + minH)
+      }
+      return {
+        x: Math.round(left), y: Math.round(top),
+        w: Math.round(Math.max(1, right - left)), h: Math.round(Math.max(1, bottom - top)),
+      }
+    }
+
     function previewMaxFrameHeight() {
       if (typeof window === 'undefined') return 760
       return Math.max(160, Math.min(760, window.innerHeight - 240))
@@ -10234,8 +10351,10 @@ const STAGE_OF_STATUS = {
       const embed = embedFor(safe)
       const frameRef = React.useRef(null)
       const dragCleanupRef = React.useRef(null)
-      const [frameHeight, setFrameHeight] = React.useState(0)
-      const [cardLift, setCardLift] = React.useState(0)
+      // 拖动方向（'' = 没在拖）。光标挂在窗口元素上而不是 document.body：
+      // 拖完时指针如果停在视频画面上，pointerup 会被网页吞掉，写在 body 上的光标
+      // 就永远回不去（表现为「鼠标一直是缩放箭头」）。挂在窗口上就跟着窗口一起销毁。
+      const [dragDir, setDragDir] = React.useState('')
       // 预览默认就是一个「浮动窗口」：用 createPortal 挂到 document.body 上（脱离工作台面板容器），
       // 再 position:fixed 定位——这样它才真正浮在整个 DSH 网页之上（能盖住宿主侧栏/其它面板），
       // 可拖标题栏移动、拖右下角缩放，还能一键全屏铺满整个网页视口。不调用系统全屏（切换不卡）。
@@ -10244,8 +10363,13 @@ const STAGE_OF_STATUS = {
       const [fullscreen, setFullscreen] = React.useState(false)
       const [floatRect, setFloatRect] = React.useState(null) // { x, y, w, h }，null 表示用默认居中尺寸
       const previewRef = React.useRef(null)
+      // 旧版把光标写在 document.body 上，指针在视频里抬起时事件被网页吞掉，
+      // 光标就永远停在缩放箭头。这里顺手自愈一次（关掉预览也会清）。
+      React.useEffect(() => {
+        const stale = String(document.body.style.cursor ?? '')
+        if (stale !== '' && /resize|move/i.test(stale)) document.body.style.cursor = ''
+      }, [])
       const dragMoveCleanupRef = React.useRef(null)
-      const dragSizeCleanupRef = React.useRef(null)
       // 打开浮窗时按视口算一个居中的默认矩形（约 70% 宽、80% 高，并夹在视口内）。
       const defaultFloatRect = () => {
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1280
@@ -10297,37 +10421,48 @@ const STAGE_OF_STATUS = {
           document.body.style.overflow = previousOverflow
         }
       }, [floating])
-      // 拖标题栏移动浮窗。
-      const startDragMove = (event) => {
+      // 移动和八个方向的缩放共用一个例程：按下那一刻把真实位置冻结成 rect0，
+      // 之后所有位移都从 rect0 算，中途不再回读 DOM（回读正是「跳一下 / 跑位」的根源）。
+      // 之前只有右下角一个把手，还是「先算增量再加到当前值」的写法，一拖就漂。
+      const startWindowDrag = (event, dir) => {
         if (event.button !== undefined && event.button !== 0) return
+        if (fullscreen) return
+        const node = previewRef.current
+        if (node === null) return
         event.preventDefault()
-        if (dragMoveCleanupRef.current !== null) dragMoveCleanupRef.current()
+        const handle = event.currentTarget
+        const pointerId = event.pointerId
+        // 指针捕获：手划过 iframe 时事件仍旧送回把手，不会拖到一半断掉。
+        if (handle !== null && typeof handle.setPointerCapture === 'function') {
+          try { handle.setPointerCapture(pointerId) } catch { /* 合成事件可能没有指针 id */ }
+        }
+        const box0 = node.getBoundingClientRect()
+        const rect0 = { x: box0.left, y: box0.top, w: box0.width, h: box0.height }
+        // 居中态用的是 transform:translate(-50%,-50%)：先把它落成绝对坐标，
+        // 视觉位置不变，但之后所有计算都在同一套坐标里，不会少算半个宽高。
+        setFloatRect(rect0)
         const startX = event.clientX
         const startY = event.clientY
-        // 从容器当前真实位置起步（初始是 translate 居中，getBoundingClientRect 才是准的），避免一拖就跳。
-        const node = previewRef.current
-        const boxRect = node !== null ? node.getBoundingClientRect() : null
-        const rect0 = boxRect !== null
-          ? { x: boxRect.left, y: boxRect.top, w: boxRect.width, h: boxRect.height }
-          : (floatRect !== null ? floatRect : defaultFloatRect())
-        const previousCursor = document.body.style.cursor
-        const previousSelect = document.body.style.userSelect
-        document.body.style.cursor = 'move'
-        document.body.style.userSelect = 'none'
+        // 光标和 user-select 全交给窗口上的 data-drag（见 CSS），不碰 document.body。
+        setDragDir(dir)
         const onMove = (moveEvent) => {
-          const vw = window.innerWidth, vh = window.innerHeight
-          const nx = Math.max(0, Math.min(vw - rect0.w, rect0.x + (moveEvent.clientX - startX)))
-          const ny = Math.max(0, Math.min(vh - rect0.h, rect0.y + (moveEvent.clientY - startY)))
-          setFloatRect({ x: Math.round(nx), y: Math.round(ny), w: rect0.w, h: rect0.h })
+          const vw = window.innerWidth
+          const vh = window.innerHeight
+          setFloatRect(resizeRect(rect0, dir, moveEvent.clientX - startX, moveEvent.clientY - startY, {
+            minW: 320, minH: 200,
+            minX: 8, minY: minTop, rightLimit: vw - 8, bottomLimit: vh - 8,
+          }))
         }
         const onUp = () => {
           document.removeEventListener('pointermove', onMove)
           document.removeEventListener('pointerup', onUp)
           document.removeEventListener('pointercancel', onUp)
           window.removeEventListener('blur', onUp)
-          document.body.style.cursor = previousCursor
-          document.body.style.userSelect = previousSelect
+          setDragDir('')
           dragMoveCleanupRef.current = null
+          if (handle !== null && typeof handle.releasePointerCapture === 'function') {
+            try { handle.releasePointerCapture(pointerId) } catch { /* 已释放 */ }
+          }
         }
         dragMoveCleanupRef.current = onUp
         document.addEventListener('pointermove', onMove)
@@ -10335,51 +10470,11 @@ const STAGE_OF_STATUS = {
         document.addEventListener('pointercancel', onUp)
         window.addEventListener('blur', onUp)
       }
-      // 拖右下角手柄缩放浮窗（保持左上角不动）。
-      const startDragSize = (event) => {
-        event.preventDefault()
-        if (dragSizeCleanupRef.current !== null) dragSizeCleanupRef.current()
-        const startX = event.clientX
-        const startY = event.clientY
-        const node = previewRef.current
-        const boxRect = node !== null ? node.getBoundingClientRect() : null
-        const rect0 = boxRect !== null
-          ? { x: boxRect.left, y: boxRect.top, w: boxRect.width, h: boxRect.height }
-          : (floatRect !== null ? floatRect : defaultFloatRect())
-        const previousCursor = document.body.style.cursor
-        const previousSelect = document.body.style.userSelect
-        document.body.style.cursor = 'nwse-resize'
-        document.body.style.userSelect = 'none'
-        const onMove = (moveEvent) => {
-          const vw = window.innerWidth, vh = window.innerHeight
-          const minW = 320, minH = 200
-          const w = Math.max(minW, Math.min(vw - rect0.x - 8, rect0.w + (moveEvent.clientX - startX)))
-          const h = Math.max(minH, Math.min(vh - rect0.y - 8, rect0.h + (moveEvent.clientY - startY)))
-          setFloatRect({ x: rect0.x, y: rect0.y, w: Math.round(w), h: Math.round(h) })
-        }
-        const onUp = () => {
-          document.removeEventListener('pointermove', onMove)
-          document.removeEventListener('pointerup', onUp)
-          document.removeEventListener('pointercancel', onUp)
-          window.removeEventListener('blur', onUp)
-          document.body.style.cursor = previousCursor
-          document.body.style.userSelect = previousSelect
-          dragSizeCleanupRef.current = null
-        }
-        dragSizeCleanupRef.current = onUp
-        document.addEventListener('pointermove', onMove)
-        document.addEventListener('pointerup', onUp)
-        document.addEventListener('pointercancel', onUp)
-        window.addEventListener('blur', onUp)
-      }
       React.useEffect(() => () => {
         if (dragMoveCleanupRef.current !== null) dragMoveCleanupRef.current()
-        if (dragSizeCleanupRef.current !== null) dragSizeCleanupRef.current()
       }, [])
       React.useEffect(() => {
         if (dragCleanupRef.current !== null) dragCleanupRef.current()
-        setFrameHeight(0)
-        setCardLift(0)
         setFullscreen(false)
         setFloatRect(null)
       }, [embed.src])
@@ -10389,55 +10484,6 @@ const STAGE_OF_STATUS = {
       React.useEffect(() => () => {
         if (dragCleanupRef.current !== null) dragCleanupRef.current()
       }, [])
-      // 预览卡悬在输入框上方，上边缘才是「往对话区扩」的自然抓手：向上拖=变高，向下拖=变矮。
-      // 高度只加在 iframe 上时卡片在流里是「顶边钉住、底边往下长」，把手跟着鼠标走但卡片
-      // 却从下方伸出来，会顶到输入框。这里把增量用负 margin-top 抵消：卡片 margin box
-      // 高度不变（下方输入框不受影响），顶边跟随鼠标上移、底边保持锚定，真正往对话区里扩。
-      const startResize = (event) => {
-        event.preventDefault()
-        if (dragCleanupRef.current !== null) dragCleanupRef.current()
-        const frame = frameRef.current
-        if (frame === null) return
-        const handle = event.currentTarget
-        const pointerId = event.pointerId
-        if (handle !== null && typeof handle.setPointerCapture === 'function') {
-          try { handle.setPointerCapture(pointerId) } catch { /* 合成事件可能没有指针 id */ }
-        }
-        const startY = event.clientY
-        const startHeight = frame.getBoundingClientRect().height
-        const maxHeight = previewMaxFrameHeight()
-        // 横屏视频的宽被卡片限死：高度超过「宽 ÷ 16:9」只会长黑边，所以拖到等比上限为止。
-        const wideMax = embed.fit === 'wide'
-          ? Math.max(120, Math.min(maxHeight, Math.floor(frame.getBoundingClientRect().width * 9 / 16)))
-          : maxHeight
-        const previousCursor = document.body.style.cursor
-        const previousSelect = document.body.style.userSelect
-        document.body.style.cursor = 'ns-resize'
-        document.body.style.userSelect = 'none'
-        const onMove = (moveEvent) => {
-          const next = Math.max(120, Math.min(wideMax, startHeight - (moveEvent.clientY - startY)))
-          const rounded = Math.round(next)
-          setFrameHeight(rounded)
-          setCardLift(rounded - startHeight)
-        }
-        const onUp = () => {
-          document.removeEventListener('pointermove', onMove)
-          document.removeEventListener('pointerup', onUp)
-          document.removeEventListener('pointercancel', onUp)
-          window.removeEventListener('blur', onUp)
-          document.body.style.cursor = previousCursor
-          document.body.style.userSelect = previousSelect
-          dragCleanupRef.current = null
-          if (handle !== null && typeof handle.releasePointerCapture === 'function') {
-            try { handle.releasePointerCapture(pointerId) } catch { /* 已释放 */ }
-          }
-        }
-        dragCleanupRef.current = onUp
-        document.addEventListener('pointermove', onMove)
-        document.addEventListener('pointerup', onUp)
-        document.addEventListener('pointercancel', onUp)
-        window.addEventListener('blur', onUp)
-      }
       if (safe === '') return null
       // 只用同一个 iframe 实例：浮窗用 createPortal 挂到 document.body，再 fixed 定位，
       // 这样它真正浮在整个 DSH 网页之上（能盖住宿主侧栏/其它面板）。全屏 = 铺满整个网页视口。
@@ -10462,17 +10508,12 @@ const STAGE_OF_STATUS = {
         'data-fit': embed.fit,
         'data-floating': 'true',
         'data-fullscreen': fullscreen ? 'true' : undefined,
+        'data-drag': dragDir === '' ? undefined : dragDir,
         style: boxStyle,
       },
         h('div', {
-          className: 'dsh-gw-chat-preview-resize',
-          title: '拖动调整预览高度（向上拖变大）',
-          onPointerDown: startResize,
-          style: { display: 'none' },
-        }),
-        h('div', {
           className: 'dsh-gw-chat-preview-head',
-          onPointerDown: fullscreen ? undefined : startDragMove,
+          onPointerDown: fullscreen ? undefined : (event) => startWindowDrag(event, 'move'),
           style: fullscreen ? undefined : { cursor: 'move', touchAction: 'none' },
           title: fullscreen ? undefined : '按住拖动移动窗口',
         },
@@ -10493,13 +10534,13 @@ const STAGE_OF_STATUS = {
             // 注意：拦不住子文档「在自己框内换页」这类站内路由——那是站点自身行为，父页面无权干预（同源策略）。
             sandbox: 'allow-scripts allow-same-origin allow-forms allow-presentation',
           })),
-        fullscreen
-          ? null
-          : h('div', {
-              className: 'dsh-gw-chat-preview-grip',
-              title: '拖动调整窗口大小',
-              onPointerDown: startDragSize,
-            }))
+        fullscreen ? null : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((dir) => h('div', {
+          key: 'rz-' + dir,
+          className: 'dsh-gw-chat-preview-handle',
+          'data-dir': dir,
+          title: dir === 'n' || dir === 's' ? '拖动调整高度' : dir === 'e' || dir === 'w' ? '拖动调整宽度' : '拖动调整窗口大小',
+          onPointerDown: (event) => startWindowDrag(event, dir),
+        })))
       // 挂到 body：只要有祖先带 transform/filter/contain，position:fixed 就会相对那个盒子定位，
       // 铺不满整个窗口、也盖不住面板外。portal 到 body 后 fixed 才真的等于「整个应用窗口」。
       return typeof createPortal === 'function' ? createPortal(box, document.body) : box
@@ -10848,7 +10889,7 @@ const STAGE_OF_STATUS = {
             h(Field, { label: '规则（一句话）' }, h('input', { value: draft.title, onChange: (event) => { setDraftTouched(true); setDraft({ ...draft, title: event.target.value }) }, placeholder: '例：不写「最」「第一」这类绝对化用语' }))),
           h('div', { className: 'dsh-gw-rules-form dsh-gw-rules-form-fields' },
             RULE_FIELDS.map((name) => h(Field, { key: name, label: name }, h('input', { value: draft.fields[name] ?? '', onChange: (event) => { setDraftTouched(true); setDraft({ ...draft, fields: { ...draft.fields, [name]: event.target.value } }) } })))),
-          h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '', onClick: addRule }, '加进规则库'))),
+          h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.title.trim() === '', onClick: addRule }, '加进规则库'))),
       )
     }
 
@@ -11209,17 +11250,7 @@ const STAGE_OF_STATUS = {
                   title: '在 Obsidian 中打开当前这篇',
                   onClick: () => openInObsidian(activePath, notify),
                 }, folder === '' ? '/' : folder + '/')),
-              h('div', { className: 'dsh-gw-note-actions' },
-                h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }),
-                h(ModeButtons, { mode, setMode }),
-                h('button', { className: 'dsh-gw-btn', disabled: busy || !dirty, 'data-tone': 'primary', onClick: save }, dirty ? t('save') : '已保存'),
-                h('button', { className: 'dsh-gw-btn', onClick: () => { setText(note.text) }, disabled: !dirty }, '撤销'),
-                h('button', { className: 'dsh-gw-btn', title: '把这篇的正文放进对话输入框', onClick: () => {
-                  if (!confirmUnsavedIfNeeded(dirty, notify)) return
-                  pushToAgent(activePath, text, notify, { promptKey: 'sop' })
-                } }, '交给对话'),
-                h('button', { className: 'dsh-gw-btn', onClick: () => openInObsidian(activePath, notify) }, t('openInObsidian')),
-                h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', disabled: busy, onClick: remove }, [h(Icon, { name: 'trash', size: 12 }), ' 删除']))),
+            ),
             note.warning === undefined || note.warning === null ? null : h('p', { className: 'dsh-gw-warn' }, String(note.warning)),
             h(ExternalUpdateBar, { pending: sopSync.pending, onTake: sopSync.take, onDrop: sopSync.drop }),
             h('div', { className: 'dsh-gw-annot-wrap' },
@@ -11257,6 +11288,19 @@ const STAGE_OF_STATUS = {
               onAnnotate: (needle, annotationNote) => { void annotate(needle, annotationNote) },
               onRemove: (needle, alsoNote) => { void unannotate(needle, alsoNote) },
             }),
+            h('div', { className: 'dsh-gw-note-footbar' },
+                h('div', { className: 'dsh-gw-note-actions' },
+                  h(AnnotationPill, { count: annotCount, open: annotOpen, onToggle: () => setAnnotOpen(!annotOpen) }),
+                  h(ModeButtons, { mode, setMode }),
+                  h('button', { className: 'dsh-gw-btn', disabled: busy || !dirty, 'data-tone': 'primary', onClick: save }, dirty ? t('save') : '已保存'),
+                  h('button', { className: 'dsh-gw-btn', onClick: () => { setText(note.text) }, disabled: !dirty }, '撤销'),
+                  h('button', { className: 'dsh-gw-btn', title: '把这篇的正文放进对话输入框', onClick: () => {
+                    if (!confirmUnsavedIfNeeded(dirty, notify)) return
+                    pushToAgent(activePath, text, notify, { promptKey: 'sop' })
+                  } }, '交给对话'),
+                  h('button', { className: 'dsh-gw-btn', onClick: () => openInObsidian(activePath, notify) }, t('openInObsidian')),
+                  h('button', { className: 'dsh-gw-btn', 'data-tone': 'danger', disabled: busy, onClick: remove }, [h(Icon, { name: 'trash', size: 12 }), ' 删除']))
+            ),
           )
 
       // 大纲只在预览模式下有价值，且只在有大标题时出现
@@ -11699,7 +11743,7 @@ const STAGE_OF_STATUS = {
             h(Field, { label: '标签' }, h(ComboField, { value: draft.tags, onChange: (value) => setDraft({ ...draft, tags: value }), options: tagOptions, placeholder: '物流 / 尺码 / 客服' })),
           ),
           h(Field, { label: '备注' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), placeholder: '口径 / 公式 / 别称' })),
-          h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || (draft.zh.trim() === '' && draft.en.trim() === ''), onClick: add }, t('add')))
+          h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || (draft.zh.trim() === '' && draft.en.trim() === ''), onClick: add }, t('add')))
         )
       )
     }
@@ -12672,7 +12716,7 @@ const STAGE_OF_STATUS = {
         h(Field, { label: '账号名' }, h('input', { maxLength: 20, value: draft.name, onChange: (event) => setDraft({ ...draft, name: event.target.value }), placeholder: '例如 抖音主号' })),
         h(Field, { label: '定位' }, h('input', { value: draft.positioning, onChange: (event) => setDraft({ ...draft, positioning: event.target.value }), placeholder: '这个号讲什么（可空）' })),
         h(Field, { label: '目标人群' }, h('input', { value: draft.audience, onChange: (event) => setDraft({ ...draft, audience: event.target.value }), placeholder: '讲给谁听（可空）' })),
-        h('div', { className: 'dsh-gw-actions' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.name.trim() === '', onClick: create }, busy ? '建中…' : '建并选上')))
+        h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.name.trim() === '', onClick: create }, busy ? '建中…' : '建并选上')))
     }
     // 账号选择器：选已有账号档案；没有就现场建一个（只问名字/定位/人群，平台用表单上已选的），
     // 建完直接选中，不用为了建一个号先切到「账号档案」卡再回来。
@@ -12987,6 +13031,62 @@ const STAGE_OF_STATUS = {
       const [searchStatus, setSearchStatus] = React.useState({ query: '', scope: '', loading: false, error: null })
       const [searchRetry, setSearchRetry] = React.useState(0)
       const [refreshVersion, setRefreshVersion] = React.useState(0)
+      // 文件变化的总闸：vault 里任何一篇 md 变了，就让所有列表卡重取第一页。
+      // 为什么需要：列表卡只在挂载 / 搜索 / 手动刷新时读盘，在 Obsidian 里改完切回工作台
+      // 还是旧值，得点进详情再退回来才顺带刷一次 —— 这就是「跳好几次才看到新的」。
+      // 详情页本来就有自己的实时通道（useExternalSync），这里补的是列表这一层。
+      const [vaultVersion, setVaultVersion] = React.useState(0)
+      const vaultPing = React.useRef({ timer: null, pending: false })
+      React.useEffect(() => {
+        let closed = false
+        let source = null
+        let failures = 0
+        const typingNow = () => {
+          const active = typeof document === 'undefined' ? null : document.activeElement
+          return active !== null && active !== undefined
+            && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable === true)
+        }
+        const fire = () => {
+          if (closed) return
+          // 正在输入框里打字时不抢：记成待办，等离开输入框或页面重新可见再补一次。
+          if (typingNow() || document.visibilityState === 'hidden') { vaultPing.current.pending = true; return }
+          vaultPing.current.pending = false
+          setVaultVersion((n) => n + 1)
+        }
+        const schedule = (delay) => {
+          if (vaultPing.current.timer !== null) window.clearTimeout(vaultPing.current.timer)
+          vaultPing.current.timer = window.setTimeout(() => { vaultPing.current.timer = null; fire() }, delay)
+        }
+        const flush = () => { if (vaultPing.current.pending === true) schedule(120) }
+        // 兜底：SSE 断了、或宿主没重载（老版本没有 path=*），切回窗口也得刷一次。
+        const onVisible = () => { if (document.visibilityState === 'visible') { schedule(180); flush() } }
+        document.addEventListener('visibilitychange', onVisible)
+        document.addEventListener('focusout', flush)
+        window.addEventListener('focus', onVisible)
+        void (async () => {
+          if (typeof EventSource === 'undefined') return
+          const ticket = await eventTicket()
+          if (closed || ticket === '') return
+          const link = API + '/v2/events?path=*&ticket=' + encodeURIComponent(ticket)
+          try { source = new EventSource(link) } catch { source = null; return }
+          source.onmessage = () => { if (closed) return; failures = 0; schedule(250) }
+          source.onerror = () => {
+            if (closed) return
+            failures += 1
+            // 老宿主没有这条路时 EventSource 会一直重连：收手，交给上面的焦点兜底。
+            if (failures >= 3 && source !== null) { source.close(); source = null }
+          }
+        })()
+        return () => {
+          closed = true
+          if (source !== null) source.close()
+          if (vaultPing.current.timer !== null) window.clearTimeout(vaultPing.current.timer)
+          vaultPing.current.timer = null
+          document.removeEventListener('visibilitychange', onVisible)
+          document.removeEventListener('focusout', flush)
+          window.removeEventListener('focus', onVisible)
+        }
+      }, [])
       const stateReads = React.useRef(null)
       const summaryReads = React.useRef(null)
       const stateAbort = React.useRef(null)
@@ -13465,13 +13565,14 @@ const STAGE_OF_STATUS = {
               onClick: () => { if (cardId !== card.id) openCard(card.id) },
             }, card.title))) : null,
           h(DraftContext.Provider, { value: draftRegistry },
+            h(VaultChangeContext.Provider, { value: vaultVersion },
             h(RefreshContext.Provider, { value: refreshVersion },
               h(CrumbSlot.Provider, { value: crumbSlot },
                 h('div', { id: 'dsh-gw-workspace-panel', className: 'dsh-gw-body', ref: bodyRef, role: 'tabpanel', 'aria-labelledby': 'dsh-gw-tab-' + workspace },
                   h(ErrorBar, { error: state.data === null ? null : state.error, onRetry: loadState }),
                   h(ErrorBar, { error: summaryError, onRetry: loadSummary }),
                   state.loading && state.data !== null ? h('p', { role: 'status', className: 'dsh-gw-row-meta' }, '正在后台刷新，编辑器保持打开…') : null,
-                  body())))),
+                  body()))))),
           toast === null ? null : h('div', {
             className: toast.isError === true ? 'dsh-gw-err' : 'dsh-gw-ok',
             role: toast.isError === true ? 'alert' : 'status',
