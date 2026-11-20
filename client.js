@@ -331,6 +331,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-chat-split:hover::before,.dsh-gw-chat-split[data-dragging=true]::before{left:2px;width:2px;background:var(--dsw-alias-link)}
 .dsh-gw-chatcol-head{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:0 0 auto}
 .dsh-gw-chatcol-title{flex:1;min-width:0;font-size:var(--gw-fz-4,13px);font-weight:600;color:var(--dsw-alias-label-primary)}
+.dsh-gw-chatcol-new{flex:none;height:22px;padding:0 8px;font-size:var(--gw-fz-2,11.5px)}
 .dsh-gw-chatcol-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 /* 专注层是 fixed，会脱离普通的左右分栏。打开 Agent 后，把对话栏也提升为同层 fixed，
    工作台在左边让出对话宽度，避免「按钮显示已开启、对话却被全屏面板盖住」。 */
@@ -451,7 +452,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-ledger-table th.dsh-gw-sort-th{cursor:pointer;user-select:none;white-space:nowrap}
 .dsh-gw-ledger-table th.dsh-gw-sort-th:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-gw-sort-mark{margin-left:3px;font-size:var(--gw-fz-1,11px);color:var(--dsw-alias-link)}
-.dsh-gw-ledger-table td.dsh-gw-ledger-content{min-width:110px;max-width:210px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 45%,transparent)}
+.dsh-gw-ledger-table td.dsh-gw-ledger-content{min-width:64px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 45%,transparent)}
 .dsh-gw-ledger-table td.dsh-gw-ledger-content .dsh-gw-row-act{white-space:normal;text-align:left;justify-content:flex-start}
 .dsh-gw-ledger-table tr[data-group-start=true] td{border-top:1px solid var(--dsw-alias-border-l1)}
 .dsh-gw-ledger-table td.dsh-gw-ledger-date{white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -527,7 +528,7 @@ window.__ModuleLoader__.load({
 /* 外框 + 内部横线 + 列间竖线：不画线的时候四列文字飘着，读起来分不清哪个日期属于哪一行。 */
 .dsh-gw-notetable{display:flex;flex-direction:column;max-width:100%;max-height:240px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-1);overscroll-behavior:contain}
 .dsh-gw-notetable-head,.dsh-gw-notetable-row{display:grid;grid-template-columns:84px minmax(0,1fr) 62px 50px 76px 62px;align-items:center;gap:0}
-.dsh-gw-notetable-head,.dsh-gw-notetable-row{width:100%;min-width:520px}
+.dsh-gw-notetable-head,.dsh-gw-notetable-row{width:100%;min-width:0}
 .dsh-gw-notetable-head{position:sticky;top:0;z-index:1;height:20px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:var(--gw-fz-1,11px);letter-spacing:.02em}
 .dsh-gw-notetable-row{height:24px;font-size:var(--gw-fz-2,11.5px);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent);cursor:pointer}
 .dsh-gw-notetable-row:last-child{border-bottom:none}
@@ -569,7 +570,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-rank-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-rank-tab[data-active=true]{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 16%,transparent);color:var(--dsw-alias-state-success-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-success-primary) 28%,transparent)}
 .dsh-gw-rank-table-wrap{max-height:320px;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;margin-top:4px}
-.dsh-gw-rank-table{width:100%;min-width:560px;table-layout:fixed;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);line-height:1.35}
+.dsh-gw-rank-table{width:100%;min-width:0;table-layout:fixed;border-collapse:collapse;font-size:var(--gw-fz-2,11.5px);line-height:1.35}
 .dsh-gw-rank-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-weight:600;padding:5px 7px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dsh-gw-rank-table th.title,.dsh-gw-rank-table td.title{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-rank-table th.platform,.dsh-gw-rank-table td.platform{text-align:left;white-space:nowrap;color:var(--dsw-alias-label-secondary)}
@@ -645,7 +646,7 @@ window.__ModuleLoader__.load({
 .dsh-gw-pending-table{width:100%;table-layout:fixed}
 /* 表格装不下时在表内横向滚动，不许把面板撑破 */
 .dsh-gw-tablebox.dsh-gw-pending-box{overflow-x:auto;overflow-y:hidden;max-width:100%}
-.dsh-gw-pending-box .dsh-gw-pending-table{min-width:640px}
+.dsh-gw-pending-box .dsh-gw-pending-table{min-width:0}
 /* 这个盒子自己成了滚动容器，表头的吸顶基准要改回盒子顶部，否则表头会被顶到下面去 */
 .dsh-gw-tablebox.dsh-gw-pending-box .dsh-gw-pending-table thead th{top:0}
 .dsh-gw-pending-table th,.dsh-gw-pending-table td{padding:3px 5px;font-size:var(--gw-fz-1,11px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1500,13 +1501,13 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-tablebox{min-width:0;max-width:100%;overflow:auto;overscroll-behavior:contain}
 .dsh-gw-tablebox>table{max-width:none}
 .dsh-gw-matrixbox,.dsh-gw-fb-box,.dsh-gw-gloss-box{overflow:auto;max-width:100%;overscroll-behavior:contain}
-.dsh-gw-matrixbox>.dsh-gw-matrix{min-width:520px}
-.dsh-gw-fb-box>.dsh-gw-fb-compact{min-width:560px;table-layout:fixed}
-.dsh-gw-fb-box>.dsh-gw-fb-table:not(.dsh-gw-fb-compact){min-width:860px;table-layout:fixed}
+.dsh-gw-matrixbox>.dsh-gw-matrix{min-width:0}
+.dsh-gw-fb-box>.dsh-gw-fb-compact{min-width:0;table-layout:fixed}
+.dsh-gw-fb-box>.dsh-gw-fb-table:not(.dsh-gw-fb-compact){min-width:0;table-layout:fixed}
 .dsh-gw-gloss-box>.dsh-gw-gloss-table{min-width:0}
 .dsh-gw-tablebox.dsh-gw-topiclist-box{overflow-x:auto;overflow-y:hidden}
 .dsh-gw-topiclist-box .dsh-gw-topiclist thead th{top:0}
-.dsh-gw-topiclist{min-width:540px}
+.dsh-gw-topiclist{min-width:0}
 .dsh-gw-topiclist td{font-size:12px;padding:4px 6px}
 .dsh-gw-topiclist td:first-child{font-size:13px}
 .dsh-gw-topiclist-acts{flex-wrap:nowrap;gap:8px}
@@ -1552,6 +1553,22 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-cal-row-identity{white-space:normal;overflow-wrap:anywhere}
 .dsh-gw-cal-row .dsh-gw-cal-ctrls{flex:1 1 100%;display:flex;gap:4px;justify-content:flex-end;align-items:flex-start;flex-wrap:wrap}
 .dsh-gw-cal-ctrls>input,.dsh-gw-cal-ctrls>select{height:28px;font-size:12px;border-radius:4px}
+/* 排期行右边这一排：改日期 / GMV / 转化率 / 状态 / 平台与关联 / 删除，统一一套尺寸。
+   以前日期框和状态下拉是 28px，两个数字框还是浏览器默认的 ~21px，字号也在 12 / 13 之间飘，
+   标签又比控件矮一截，整排看起来一大一小。现在统一 28px 高、12px 字、4px 圆角，
+   标签跟控件同一基线，两个数字框给固定宽度，右边才对得齐。 */
+.dsh-gw-cal-row .dsh-gw-cal-ctrls{gap:6px;align-items:center}
+.dsh-gw-cal-ctl{height:28px;min-height:28px;margin:0;padding:0 8px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.2;vertical-align:middle}
+.dsh-gw-cal-ctl:focus-visible{outline:2px solid var(--dsw-alias-link);outline-offset:1px}
+.dsh-gw-cal-ctrls>select.dsh-gw-cal-ctl{max-width:100%;padding-right:22px}
+.dsh-gw-cal-ctrls>input.dsh-gw-cal-date{width:132px;padding:0 6px;font-variant-numeric:tabular-nums}
+/* 指标标签跟控件同高同字号，只是颜色退一级；两个数字框给固定宽度，GMV 和转化率才对得齐。 */
+.dsh-gw-cal-ctrls>.dsh-gw-cal-metric{display:inline-flex;align-items:center;gap:6px;height:28px;margin:0;min-width:0;white-space:nowrap;font-size:12px;line-height:1.2;color:var(--dsw-alias-label-secondary);cursor:text}
+.dsh-gw-cal-metric>input.dsh-gw-cal-num{flex:none;width:72px;font-variant-numeric:tabular-nums}
+.dsh-gw-cal-metric>input.dsh-gw-cal-num-sm{width:60px}
+/* 折叠状态下的「平台与关联」：跟按钮同高同字号，别再用 4px 上下内边距顶出个矮一截的框。 */
+.dsh-gw-cal-ctrls>.dsh-gw-cal-row-links:not([open])>summary{display:inline-flex;align-items:center;height:28px;min-height:28px;margin:0;padding:0 9px;box-sizing:border-box;border-radius:4px;font-size:12px;line-height:1.2;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-cal-ctrls>.dsh-gw-cal-row-links:not([open])>summary:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-gw-cal-row-links{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px;min-width:0;font-size:12px}
 .dsh-gw-cal-row-links>summary{cursor:pointer;min-height:28px;box-sizing:border-box;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:transparent}
 .dsh-gw-cal-row-links[open]{flex:1 1 100%;display:flex;flex-wrap:wrap;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px}
@@ -1613,11 +1630,32 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-account-row .dsh-gw-row-meta{grid-column:2;grid-row:2;min-height:17px;margin:0;max-width:72ch;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
 .dsh-gw-account-row .dsh-gw-account-meta-tail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-gw-account-row .dsh-gw-account-acts{justify-self:end;white-space:nowrap}
-/* Full-vault association results are actionable, not just a count. */
-.dsh-gw-source-results{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px;min-width:0}
-.dsh-gw-source-result{display:inline-flex;align-items:center;max-width:100%;min-height:28px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
-.dsh-gw-source-result:hover,.dsh-gw-source-result:focus-visible,.dsh-gw-source-result[data-selected=true]{border-color:var(--dsw-alias-link);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-link);outline:none}
-.dsh-gw-source-result>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 记一条里的「关联来源」：收起只有一行，点开才搜索 + 勾选（2026-11-20 用户要求，别平铺十几条）。 */
+.dsh-gw-sourcepicker{position:relative;min-width:0}
+.dsh-gw-sourcepicker-sum{display:flex;align-items:center;gap:6px;min-height:28px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);font-size:12px;cursor:pointer;list-style:none}
+.dsh-gw-sourcepicker-sum::-webkit-details-marker{display:none}
+.dsh-gw-sourcepicker-sum:hover,.dsh-gw-sourcepicker-sum:focus-visible{border-color:var(--dsw-alias-link);outline:none}
+.dsh-gw-sourcepicker-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}
+.dsh-gw-sourcepicker-value.is-empty{color:var(--dsw-alias-label-tertiary)}
+.dsh-gw-sourcepicker-caret{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-sourcepicker[open] .dsh-gw-sourcepicker-caret{transform:rotate(180deg)}
+.dsh-gw-sourcepicker-body{margin-top:6px;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-gw-sourcepicker-list{max-height:240px;overflow:auto;margin-top:6px;min-width:0}
+.dsh-gw-source-group-title{margin:6px 0 2px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-source-group-title:first-child{margin-top:0}
+.dsh-gw-source-list{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px;min-width:0}
+.dsh-gw-source-check{display:flex;align-items:flex-start;gap:6px;padding:2px 0;font-size:12px;line-height:1.45;cursor:pointer;min-width:0;color:var(--dsw-alias-label-primary)}
+.dsh-gw-source-check>input{margin:2px 0 0;flex:none}
+.dsh-gw-source-check-text{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.dsh-gw-source-check[data-selected=true]{color:var(--dsw-alias-link);font-weight:600}
+.dsh-gw-source-open{flex:none;margin-left:auto;min-height:20px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
+.dsh-gw-source-open:hover,.dsh-gw-source-open:focus-visible{border-color:var(--dsw-alias-link);color:var(--dsw-alias-link);outline:none}
+.dsh-gw-source-picked{margin:2px 0 4px;font-size:11.5px;line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.dsh-gw-source-picked.is-on{color:var(--dsw-alias-link)}
+/* 反馈明细的「来源」：点开那篇笔记；长标题必须换行，不能截成省略号 */
+.dsh-gw-fb-source-cell{white-space:normal}
+.dsh-gw-fb-source-link{padding:0;border:0;background:none;color:var(--dsw-alias-link);font:inherit;font-size:inherit;text-align:left;cursor:pointer;white-space:normal;overflow-wrap:anywhere;word-break:break-word;text-decoration:underline;text-decoration-style:dotted}
+.dsh-gw-fb-source-link:hover,.dsh-gw-fb-source-link:focus-visible{text-decoration-style:solid;outline:none}
 .dsh-gw-settings-shell{display:flex;flex-direction:column;gap:14px;min-width:0;flex:1 1 auto;min-height:100%;padding-bottom:72px}
 .dsh-gw-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:14px 0 12px;border-bottom:1px solid var(--gw-rule)}
 .dsh-gw-settings-head h2{margin:3px 0 4px;font-size:22px;line-height:1.25;letter-spacing:-.02em}.dsh-gw-settings-head p{margin:0;color:var(--gw-muted);max-width:58ch}
@@ -1640,7 +1678,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-rules-scroll>.dsh-gw-rules-frame{overflow:visible;min-width:0}
 .dsh-gw-rules-scroll .dsh-gw-rules thead th{position:sticky;top:0;z-index:6;background:var(--dsw-alias-bg-layer-2)}
 /* Pending keeps its first three identity columns pinned while their widths are adjusted. */
-.dsh-gw-pending-box .dsh-gw-pending-table{width:max(100%,var(--gw-pending-width,852px));min-width:0}
+.dsh-gw-pending-box .dsh-gw-pending-table{width:var(--gw-pending-width,100%);min-width:0}
 .dsh-gw-pending-table th:nth-child(2),.dsh-gw-pending-table td:not([colspan]):nth-child(2){left:var(--gw-pending-left-2,64px)}
 .dsh-gw-pending-table th:nth-child(3),.dsh-gw-pending-table td:not([colspan]):nth-child(3){left:var(--gw-pending-left-3,152px)}
 .dsh-gw-table th,.dsh-gw-table td,.dsh-gw-md-table th,.dsh-gw-md-table td{border-right:none}
@@ -1680,7 +1718,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-tight=true] .dsh-gw-card-tabs{gap:3px 6px;padding-top:7px;padding-bottom:8px}
 .dsh-gw-panel[data-tight=true] .dsh-gw-card-tab{padding-left:13px;padding-right:7px}
 /* Claude-inspired restraint: one warm accent, paper hierarchy, hairline rules, no ornamental lift. */
-.dsh-gw-panel[data-gw-scheme]{--gw-control-h:28px;--gw-radius:5px;--gw-radius-panel:8px;--gw-reading:82ch;font-family:inherit;letter-spacing:0}
+.dsh-gw-panel[data-gw-scheme]{--gw-control-h:28px;--gw-radius:4px;--gw-radius-panel:8px;--gw-reading:82ch;font-family:inherit;letter-spacing:0}
 .dsh-gw-panel[data-gw-scheme] :is(.dsh-gw-head,.dsh-gw-tabs,.dsh-gw-card-tabs){background:var(--gw-paper);background-image:none}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-head{padding:9px 12px 8px;border-bottom-color:var(--gw-rule)}
 .dsh-gw-panel[data-gw-scheme] .dsh-gw-tabs{padding:7px 12px 0;border-bottom-color:var(--gw-rule)}
@@ -1730,6 +1768,28 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 .dsh-gw-panel[data-tight=true][data-gw-scheme] .dsh-gw-tabs{padding-left:10px;padding-right:10px}
 .dsh-gw-panel[data-tight=true][data-gw-scheme] .dsh-gw-card-tabs{padding:4px 10px 5px;gap:2px 6px}
 .dsh-gw-body[data-tight=true] .dsh-gw-ms-pop{max-width:calc(100% - 8px)}
+/* ── 控件尺寸收口（2026-11-20）──────────────────────────────────────────
+   以前高度有 21/22/24/26/28/30/32 七档、圆角 4/5/6/7/8 五种、字号 11/12/13 混着，
+   同一个筛选行、同一块面板里就会一大一小。现在只留两档高度：
+   常规控件 28px（工具栏 / 行内 / 表单），表格里的小一号 24px；
+   圆角一律 var(--gw-radius)，字号一律 12px。 */
+.dsh-gw-panel :is(.dsh-gw-ms-btn,.dsh-gw-catselect,.dsh-gw-search input,.dsh-gw-listfilter-input,.dsh-gw-idea-search,.dsh-gw-markbar-input,.dsh-gw-sop-filter input,.dsh-gw-sop-create input,.dsh-gw-field input:not([type=checkbox]):not([type=radio]),.dsh-gw-field select,.dsh-gw-gloss-search,.dsh-gw-input,.dsh-gw-promote :is(input,select)){height:28px;min-height:28px;box-sizing:border-box;padding:0 8px;border-radius:var(--gw-radius,4px);font-size:12px;line-height:1.2}
+.dsh-gw-panel .dsh-gw-input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit;width:100%;min-width:0}
+.dsh-gw-panel :is(.dsh-gw-combo,.dsh-gw-platmulti,.dsh-gw-field textarea){min-height:28px;border-radius:var(--gw-radius,4px);font-size:12px;line-height:1.45}
+.dsh-gw-panel .dsh-gw-gloss-search,.dsh-gw-panel .dsh-gw-promote select{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:inherit}
+.dsh-gw-pane .dsh-gw-promote>input,.dsh-gw-panel .dsh-gw-promote>input{height:28px;min-height:28px;font-size:12px;border-radius:var(--gw-radius,4px)}
+.dsh-gw-panel .dsh-gw-date-input{height:28px;min-height:28px;padding:0 6px;font-size:12px;border-radius:var(--gw-radius,4px)}
+.dsh-gw-panel :is(.dsh-gw-status-select,.dsh-gw-idea-status,.dsh-gw-fb-state){height:28px;min-height:28px;box-sizing:border-box;border-radius:var(--gw-radius,4px);font-size:12px;line-height:1.2}
+/* 排期行「平台与关联」展开块：跟外面同一套高度，别再 32px。 */
+.dsh-gw-cal-row-links select{height:28px;min-height:28px;padding:0 24px 0 8px;font-size:12px;line-height:1.2;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--gw-radius,4px);background:var(--dsw-alias-bg-layer-1);color:inherit}
+.dsh-gw-cal-addform .dsh-gw-field select.dsh-gw-cal-fieldselect{height:28px;min-height:28px;font-size:12px;border-radius:var(--gw-radius,4px)}
+/* 表格里的小一号：24px，跟同一行的状态选择、行内按钮对齐。 */
+.dsh-gw-tablebox :is(input:not([type=checkbox]):not([type=radio]),select){height:24px;min-height:24px;box-sizing:border-box;padding:0 5px;border-radius:var(--gw-radius,4px);font-size:12px}
+.dsh-gw-table input.dsh-gw-cell-in,.dsh-gw-table select.dsh-gw-cell-in{height:24px;min-height:24px;padding:0 4px;font-size:12px}
+.dsh-gw-tablebox :is(.dsh-gw-btn,.dsh-gw-row-act){height:24px;min-height:24px;padding:0 6px;font-size:12px;line-height:1.2}
+.dsh-gw-table td.dsh-gw-td-act .dsh-gw-btn{height:24px;min-height:24px;font-size:12px;padding:0 6px}
+.dsh-gw-rules-edit :is(input,select).dsh-gw-rules-in{height:24px;min-height:24px;padding:0 4px;font-size:12px;border-radius:var(--gw-radius,4px)}
+.dsh-gw-rules-edit .dsh-gw-rules-extra :is(input,select).dsh-gw-rules-in{font-size:12px;padding:0 4px}
 @media (hover:none),(pointer:coarse){
   .dsh-gw-panel :is(.dsh-gw-btn,.dsh-gw-tab,.dsh-gw-row-act,.dsh-gw-headact,.dsh-gw-row-sched,.dsh-gw-ms-btn,.dsh-gw-catselect){min-height:40px}
   .dsh-gw-panel :is(.dsh-gw-ibtn,.dsh-gw-icon-btn,.dsh-gw-gloss-del){min-width:40px;min-height:40px;width:40px;height:40px}
@@ -2101,9 +2161,79 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     /* ────────────── 推送到对话 ────────────── */
 
     // 插件挂在右侧栏（root 作用域），可对话输入框是 session 作用域的，拿不到 inputActions。
-    // 做法：注册一个 session 作用域的 header 组件，它挂载时把宿主注入的 inputActions
-    // 存到模块级，侧栏里的笔记组件就能直接调用。
-    const inputBridge = { actions: null }
+    // 做法：注册 session 作用域的组件，它挂载时把宿主注入的 inputActions 存到模块级。
+    //
+    // 2026-11-20 修：只挂 header 一处不够 —— 工作台占住主区域时，内嵌对话
+    // （conversation.content 的 embedded 变体）根本不渲染宿主会话头，header 那个桥永远挂不上，
+    // 于是「发送至 Agent」只弹一句「切到一个对话页签再试」，而用户就在对话里面。
+    // 现在两个 session 作用域的挂点都登记：header（右侧栏形态）和工作台自己的对话栏（主区域形态）。
+    // 对话栏优先 —— 它就是用户眼前那个输入框。
+    const inputBridge = { actions: null, sources: new Map(), last: null }
+    function syncInputBridge() {
+      const chat = inputBridge.sources.get('chat')
+      const dock = inputBridge.sources.get('dock')
+      const header = inputBridge.sources.get('header')
+      const next = chat !== undefined ? chat : dock !== undefined ? dock : header !== undefined ? header : inputBridge.last
+      inputBridge.actions = next === undefined || next === null ? null : next
+    }
+    // 登记一份会话域的 inputActions；返回注销函数，卸载时只摘掉自己那一份。
+    function attachInputActions(owner, actions) {
+      if (actions === null || actions === undefined) return () => {}
+      inputBridge.sources.set(owner, actions)
+      inputBridge.last = actions
+      syncInputBridge()
+      noteLog('input bridge:attached', { owner, hasSetDraft: typeof actions.setDraft === 'function', hasSubmit: typeof actions.submit === 'function' })
+      return () => {
+        if (inputBridge.sources.get(owner) !== actions) return
+        inputBridge.sources.delete(owner)
+        syncInputBridge()
+      }
+    }
+    /**
+     * 最后一条退路：桥没挂上时直接往页面上那个输入框里塞文字。
+     * 拿不到宿主的提交口，所以只能填、不能代按回车 —— 但总比只弹一句错误强。
+     */
+    function domSetComposer(text) {
+      if (typeof document === 'undefined') return false
+      const body = String(text ?? '')
+      if (body.trim() === '') return false
+      // 只挑看得见的那个输入框：主区域/侧栏可能同时挂着两份编辑器，藏起来的那份填了等于白填。
+      const visible = (node) => node !== null && node !== undefined
+        && (typeof node.getClientRects !== 'function' || node.getClientRects().length > 0)
+        && node.offsetParent !== null
+      const seat = [
+        document.querySelector('[data-composer-seat] [contenteditable="true"]'),
+        document.querySelector('[data-composer-card] [contenteditable="true"]'),
+        document.querySelector('.dsh-composer [contenteditable="true"]'),
+      ].find(visible)
+      if (seat !== undefined) {
+        seat.focus()
+        try {
+          const range = document.createRange()
+          range.selectNodeContents(seat)
+          const selection = window.getSelection()
+          if (selection !== null && selection !== undefined) { selection.removeAllRanges(); selection.addRange(range) }
+          document.execCommand('insertText', false, body)
+        } catch {
+          seat.textContent = body
+          try { seat.dispatchEvent(new InputEvent('input', { bubbles: true })) } catch { /* 没有 InputEvent 就只留文本 */ }
+        }
+        return true
+      }
+      const area = [
+        document.querySelector('[data-composer-seat] textarea'),
+        document.querySelector('.dsh-composer textarea'),
+      ].find(visible)
+      if (area === undefined) return false
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value') !== undefined
+        ? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+        : undefined
+      if (typeof setter === 'function') setter.call(area, body)
+      else area.value = body
+      try { area.dispatchEvent(new InputEvent('input', { bubbles: true })) } catch { area.dispatchEvent(new Event('input', { bubbles: true })) }
+      try { area.selectionStart = area.selectionEnd = body.length } catch { /* 光标定位失败不影响内容 */ }
+      return true
+    }
 
     // 来源预览：工作台在右栏，预览放在主对话的输入框上方（conversation.input.dock），
     // 这样点来源 URL 不会盖住整个工作台，预览也留在对话上下文里。
@@ -2295,11 +2425,6 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       // promptKey 决定在正文前面加哪一句指令（见 PUSH_PROMPTS）；不传就是纯正文。
       const promptKey = options !== undefined && options !== null && typeof options.promptKey === 'string' ? options.promptKey : ''
       const prompt = PUSH_PROMPTS[promptKey] ?? ''
-      const actions = inputBridge.actions
-      if (actions === null || actions === undefined) {
-        notify('还没接上对话输入框：切到一个对话页签再试', true)
-        return false
-      }
       const body = typeof text === 'string' ? text.trim() : ''
       if (body === '') {
         notify('这篇是空的，没有可推送的内容', true)
@@ -2339,14 +2464,51 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         + (writeRel === rel ? '' : '上面围栏里的是**素材**（' + rel + '），不要改它；成稿写到 ' + writeRel + '。')
         + '不要只在对话里贴结果 —— 没写回的话，工作台里看到的还是旧内容。'
         + '---'
+      const payload = prefix + head + '\n\n' + guard + '\n\n' + fenced + tail
+      const actions = inputBridge.actions
+      if (actions === null || actions === undefined || typeof actions.setDraft !== 'function') {
+        // 桥没挂上（例如工作台占着主区域，宿主的会话头根本不渲染）：退回直接写进页面上那个输入框。
+        // 拿不到提交口，所以只填不发送，让人自己按回车。
+        if (domSetComposer(payload)) {
+          notify(autoSend === true ? '文字已放进对话输入框：按回车发送' : '文字已放进对话输入框，补充一句再按回车')
+          noteLog('push:dom', { leaf: leaf, chars: body.length })
+          return true
+        }
+        // 对话栏可能压根没开：先把它叫出来，等输入框挂上再填。
+        const opener = chatColumn.open
+        if (opener !== null && typeof opener === 'function') {
+          try { opener() } catch { /* 打不开就落到下面的提示 */ }
+          notify('正在打开对话栏，文字马上填进去')
+          let left = 14
+          const retry = () => {
+            if (domSetComposer(payload)) {
+              notify('文字已放进对话输入框，按回车发送')
+              noteLog('push:dom-late', { leaf: leaf, chars: body.length })
+              return
+            }
+            left -= 1
+            if (left > 0) { window.setTimeout(retry, 250); return }
+            notify('对话栏开了，但输入框还没出现：等它加载出来再点一次', true)
+          }
+          window.setTimeout(retry, 300)
+          return true
+        }
+        notify('没找到对话输入框：先把工作台的对话栏打开（页头「对话」），或切到一个对话页签再试', true)
+        return false
+      }
       try {
-        actions.setDraft(prefix + head + '\n\n' + guard + '\n\n' + fenced + tail)
+        actions.setDraft(payload)
         if (typeof actions.persistDraft === 'function') actions.persistDraft()
         if (autoSend && typeof actions.submit === 'function') actions.submit()
         notify(autoSend ? '已发送给对话' : '已放进对话输入框，补充一句再按回车')
         noteLog('push:ok', { leaf: leaf, chars: body.length, autoSend: autoSend })
         return true
       } catch (error) {
+        // 宿主那套接口万一变了（setDraft 抛错），别让人只看到一句失败：再试一次 DOM 退路。
+        if (domSetComposer(payload)) {
+          notify('已放进对话输入框（宿主接口没接上，按回车发送）', true)
+          return true
+        }
         notify('推送失败：' + String(error && error.message ? error.message : error), true)
         return false
       }
@@ -2412,25 +2574,35 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     // 把整摞汇总塞进对话输入框（和 pushToAgent 同一条 inputBridge 桥）。
     async function pushListToAgent(title, records, notify, options) {
-      const actions = inputBridge.actions
-      if (actions === null || actions === undefined) {
-        notify('还没接上对话输入框：切到一个对话页签再试', true)
-        return false
-      }
       const list = Array.isArray(records) ? records : []
       if (list.length === 0) {
         notify('列表是空的，没有可推送的内容', true)
         return false
       }
       const autoSend = options !== undefined && options !== null && options.submit === true
+      const payload = summarizeRecords(title, list)
+      const actions = inputBridge.actions
+      if (actions === null || actions === undefined || typeof actions.setDraft !== 'function') {
+        if (domSetComposer(payload)) {
+          notify(autoSend === true ? '文字已放进对话输入框：按回车发送' : '文字已放进对话输入框，补充一句再按回车')
+          noteLog('pushList:dom', { count: list.length })
+          return true
+        }
+        notify('没找到对话输入框：先把工作台的对话栏打开（页头「对话」），或切到一个对话页签再试', true)
+        return false
+      }
       try {
-        actions.setDraft(summarizeRecords(title, list))
+        actions.setDraft(payload)
         if (typeof actions.persistDraft === 'function') actions.persistDraft()
         if (autoSend && typeof actions.submit === 'function') actions.submit()
         notify(autoSend ? '已发送给对话' : '已放进对话输入框，补充一句再按回车')
         noteLog('pushList:ok', { count: list.length, autoSend: autoSend })
         return true
       } catch (error) {
+        if (domSetComposer(payload)) {
+          notify('已放进对话输入框（宿主接口没接上，按回车发送）', true)
+          return true
+        }
         notify('推送失败：' + String(error && error.message ? error.message : error), true)
         return false
       }
@@ -2440,14 +2612,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     // 返回 null 而不是空 div，免得会话标题栏里多出一块占位。
     function InputBridge(props) {
       const actions = props === null || props === undefined ? null : props.inputActions
-      React.useEffect(() => {
-        if (actions === null || actions === undefined) return undefined
-        inputBridge.actions = actions
-        noteLog('input bridge:attached', { keys: Object.keys(actions).slice(0, 12).join(',') })
-        return () => {
-          if (inputBridge.actions === actions) inputBridge.actions = null
-        }
-      }, [actions])
+      React.useEffect(() => attachInputActions('header', actions), [actions])
       return null
     }
 
@@ -3761,12 +3926,55 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       next[index] = Math.round(Math.max(Number(minimums[index] ?? 48), next[index] + delta))
       return next
     }
+    /**
+     * 拖动列宽：只缩放被拖的这列，差额由它右边相邻的列依次让出来（拖最后一列就向左借），
+     * 整张表的总宽保持不变 —— 往右拖不会再把自己撑出容器、拖出横向滚动条。
+     * 右边都到下限了，被拖列也就只能长到这么多。
+     * 2026-11-20 用户要求：拖「原文」右边框时只动这一列，别整表溢出。
+     */
+    function transferPixelColumnWidths(widths, index, delta, minimums = []) {
+      const next = [...widths]
+      if (index < 0 || index >= next.length) return next
+      const floor = (i) => Math.max(28, Math.round(Number(minimums[i] ?? 48) || 48))
+      const want = Math.round(Math.max(floor(index), Number(next[index]) + delta)) - next[index]
+      if (want === 0) return next
+      const order = []
+      if (index < next.length - 1) for (let i = index + 1; i < next.length; i += 1) order.push(i)
+      else for (let i = index - 1; i >= 0; i -= 1) order.push(i)
+      let rest = want
+      for (const i of order) {
+        if (rest === 0) break
+        if (rest > 0) {
+          const room = next[i] - floor(i)
+          if (room <= 0) continue
+          const take = Math.min(rest, room)
+          next[i] -= take
+          rest -= take
+        } else {
+          next[i] -= rest
+          rest = 0
+        }
+      }
+      const applied = want - rest
+      if (applied === 0) return next
+      next[index] += applied
+      return next
+    }
+    /**
+     * 表格宽度：没拖过时铺满容器（窄窗口右缘不留空白）；用户拖过之后就按像素宽度走。
+     * 2026-11-20 用户要求：列必须能继续压窄 —— 如果一直 max(100%, 总宽)，总宽一落到容器宽，
+     * 浏览器会把余量重新摊给各列，拖到那里就像撞墙。
+     */
+    function pixelTableWidth(widths, sized) {
+      const total = (widths ?? []).reduce((sum, width) => sum + Math.max(0, Number(width) || 0), 0)
+      return sized === true ? Math.round(total) + 'px' : 'max(100%, ' + Math.round(total) + 'px)'
+    }
     function installExpandingPixelColumnDrag(event, widths, index, setWidths, minimums, doc = document, host = window) {
       event.preventDefault(); event.stopPropagation()
       const table = event.currentTarget.closest('table'), startX = event.clientX
       let active = true
       const finish = () => { if (!active) return; active = false; doc.removeEventListener('pointermove', move); doc.removeEventListener('pointerup', finish); doc.removeEventListener('pointercancel', finish); host.removeEventListener('blur', finish); doc.body.classList.remove('dsh-gw-resizing-col') }
-      const move = (next) => { if (table?.isConnected === false) { finish(); return }; setWidths(expandedPixelColumnWidths(widths, index, next.clientX - startX, minimums)) }
+      const move = (next) => { if (table?.isConnected === false) { finish(); return }; setWidths(transferPixelColumnWidths(widths, index, next.clientX - startX, minimums)) }
       doc.addEventListener('pointermove', move); doc.addEventListener('pointerup', finish); doc.addEventListener('pointercancel', finish); host.addEventListener('blur', finish); doc.body.classList.add('dsh-gw-resizing-col')
       return finish
     }
@@ -3778,8 +3986,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
 
     /**
      * 推动式像素列宽：初始宽度取「默认值等比缩放到容器宽」（贴满不溢出），
-     * 之后拖动 = expandedPixelColumnWidths：只改被拖列（不低于 minimums[index]），
-     * 右侧列宽度不变、整体右移；表比容器宽时容器横向滚动。
+     * 之后拖动 = transferPixelColumnWidths：只缩放被拖这一列，差额由右边相邻列让出来，
+     * 整表总宽不变 —— 不会把整张表撑出容器、拖出横向滚动条。
      * 容器宽度变化（主页面开合对话列、窗口缩放、窄侧栏切换）会重新分配一次列宽，
      * 让表格尽量留在一屏内；用户拖过或读回过的列宽优先，只在整体放不下时按比例收回，
      * 空间变大时绝不擅自放大。
@@ -3830,6 +4038,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     function usePixelColumnWidths(defaults, minimums = [], storageKey = '') {
       const savedRef = React.useRef(null)
       const draggedRef = React.useRef(false)
+      // sized：用户拖过（或本地存过列宽）→ 表宽改按像素走，不再强行铺满容器。
+      const [sized, setSized] = React.useState(() => readSavedWidths(storageKey, defaults.length) !== null)
       const state = React.useState(() => {
         const saved = readSavedWidths(storageKey, defaults.length)
         if (saved !== null) { savedRef.current = saved; return saved }
@@ -3837,6 +4047,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       })
       const setWidths = React.useCallback((updater) => {
         draggedRef.current = true
+        setSized(true)
         state[1]((current) => {
           const next = typeof updater === 'function' ? updater(current) : updater
           writeSavedWidths(storageKey, next)
@@ -3872,7 +4083,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         fit()
         return watchSize(box, () => fit())
       }, [])
-      return [state[0], setWidths, ref]
+      return [state[0], setWidths, ref, sized]
     }
 
     function Sect(props) {
@@ -3960,7 +4171,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
     const DATA_RECORD_DEFAULT_WIDTHS = [200, 120, 160, 140, 140, 120, 120]
     const DATA_RECORD_MIN_WIDTHS = [88, 72, 80, 80, 80, 72, 72]
     function DataRecordTable({ records, onOpen, notify, onDeleted }) {
-      const [widths, setWidths, fitRef] = usePixelColumnWidths(DATA_RECORD_DEFAULT_WIDTHS, DATA_RECORD_MIN_WIDTHS, 'data-record')
+      const [widths, setWidths, fitRef, widthsSized] = usePixelColumnWidths(DATA_RECORD_DEFAULT_WIDTHS, DATA_RECORD_MIN_WIDTHS, 'data-record')
       const [sort, setSort] = React.useState({ key: '', dir: 0 })
       const startResize = expandingPixelColResizeStart(widths, setWidths, DATA_RECORD_MIN_WIDTHS)
       const columns = ['周期', '平台', 'GMV', '流量', '转化率', 'ROI', '环比']
@@ -3994,7 +4205,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
           onKeyDown: sortable ? (event) => keyboardActivate(event, () => toggleSort(key)) : undefined,
           onClick: sortable ? () => toggleSort(key) : undefined,
         }, label + (sortable && sort.key === key ? (sort.dir === -1 ? ' ▼' : (sort.dir === 1 ? ' ▲' : '')) : ''),
-          index < columns.length - 1 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startResize(index), onResize: (delta) => setWidths((current) => expandedPixelColumnWidths(current, index, delta, DATA_RECORD_MIN_WIDTHS)) }) : null)
+          index < columns.length - 1 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startResize(index), onResize: (delta) => setWidths((current) => transferPixelColumnWidths(current, index, delta, DATA_RECORD_MIN_WIDTHS)) }) : null)
       }))
       const rows = sorted.map((record) => h('tr', { key: record.path, tabIndex: 0, onKeyDown: (event) => keyboardActivate(event, () => onOpen(record.path)), onClick: () => onOpen(record.path) },
         h('td', { className: 'title' },
@@ -4009,7 +4220,7 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
         h('td', { className: 'num' }, String(record.front?.mom ?? '').trim() === '' ? '—' : record.front.mom)))
       return h(Fold, { title: '复盘记录', count: records.length + ' 个周期' },
         h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 6 } },
-        h('table', { className: 'dsh-gw-table dsh-gw-data-table', ref: fitRef, style: { width: 'max(100%, ' + widths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+        h('table', { className: 'dsh-gw-table dsh-gw-data-table', ref: fitRef, style: { width: pixelTableWidth(widths, widthsSized) } },
           h('colgroup', null, widths.map((width, index) => h('col', { key: String(index), style: { width } }))),
           h('thead', null, head),
           h('tbody', null, rows))))
@@ -4111,8 +4322,8 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
       const [platformFilter, setPlatformFilter] = React.useState('')
       // 列表列宽可拖（语调库同款）：日期 / 平台 / 标题 / 标签 / 数据 / 排期。
       // 删行按钮不再单占一列，塞进排期格右侧——和排期放一起，少一列更清爽。
-      const [topicWidths, setTopicWidths, topicFitRef] = usePixelColumnWidths([160, 104, 320, 180, 96, 200], [88, 64, 140, 72, 64, 100], 'topics')
-      const startTopicResize = expandingPixelColResizeStart(topicWidths, setTopicWidths, [88, 64, 140, 72, 64, 88])
+      const [topicWidths, setTopicWidths, topicFitRef, topicSized] = usePixelColumnWidths([160, 104, 320, 180, 96, 200], [48, 40, 72, 40, 40, 48], 'topics')
+      const startTopicResize = expandingPixelColResizeStart(topicWidths, setTopicWidths, [48, 40, 72, 40, 40, 48])
 
       // 面包屑点了上层：把详情关掉回列表（票号只在被点时才变）。
       const seenTicket = React.useRef(closeTicket)
@@ -4190,10 +4401,10 @@ body.dsh-gw-resizing-col{cursor:col-resize;user-select:none}
             ? h(Empty, null, '没有符合当前筛选的笔记，换个分类或清空过滤试试。')
             : h(Fold, { title: '拆解笔记', count: records.length, open: true, className: 'dsh-gw-topic-fold' },
               h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
-              h('table', { className: 'dsh-gw-table dsh-gw-topics-table', ref: topicFitRef, style: { width: 'max(100%, ' + topicWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+              h('table', { className: 'dsh-gw-table dsh-gw-topics-table', ref: topicFitRef, style: { width: pixelTableWidth(topicWidths, topicSized) } },
               h('colgroup', null, ['c-date', 'c-platform', 'c-title', 'c-tags', 'c-views', 'c-sched'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: topicWidths[index] } }))),
               h('thead', null, h('tr', null, ['日期', '平台', '标题', '标签', '数据', '排期'].map((label, index) => h(CollectionSortHead, { key: label + index, label, field: ['date', 'platform', 'title', 'tags', 'views', 'schedule'][index], sort: topicSort, onSort: (field) => setTopicSort((current) => toggledCollectionSort(current, field)), style: index === 4 ? { textAlign: 'right' } : undefined },
-                index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startTopicResize(index), onResize: (delta) => setTopicWidths((current) => expandedPixelColumnWidths(current, index, delta, [88, 64, 140, 72, 64, 100])) }) : null)))),
+                index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startTopicResize(index), onResize: (delta) => setTopicWidths((current) => transferPixelColumnWidths(current, index, delta, [88, 64, 140, 72, 64, 100])) }) : null)))),
               h('tbody', null, records.map((record) => {
                 const tagPills = String(record.front?.tags ?? '').split(/[/,、;；]/).map((part) => part.trim()).filter((part) => part !== '')
                 return h('tr', { key: record.path, tabIndex: 0, onClick: () => setOpenPath(record.path), onKeyDown: (event) => keyboardActivate(event, () => setOpenPath(record.path)) },
@@ -4524,8 +4735,8 @@ const STAGE_OF_STATUS = {
       const [studioSort, setStudioSort] = React.useState({ field: '', desc: false })
       const [statusFilters, setStatusFilters] = React.useState([])
       const [platformFilters, setPlatformFilters] = React.useState([])
-      const [studioWidths, setStudioWidths, studioFitRef] = usePixelColumnWidths([300, 130, 210, 170, 80, 150], [120, 64, 80, 64, 64, 100], 'studio')
-      const startStudioResize = expandingPixelColResizeStart(studioWidths, setStudioWidths, [120, 64, 80, 64, 64, 100])
+      const [studioWidths, setStudioWidths, studioFitRef, studioSized] = usePixelColumnWidths([300, 130, 210, 170, 80, 150], [56, 40, 48, 40, 40, 48], 'studio')
+      const startStudioResize = expandingPixelColResizeStart(studioWidths, setStudioWidths, [56, 40, 48, 40, 40, 48])
       const [busy, setBusy] = React.useState(false)
       // 正在删的版本 id：删完之前那颗垃圾桶先禁用，免得连点两次。
       const [deletingId, setDeletingId] = React.useState('')
@@ -4907,11 +5118,11 @@ const STAGE_OF_STATUS = {
             visibleTopicRows.length === 0
               ? h(Empty, null, statusFilters.length === 0 && platformFilters.length === 0 ? '没有符合筛选的选题。' : '没有符合状态或平台筛选的选题。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-topiclist-box dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '选题列表：可横向滚动并拖动表头调整列宽' },
-                h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table', ref: studioFitRef, style: { width: 'max(100%, ' + studioWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+                h('table', { className: 'dsh-gw-table dsh-gw-topiclist dsh-gw-adjustable-table', ref: studioFitRef, style: { width: pixelTableWidth(studioWidths, studioSized) } },
                   h('colgroup', null, studioWidths.map((width, index) => h('col', { key: index, style: { width } }))),
                   h('thead', null, h('tr', null,
                     ['选题', '平台', '状态', '标签', '版本', '操作'].map((label, index) => h(CollectionSortHead, { key: label, label, field: ['title', 'platform', 'status', 'tags', 'versions', null][index], sort: studioSort, onSort: (field) => setStudioSort((current) => toggledCollectionSort(current, field)) },
-                      index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startStudioResize(index), onResize: (delta) => setStudioWidths((current) => expandedPixelColumnWidths(current, index, delta, [120, 64, 80, 64, 64, 100])) }) : null)))),
+                      index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startStudioResize(index), onResize: (delta) => setStudioWidths((current) => transferPixelColumnWidths(current, index, delta, [120, 64, 80, 64, 64, 100])) }) : null)))),
                   h('tbody', null, sortedTopicRows.map(({ record, variants, rowPlatforms, statusText }) => h('tr', { key: record.path },
                     h('td', null, h('button', { className: 'dsh-gw-topiclist-title', title: record.title, onClick: () => setOpenPath(record.path) }, record.title)),
                     h('td', null, rowPlatforms.length === 0 ? '—' : rowPlatforms.join(' / ')),
@@ -6638,8 +6849,8 @@ const STAGE_OF_STATUS = {
       const [end, setEnd] = React.useState(() => addDays(today, 14))
       const [page, setPage] = React.useState(1)
       const UPCOMING_PAGE_SIZE = 10
-      const [upcomingWidths, setUpcomingWidths, upcomingFitRef] = usePixelColumnWidths([180, 340, 160, 170, 150], [80, 120, 80, 80, 80], 'upcoming')
-      const startUpcomingResize = expandingPixelColResizeStart(upcomingWidths, setUpcomingWidths, [80, 120, 80, 80, 80])
+      const [upcomingWidths, setUpcomingWidths, upcomingFitRef, upcomingSized] = usePixelColumnWidths([180, 340, 160, 170, 150], [48, 72, 48, 48, 48], 'upcoming')
+      const startUpcomingResize = expandingPixelColResizeStart(upcomingWidths, setUpcomingWidths, [48, 72, 48, 48, 48])
       const upcoming = useAsync(async (signal) => {
         const from = String(start).slice(0, 10)
         const to = String(end).slice(0, 10)
@@ -6680,11 +6891,11 @@ const STAGE_OF_STATUS = {
         upcoming.loading ? h(Empty, null, t('loading')) : items.length === 0
           ? h(Empty, null, '这个日期区间还没有排期。')
           : h(React.Fragment, null,
-            h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '排期列表：可横向滚动并拖动表头调整列宽' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table', ref: upcomingFitRef, style: { width: 'max(100%, ' + upcomingWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+            h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '排期列表：可横向滚动并拖动表头调整列宽' }, h('table', { className: 'dsh-gw-table dsh-gw-upcoming dsh-gw-adjustable-table', ref: upcomingFitRef, style: { width: pixelTableWidth(upcomingWidths, upcomingSized) } },
               h('colgroup', null, upcomingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
                 ['日期', '选题', '平台', '账号', '状态'].map((label, index) => h('th', { key: label }, label,
-                  index < 5 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startUpcomingResize(index), onResize: (delta) => setUpcomingWidths((current) => expandedPixelColumnWidths(current, index, delta, [80, 120, 80, 80, 80])) }) : null)))),
+                  index < 5 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startUpcomingResize(index), onResize: (delta) => setUpcomingWidths((current) => transferPixelColumnWidths(current, index, delta, [80, 120, 80, 80, 80])) }) : null)))),
               h('tbody', null, pageItems.map((entry) => h('tr', { key: entry.id },
                 h('td', { className: 'dsh-gw-cell-nowrap' }, String(entry.date ?? '').slice(5)),
                 h('td', { className: 'dsh-gw-cell-wrap', title: String(entry.topic ?? '') }, String(entry.topic ?? '')),
@@ -7329,8 +7540,9 @@ const STAGE_OF_STATUS = {
         // 「平台矩阵」「发布队列」已删（2026-11-08 用户反馈看不出意义）：
         // 矩阵和我的选题四区重复，队列和日历+「未来 14 天」重复。
         // 选中日期的详情与新增：收在折叠块里，免得日历整体太占高度
+        // 未选中日期时不出提示文案（2026-11-20 用户要求删掉这段说明性文字）
         selected === null
-          ? h('div', { className: 'dsh-gw-cal-hint' }, '点上面任意一天，看当天排期或加一条。')
+          ? null
           : h('details', { key: 'day-' + selected + ':' + hlId + ':' + hlTopic, className: 'dsh-gw-fold dsh-gw-cal-day', ref: dayDetailsRef, open: true, onToggle: (event) => { if (!event.currentTarget.open) setShowAdd(false) } },
             h('summary', null,
               h('span', { className: 'dsh-gw-cal-sum-title' }, selected + '（' + CAL_WEEKDAYS[(new Date(selected + 'T00:00:00').getDay() + 6) % 7] + '）的排期'),
@@ -7451,42 +7663,42 @@ const STAGE_OF_STATUS = {
                   // 改期：直接改这一条的日期。跨月会自动把它搬到那个月的日历文件里。
                   h('input', {
                     type: 'date',
+                    className: 'dsh-gw-cal-ctl dsh-gw-cal-date',
                     value: String(entry.date ?? '').slice(0, 10),
                     title: '改这一条的日期（也可以直接在日历格里拖动）',
-                    style: { fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     onChange: (event) => { void moveEntry(entry, event.target.value) },
                   }),
-                  h('label', { className: 'dsh-gw-row-meta', style: { display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' } }, 'GMV',
+                  h('label', { className: 'dsh-gw-cal-metric', title: '这条内容带来的 GMV（金额）' }, 'GMV',
                     h('input', {
                       key: entry.id + '-gmv-' + String(entry.gmv ?? ''),
                       type: 'number',
                       min: '0',
                       step: '0.01',
                       inputMode: 'decimal',
+                      className: 'dsh-gw-cal-ctl dsh-gw-cal-num',
+                      placeholder: '0',
                       defaultValue: String(entry.gmv ?? ''),
-                      title: '这条内容带来的 GMV（金额）',
-                      style: { width: 76, fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                       onBlur: (event) => { void saveMetric(entry, 'gmv', event.target.value) },
                       onKeyDown: (event) => { if (event.key === 'Enter') event.currentTarget.blur() },
                     })),
-                  h('label', { className: 'dsh-gw-row-meta', style: { display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' } }, '转化率 %',
+                  h('label', { className: 'dsh-gw-cal-metric', title: '这条内容的转化率，填百分数（3.2 表示 3.2%）' }, '转化率 %',
                     h('input', {
                       key: entry.id + '-conv-' + String(entry.conv ?? ''),
                       type: 'number',
                       min: '0',
                       step: '0.1',
                       inputMode: 'decimal',
+                      className: 'dsh-gw-cal-ctl dsh-gw-cal-num dsh-gw-cal-num-sm',
+                      placeholder: '0',
                       defaultValue: String(entry.conv ?? ''),
-                      title: '这条内容的转化率，填百分数（3.2 表示 3.2%）',
-                      style: { width: 64, fontSize: 'var(--gw-fz-2,11.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                       onBlur: (event) => { void saveMetric(entry, 'conv', event.target.value) },
                       onKeyDown: (event) => { if (event.key === 'Enter') event.currentTarget.blur() },
                     })),
                   h('select', {
+                    className: 'dsh-gw-cal-ctl',
                     value: entry.status,
                     onChange: (event) => setStatus(entry, event.target.value),
                     title: '标成「已发」后，这条会出现在「待回填数据」里等你填数据',
-                    style: { fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   }, calStatusOptions(entry.status).map((status) => h('option', { key: status, value: status }, status))),
                   h('details', { className: 'dsh-gw-cal-row-links', onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } } },
                     h('summary', null, '平台与关联'),
@@ -7505,7 +7717,6 @@ const STAGE_OF_STATUS = {
                       void setTopicPath(entry, event.target.value, hit?.title)
                     },
                     title: '这条内容对应的选题笔记（待回填数据的播放/赞会写进它）',
-                    style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: '100%', minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                   },
                     h('option', { value: '' }, '未选题'),
                     topicOptions.map((record) => h('option', { key: record.path, value: record.path }, record.title))),
@@ -7524,7 +7735,6 @@ const STAGE_OF_STATUS = {
                       value: String(entry.variantId ?? ''),
                       onChange: (event) => { void setVariant(entry, event.target.value) },
                       title: '这条排期对应哪个平台版本：同选题同平台有多个版本时必须选清楚',
-                      style: { fontSize: 'var(--gw-fz-2,11.5px)', maxWidth: '100%', minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
                     },
                       h('option', { value: '' }, '未指定版本'),
                       candidates.map((variant) => h('option', { key: variant.id, value: variant.id }, variantLabelOf(variant)))),
@@ -7575,8 +7785,8 @@ const STAGE_OF_STATUS = {
       // 列宽可拖（语调库同款）：初始比例对齐原 CSS 分配，拖完以拖的为准。
       // 列宽百分比。操作列要给到能容下「加入选题」+ 删除图标（约 80px），
       // 13% 在默认宽度下只有 65px，按钮和图标会挤成两行；从「内容」借 3 个点过来。
-      const [ideaWidths, setIdeaWidths, ideaFitRef] = usePixelColumnWidths([84, 88, 104, 366, 132, 104], [72, 72, 80, 160, 72, 104], 'ideas')
-      const startIdeaResize = expandingPixelColResizeStart(ideaWidths, setIdeaWidths, [72, 72, 80, 160, 72, 96])
+      const [ideaWidths, setIdeaWidths, ideaFitRef, ideaSized] = usePixelColumnWidths([84, 88, 104, 366, 132, 104], [40, 40, 40, 72, 40, 48], 'ideas')
+      const startIdeaResize = expandingPixelColResizeStart(ideaWidths, setIdeaWidths, [40, 40, 40, 72, 40, 48])
       const entries = list.data?.entries ?? []
       const statusOf = (entry) => (String(entry.status ?? '') === '丢弃' ? '已废弃' : String(entry.status ?? ''))
       const sources = Array.from(new Set(entries.map((entry) => String(entry.source ?? '').trim()).filter((value) => value !== ''))).sort((a, b) => a.localeCompare(b, 'zh'))
@@ -7858,13 +8068,13 @@ const STAGE_OF_STATUS = {
             shownEntries.length === 0
               ? h(Empty, null, '没有符合筛选的灵感')
               : h('div', { className: 'dsh-gw-tablebox', style: { marginTop: 10 } },
-            h('table', { className: 'dsh-gw-table dsh-gw-ideas', ref: (el) => { tableRef.current = el; ideaFitRef.current = el }, style: { width: 'max(100%, ' + ideaWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+            h('table', { className: 'dsh-gw-table dsh-gw-ideas', ref: (el) => { tableRef.current = el; ideaFitRef.current = el }, style: { width: pixelTableWidth(ideaWidths, ideaSized) } },
             h('colgroup', null,
               ['c-date', 'c-src', 'c-url', 'c-body', 'c-out', 'c-act'].map((name, index) => h('col', { key: name, className: name, style: { width: ideaWidths[index] } })),
             ),
             h('thead', null, h('tr', null, ['日期', '来源', '链接', '内容', '去向', '状态 / 操作'].map((label, index) => h('th', { key: String(index) },
               label,
-              index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startIdeaResize(index), onResize: (delta) => setIdeaWidths((current) => expandedPixelColumnWidths(current, index, delta, [72, 72, 80, 160, 72, 104])) }) : null)))),
+              index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startIdeaResize(index), onResize: (delta) => setIdeaWidths((current) => transferPixelColumnWidths(current, index, delta, [72, 72, 80, 160, 72, 104])) }) : null)))),
             h('tbody', null, shownEntries.slice().reverse().map((entry) => {
               const promoting = promote !== null && promote.id === entry.id
               const relinking = relink !== null && relink.id === entry.id
@@ -7906,7 +8116,7 @@ const STAGE_OF_STATUS = {
                       h('select', {
                         value: relinkPath,
                         onChange: (event) => setRelinkPath(event.target.value),
-                        style: { flex: '1 1 140px', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', fontSize: 'var(--gw-fz-3,12.5px)', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit' },
+                        style: { flex: '1 1 140px', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box' },
                       },
                         h('option', { value: '' }, '— 不关联 —'),
                         (topicList.data?.records ?? []).map((record) => h('option', { key: record.path, value: record.path }, record.title || tailOf(record.path))),
@@ -8563,8 +8773,8 @@ const STAGE_OF_STATUS = {
       const [statusFilter, setStatusFilter] = React.useState('')
       const [onlyWithContent, setOnlyWithContent] = React.useState(false)
       const [splitPct, setSplitPct] = React.useState(50)
-      const [rollupWidths, setRollupWidths, rollupFitRef] = usePixelColumnWidths([240, 140, 300, 100, 110, 110], [120, 80, 140, 72, 72, 72], 'rollup')
-      const startRollupResize = expandingPixelColResizeStart(rollupWidths, setRollupWidths, [120, 80, 140, 72, 72, 72])
+      const [rollupWidths, setRollupWidths, rollupFitRef, rollupSized] = usePixelColumnWidths([240, 140, 300, 100, 110, 110], [56, 40, 72, 40, 40, 40], 'rollup')
+      const startRollupResize = expandingPixelColResizeStart(rollupWidths, setRollupWidths, [56, 40, 72, 40, 40, 40])
       const splitRef = React.useRef(null)
       const platforms = platformOptions(records.map((record) => record.front?.platform))
       const statusOptions = React.useMemo(() => [...new Set(records.map((record) => String(record.front?.status ?? '').trim()).filter((value) => value !== ''))].sort(), [records])
@@ -8676,7 +8886,7 @@ const STAGE_OF_STATUS = {
         records.length === 0 ? null : h('div', { className: 'dsh-gw-card-top', style: { gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 } },
             h(MultiSelect, { label: '平台', options: platforms, value: platformFilters, onChange: setPlatformFilters }),
-            h('select', { className: 'dsh-gw-catselect', style: { flex: 'none', width: 98, height: 26, borderRadius: 7 }, value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), title: '按状态筛选' },
+            h('select', { className: 'dsh-gw-catselect', style: { flex: 'none', width: 98 }, value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), title: '按状态筛选' },
               h('option', { value: '' }, '状态：全部'),
               statusOptions.map((name) => h('option', { key: name, value: name }, '状态：' + name))),
             h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--gw-fz-2,11.5px)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer' } },
@@ -8685,13 +8895,13 @@ const STAGE_OF_STATUS = {
         rolled.length === 0 ? null : h(Fold, { title: '带过内容', count: h(Pill, null, String(totalItemsCount) + ' 条内容') },
           h('div', { className: 'dsh-gw-hint' }, '按日历里挂了商品档案、且已发布的内容明细。点击行可跳转到对应内容日历并定位。'),
           h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '带过内容表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
-            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table dsh-gw-adjustable-table', ref: rollupFitRef, style: { width: 'max(100%, ' + rollupWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+            h('table', { className: 'dsh-gw-table dsh-gw-rollup-table dsh-gw-adjustable-table', ref: rollupFitRef, style: { width: pixelTableWidth(rollupWidths, rollupSized) } },
               h('colgroup', null, rollupWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null,
                 h('tr', null,
                   ['商品档案', '日期', '带过内容', '播放', 'GMV', '转化率'].map((label, index) => h('th', { key: label, style: index >= 3 ? { textAlign: 'right' } : undefined },
                     label,
-                    index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startRollupResize(index), onResize: (delta) => setRollupWidths((current) => expandedPixelColumnWidths(current, index, delta, [120, 80, 140, 72, 72, 72])) }) : null))
+                    index < 6 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startRollupResize(index), onResize: (delta) => setRollupWidths((current) => transferPixelColumnWidths(current, index, delta, [120, 80, 140, 72, 72, 72])) }) : null))
                 )
               ),
               h('tbody', null,
@@ -8817,23 +9027,57 @@ const STAGE_OF_STATUS = {
         groups.map((group) => h('optgroup', { key: group.label, label: group.label },
           group.options.map((option) => h('option', { key: option.value, value: option.value }, option.label)))))
     }
-    function FeedbackSourceResults({ list, kind, selected, target, onPick }) {
-      if (String(list.query ?? '').trim() === '') return null
-      const records = (list.data?.records ?? []).filter((record) => kind !== 'topic' || topicTypeOf(record) !== '拆解')
-      if (records.length === 0) return null
-      return h('div', { className: 'dsh-gw-source-results', role: 'list', 'aria-label': (kind === 'topic' ? '全库笔记' : '全库商品') + '可关联结果' },
-        records.slice(0, 12).map((record) => {
-          const title = String(record.title ?? '').trim()
-          if (title === '') return null
-          const rival = kind === 'product' && String(record.front?.kind ?? '').includes('竞品')
-          const value = kind === 'topic' ? '内容 · ' + title : '商品 · ' + (rival ? '竞品' : '自家') + ' · ' + title
-          return h('button', {
-            key: kind + ':' + String(record.path ?? title), type: 'button', className: 'dsh-gw-source-result', role: 'listitem',
-            'data-selected': String(selected ?? '') === value ? 'true' : undefined,
-            title: '关联到' + target + ' · ' + String(record.path ?? title),
-            onClick: () => onPick(value),
-          }, h('span', null, (kind === 'topic' ? '内容 · ' : rival ? '竞品 · ' : '自家 · ') + title))
-        }))
+    /**
+     * 「记一条」里的关联来源：一个下拉（单选）。
+     * 2026-11-20 用户要求：别把十几条平铺占版面 —— 收起只有一行，点开才搜索、勾选，选完再点一下收起。
+     * 勾一篇 = 把这条反馈的来源设成它（再勾掉就取消）；行尾「打开」先看内容，不改来源。
+     */
+    function SourcePicker({ options, selected, onPick, onOpen }) {
+      const [query, setQuery] = React.useState('')
+      const [open, setOpen] = React.useState(false)
+      const current = String(selected ?? '').trim()
+      const q = query.trim()
+      const rows = (options ?? []).filter((option) => q === '' || option.title.includes(q))
+      const notes = rows.filter((option) => option.kind === 'topic').slice(0, 30)
+      const products = rows.filter((option) => option.kind === 'product').slice(0, 30)
+      const row = (option) => {
+        const picked = current === option.value
+        return h('label', {
+          key: option.kind + ':' + option.path,
+          className: 'dsh-gw-source-check',
+          'data-selected': picked ? 'true' : undefined,
+          title: picked ? '勾掉就取消来源' : '勾上，来源设为这条 · ' + option.path,
+        },
+          h('input', { type: 'checkbox', checked: picked, onChange: () => onPick(picked ? '' : option.value) }),
+          h('span', { className: 'dsh-gw-source-check-text' }, option.label),
+          typeof onOpen === 'function' ? h('button', {
+            type: 'button', className: 'dsh-gw-source-open',
+            title: '先打开这条看内容（不改来源）',
+            onClick: (event) => { event.preventDefault(); event.stopPropagation(); onOpen(option, option.kind) },
+          }, '打开') : null)
+      }
+      return h('details', {
+        className: 'dsh-gw-sourcepicker',
+        open: open,
+        onToggle: (event) => setOpen(event.currentTarget.open === true),
+      },
+        h('summary', { className: 'dsh-gw-sourcepicker-sum', title: current === '' ? '点开：搜索标题，勾一篇笔记或商品作为这条反馈的来源' : '当前来源：' + current + '。点开可以换一篇或取消' },
+          h('span', { className: 'dsh-gw-sourcepicker-value' + (current === '' ? ' is-empty' : '') }, current === '' ? '未关联来源（可不选）' : current),
+          h('span', { className: 'dsh-gw-sourcepicker-caret', 'aria-hidden': 'true' }, '▾')),
+        h('div', { className: 'dsh-gw-sourcepicker-body' },
+          h('input', {
+            className: 'dsh-gw-input',
+            value: query,
+            placeholder: '搜标题（笔记和商品一起搜）',
+            'aria-label': '搜索可关联的笔记和商品',
+            onChange: (event) => setQuery(event.target.value),
+          }),
+          h('div', { className: 'dsh-gw-sourcepicker-list' },
+            notes.length === 0 ? null : h('div', { className: 'dsh-gw-source-group-title' }, '笔记'),
+            notes.map(row),
+            products.length === 0 ? null : h('div', { className: 'dsh-gw-source-group-title' }, '商品'),
+            products.map(row),
+            notes.length + products.length === 0 ? h('div', { className: 'dsh-gw-source-picked' }, '没搜到匹配的标题') : null)))
     }
 
     /* ────────────── 卡片：客户反馈 ────────────── */
@@ -8843,9 +9087,82 @@ const STAGE_OF_STATUS = {
       const sourceTopicList = usePagedList('/topics/list?limit=200')
       const sourceProductList = usePagedList('/products/list?limit=200')
       const sourceGroups = feedbackSourceGroups(PLATFORMS, sourceTopicList.data?.records ?? [], sourceProductList.data?.records ?? [], topicTypeOf)
+      // 来源那句话 → 笔记路径。表格里点「来源」直接跳到那篇选题 / 商品档案（2026-11-20 用户要求）。
+      // 比对时忽略空格、把中文逗号归一成「·」：表里可能存着「内容 · 一条视频卖 200 单，…」这种带空格的写法，
+      // 标题本身又改过，直接比字符串会白跳一次。
+      const sourceKey = (text) => String(text ?? '').replace(/\s+/g, '').replace(/[，,]/g, '·')
+      const sourcePathIndex = React.useMemo(() => {
+        const map = new Map()
+        ;(sourceTopicList.data?.records ?? []).forEach((record) => {
+          const title = String(record.title ?? '').trim()
+          const path = String(record.path ?? '')
+          if (title === '' || path === '' || topicTypeOf(record) === '拆解') return
+          map.set(sourceKey('内容 · ' + title), { kind: 'topic', path })
+        })
+        ;(sourceProductList.data?.records ?? []).forEach((record) => {
+          const title = String(record.title ?? '').trim()
+          const path = String(record.path ?? '')
+          if (title === '' || path === '') return
+          const rival = String(record.front?.kind ?? '').includes('竞品')
+          map.set(sourceKey('商品 · ' + (rival ? '竞品' : '自家') + ' · ' + title), { kind: 'product', path })
+        })
+        return map
+      }, [sourceTopicList.data, sourceProductList.data])
+      // 关联来源下拉的候选：笔记 + 商品合成一个数组，一个搜索框一起搜。
+      const sourceOptions = React.useMemo(() => {
+        const options = []
+        ;(sourceTopicList.data?.records ?? []).forEach((record) => {
+          const title = String(record.title ?? '').trim()
+          const path = String(record.path ?? '')
+          if (title === '' || path === '' || topicTypeOf(record) === '拆解') return
+          options.push({ kind: 'topic', path, title, value: '内容 · ' + title, label: '内容 · ' + title })
+        })
+        ;(sourceProductList.data?.records ?? []).forEach((record) => {
+          const title = String(record.title ?? '').trim()
+          const path = String(record.path ?? '')
+          if (title === '' || path === '') return
+          const rival = String(record.front?.kind ?? '').includes('竞品')
+          options.push({
+            kind: 'product',
+            path,
+            title,
+            value: '商品 · ' + (rival ? '竞品' : '自家') + ' · ' + title,
+            label: (rival ? '竞品 · ' : '自家 · ') + title,
+          })
+        })
+        return options
+      }, [sourceTopicList.data, sourceProductList.data])
       // 胶囊筛选：情感 + 标签（沿用选题卡的下拉样式）。
       const fbTableRef = React.useRef(null)
       const [compact, setCompact] = React.useState(false)
+      const [sentimentFilter, setSentimentFilter] = React.useState('全部')
+      const [tagFilter, setTagFilter] = React.useState('全部标签')
+      // 完整 10 列和窄档 5 列各留一份像素宽度，切换互不干扰；推动式调整。
+      // 列能一直拉窄（拖过之后表宽按像素走），但表宽永远不小于容器：
+      // 容器变宽 / 拉窄某列后，富余补给最宽那列，右边不会空一截。
+      const [fbFullWidths, setFbFullWidthsRaw] = React.useState(() => readSavedWidths('feedback-full', 10) ?? [72, 86, 128, 68, 232, 92, 124, 124, 104, 96])
+      const [fbSized, setFbSized] = React.useState(() => readSavedWidths('feedback-full', 10) !== null)
+      const [fbCompactWidths, setFbCompactWidthsRaw] = React.useState(() => readSavedWidths('feedback-compact', 5) ?? [260, 132, 132, 100, 92])
+      const setFbFullWidths = React.useCallback((updater) => setFbFullWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('feedback-full', next); setFbSized(true); return next }), [])
+      const setFbCompactWidths = React.useCallback((updater) => setFbCompactWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('feedback-compact', next); return next }), [])
+      const fbFullMinimums = [40, 40, 48, 36, 96, 40, 40, 40, 48, 44]
+      const fbCompactMinimums = [120, 64, 64, 56, 60]
+      const fbWidths = compact ? fbCompactWidths : fbFullWidths
+      const fbWidthSum = fbWidths.reduce((sum, width) => sum + width, 0)
+      const fbTableWidth = compact || fbSized !== true ? 'max(100%, ' + fbWidthSum + 'px)' : fbWidthSum + 'px'
+      const startFbFullResize = expandingPixelColResizeStart(fbFullWidths, setFbFullWidths, fbFullMinimums)
+      const startFbCompactResize = expandingPixelColResizeStart(fbCompactWidths, setFbCompactWidths, fbCompactMinimums)
+      // 宽度自适应：容器变了就重新分配（变宽补最宽列、变窄按比例收），同时决定是否切窄档。
+      const fbWidthsRef = React.useRef(fbFullWidths)
+      fbWidthsRef.current = fbFullWidths
+      const fbFitTo = (available) => {
+        const current = fbWidthsRef.current
+        const fitted = fitPixelColumnWidths(current, fbFullMinimums, available)
+        if (fitted === null) return
+        if (fitted.length === current.length && fitted.every((value, index) => value === current[index])) return
+        fbWidthsRef.current = fitted
+        setFbFullWidthsRaw(fitted)
+      }
       React.useLayoutEffect(() => {
         const node = fbTableRef.current
         if (node === null || typeof ResizeObserver === 'undefined') return undefined
@@ -8854,30 +9171,32 @@ const STAGE_OF_STATUS = {
           if (width <= 0) return
           const next = width < 720
           setCompact((prev) => (prev === next ? prev : next))
+          if (next) return
+          fbFitTo(Math.max(0, width - 2))
         }
         apply()
         const observer = new ResizeObserver(apply)
         observer.observe(node)
         return () => { observer.disconnect() }
       }, [list.data])
-      const [sentimentFilter, setSentimentFilter] = React.useState('全部')
-      const [tagFilter, setTagFilter] = React.useState('全部标签')
-      // 完整 10 列和窄档 5 列各留一份像素宽度，切换互不干扰；推动式调整。
-      const [fbFullWidths, setFbFullWidthsRaw] = React.useState(() => readSavedWidths('feedback-full', 10) ?? [72, 86, 128, 68, 232, 92, 124, 124, 104, 96])
-      const [fbCompactWidths, setFbCompactWidthsRaw] = React.useState(() => readSavedWidths('feedback-compact', 5) ?? [260, 132, 132, 100, 92])
-      const setFbFullWidths = React.useCallback((updater) => setFbFullWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('feedback-full', next); return next }), [])
-      const setFbCompactWidths = React.useCallback((updater) => setFbCompactWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('feedback-compact', next); return next }), [])
-      const fbFullMinimums = [56, 68, 96, 56, 160, 72, 96, 96, 92, 96]
-      const fbCompactMinimums = [180, 96, 96, 88, 92]
-      const fbWidths = compact ? fbCompactWidths : fbFullWidths
-      const startFbFullResize = expandingPixelColResizeStart(fbFullWidths, setFbFullWidths, fbFullMinimums)
-      const startFbCompactResize = expandingPixelColResizeStart(fbCompactWidths, setFbCompactWidths, fbCompactMinimums)
+      // 拖完列宽之后：只补差、不收窄 —— 比容器窄就把余量给最宽那列（右边不留白），
+      // 比容器宽就保持像素宽度，让容器横向滚动。
+      React.useLayoutEffect(() => {
+        const node = fbTableRef.current
+        if (node === null || compact) return
+        const available = Math.max(0, (node.clientWidth ?? 0) - 2)
+        const total = fbFullWidths.reduce((sum, width) => sum + width, 0)
+        if (available < 60 || total >= available) return
+        fbFitTo(available)
+      }, [fbFullWidths, compact])
       const [statusFilter, setStatusFilter] = React.useState('')
       const [draft, setDraft] = React.useState({ channel: '', source: '', sentiment: '负', content: '', tags: '', status: '未处理' })
       const [busy, setBusy] = React.useState(false)
       const [editing, setEditing] = React.useState(null)
       const [promotingId, setPromotingId] = React.useState('')
       const entries = list.data?.entries ?? []
+      // 当前关联到哪篇：新反馈看草稿，改表格行看正在编辑的那行。
+      const currentSource = editing === null ? draft.source : editing.source
 
       async function add() {
         setBusy(true)
@@ -8965,11 +9284,40 @@ const STAGE_OF_STATUS = {
       function pickSource(value) {
         if (editing === null) {
           setDraft((prev) => ({ ...prev, source: value }))
+          // 折叠着的「记一条」看不出变化，给一句明确回执（不然就像「点了没反应」）。
+          notify(value === '' ? '已取消这条反馈的来源' : '已关联来源：' + value)
           return
         }
         const next = { ...editing, source: value, focus: 'source' }
         setEditing(next)
         void saveEditSilent(next)
+        notify(value === '' ? '已取消这条反馈的来源' : '已关联来源：' + value)
+      }
+
+      // 点「来源」列：跳进对应的笔记 / 商品档案；候选里没有（改名、删了）才提示。
+      function openSourcePath(hit) {
+        if (typeof openCard === 'function') openCard(hit.kind === 'topic' ? 'studio' : 'products', { path: hit.path })
+      }
+      async function openSource(sourceText) {
+        const value = String(sourceText ?? '').trim()
+        if (value === '') return
+        const key = sourceKey(value)
+        const known = sourcePathIndex.get(key)
+        if (known !== undefined) { openSourcePath(known); return }
+        const isTopic = key.startsWith('内容·')
+        const isProduct = key.startsWith('商品·')
+        if (!isTopic && !isProduct) { notify('这条来源是平台，没有对应的笔记可以跳', true); return }
+        const rest = key.slice(isTopic ? '内容·'.length : '商品·'.length)
+        const title = (isProduct ? rest.replace(/^(自家|竞品)·?/, '') : rest).trim()
+        if (title === '') { notify('这条来源没写标题，跳不过去', true); return }
+        try {
+          const page = await get(pageQuery(isTopic ? '/topics/list?limit=120' : '/products/list?limit=120', 0, title))
+          const record = (page?.records ?? []).find((item) => sourceKey(String(item.title ?? '')) === sourceKey(title) && (!isTopic || topicTypeOf(item) !== '拆解'))
+          if (record === undefined || String(record.path ?? '') === '') { notify('没找到这篇：可能已经改名或删了', true); return }
+          openSourcePath({ kind: isTopic ? 'topic' : 'product', path: String(record.path) })
+        } catch (error) {
+          notify(String(error.message), true)
+        }
       }
 
       async function saveEdit() {
@@ -9069,29 +9417,30 @@ const STAGE_OF_STATUS = {
           h(Field, { label: '情感' }, h('select', { value: draft.sentiment, onChange: (event) => setDraft({ ...draft, sentiment: event.target.value }) }, ['正', '负', '中性'].map((value) => h('option', { key: value, value }, value)))),
         ),
         h(Field, { label: '来源' }, h(SourceSelect, { value: draft.source, groups: sourceGroups, onChange: (value) => setDraft({ ...draft, source: value }), extra: { title: '这条反馈从哪来：平台 / 文章或视频笔记 / 自家或竞品商品' } })),
+        // 关联来源收成一个下拉：收起一行，点开再搜标题、勾一条（2026-11-20 用户要求，别平铺）。
+        h('div', { className: 'dsh-gw-source-pick' },
+          h(SourcePicker, {
+            options: sourceOptions,
+            selected: currentSource,
+            onPick: pickSource,
+            onOpen: (option, kind) => openSourcePath({ kind, path: option.path }),
+          })),
         h(Field, { label: '原文' }, h(AutoGrowTextarea, { rows: 3, style: { fontFamily: 'inherit' }, value: draft.content, onChange: (event) => setDraft({ ...draft, content: event.target.value }), placeholder: '客户原话' })),
         h(Field, { label: '标签' }, h('input', { value: draft.tags, onChange: (event) => setDraft({ ...draft, tags: event.target.value }), placeholder: '物流 / 尺码 / 客服' })),
         h('div', { className: 'dsh-gw-actions dsh-gw-footbar' }, h('button', { className: 'dsh-gw-btn', 'data-tone': 'primary', disabled: busy || draft.content.trim() === '', onClick: add }, '记一条'))),
         h(ErrorBar, { error: list.error, onRetry: list.reload }),
         h(ErrorBar, { error: sourceTopicList.error, onRetry: sourceTopicList.reload }), h(ErrorBar, { error: sourceProductList.error, onRetry: sourceProductList.reload }),
-        h('div', { className: 'dsh-gw-source-pages' },
-          h('div', null,
-            h(ListPager, { list: sourceTopicList, label: '可关联的全库笔记' }),
-            h(FeedbackSourceResults, { list: sourceTopicList, kind: 'topic', selected: editing === null ? draft.source : editing.source, target: editing === null ? '新反馈' : '正在编辑的反馈', onPick: pickSource })),
-          h('div', null,
-            h(ListPager, { list: sourceProductList, label: '可关联的全库商品' }),
-            h(FeedbackSourceResults, { list: sourceProductList, kind: 'product', selected: editing === null ? draft.source : editing.source, target: editing === null ? '新反馈' : '正在编辑的反馈', onPick: pickSource }))),
         h(ListPager, { list }),
         entries.length > 0 ? h('div', { className: 'dsh-gw-cat-row', style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 8 } },
-          h('select', { value: sentimentFilter, onChange: (event) => { setSentimentFilter(event.target.value); if (event.target.value !== '负') setStatusFilter('') }, className: 'dsh-gw-catselect', style: { height: 24 }, title: '按情感筛选' },
+          h('select', { value: sentimentFilter, onChange: (event) => { setSentimentFilter(event.target.value); if (event.target.value !== '负') setStatusFilter('') }, className: 'dsh-gw-catselect', title: '按情感筛选' },
             ['全部', '负', '正', '中性'].map((value) => h('option', { key: value, value }, value === '全部' ? '情感：全部' : '情感：' + value))),
-          h('select', { value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), className: 'dsh-gw-catselect', style: { height: 24 }, title: '按处理状态筛选' },
+          h('select', { value: statusFilter, onChange: (event) => setStatusFilter(event.target.value), className: 'dsh-gw-catselect', title: '按处理状态筛选' },
             [['', '状态：全部'], ['未处理', '状态：未处理'], ['跟进中', '状态：跟进中'], ['已处理', '状态：已处理']].map(([value, label]) => h('option', { key: label, value }, label))),
-          h('select', { value: tagFilter, onChange: (event) => setTagFilter(event.target.value), className: 'dsh-gw-catselect', style: { height: 24 }, title: '按标签筛选' },
+          h('select', { value: tagFilter, onChange: (event) => setTagFilter(event.target.value), className: 'dsh-gw-catselect', title: '按标签筛选' },
             ['全部标签'].concat(tagOptions).map((value) => h('option', { key: value, value }, value === '全部标签' ? '标签：全部' : '标签：' + value)))) : null,
         shown.length === 0 ? h(Empty, null, '没有符合当前筛选的反馈') : h(Fold, { title: '反馈明细', count: shown.length, open: true },
         h('div', { className: 'dsh-gw-tablebox dsh-gw-fb-box', ref: fbTableRef, role: 'region', tabIndex: 0, 'aria-label': '反馈明细表：可横向滚动', style: { marginTop: 10 } },
-          h('table', { className: 'dsh-gw-table dsh-gw-fb-table' + (compact ? ' dsh-gw-fb-compact' : ''), style: { width: 'max(100%, ' + fbWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+          h('table', { className: 'dsh-gw-table dsh-gw-fb-table' + (compact ? ' dsh-gw-fb-compact' : ''), style: { width: fbTableWidth } },
           compact
             ? h('colgroup', null, ['c-body', 'c-fix', 'c-fix', 'c-state', 'c-act'].map((name, index) => h('col', { key: String(index) + name, className: name, style: { width: fbCompactWidths[index] + 'px' } })))
             : h('colgroup', null,
@@ -9099,10 +9448,10 @@ const STAGE_OF_STATUS = {
           compact
             ? h('thead', null, h('tr', null, ['原文', '处理意见', '处理结果', '状态', '操作'].map((label, index) => h('th', { key: label + index },
               label,
-              index < 5 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startFbCompactResize(index), onResize: (delta) => setFbCompactWidths((current) => expandedPixelColumnWidths(current, index, delta, fbCompactMinimums)) }) : null))))
+              index < 5 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startFbCompactResize(index), onResize: (delta) => setFbCompactWidths((current) => transferPixelColumnWidths(current, index, delta, fbCompactMinimums)) }) : null))))
             : h('thead', null, h('tr', null, ['日期', '渠道', '来源', '情感', '原文', '标签', '处理意见', '处理结果', '状态', '操作'].map((label, index) => h('th', { key: label + index },
               label,
-              index < 10 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startFbFullResize(index), onResize: (delta) => setFbFullWidths((current) => expandedPixelColumnWidths(current, index, delta, fbFullMinimums)) }) : null)))),
+              index < 10 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startFbFullResize(index), onResize: (delta) => setFbFullWidths((current) => transferPixelColumnWidths(current, index, delta, fbFullMinimums)) }) : null)))),
           h('tbody', null, shownSorted.map((entry) => {
             const editingThis = editing !== null && editing.id === entry.id
             const cell = (key, node, extra) => h('td', Object.assign({ onClick: pickCell(entry, key), 'data-editing': editingThis ? 'true' : undefined }, extra ?? {}), node)
@@ -9129,7 +9478,9 @@ const STAGE_OF_STATUS = {
                 : entry.channel),
               compact ? null : cell('source', editingThis
                 ? h(SourceSelect, { value: editing.source, groups: sourceGroups, onChange: (value) => { const next = { ...editing, source: value }; setEditing(next); void saveEditSilent(next) }, extra: { className: 'dsh-gw-cell-in', 'data-cell': 'source', title: '这条反馈从哪来', onBlur: () => { void saveEditSilent() } } })
-                : (entry.source === '' || entry.source === undefined ? h('span', { className: 'dsh-gw-rule-empty' }, '—') : entry.source)),
+                : (entry.source === '' || entry.source === undefined
+                  ? h('span', { className: 'dsh-gw-rule-empty' }, '—')
+                  : h('button', { type: 'button', className: 'dsh-gw-fb-source-link', title: '打开这条来源对应的内容：' + entry.source, onClick: (event) => { event.stopPropagation(); void openSource(entry.source) } }, entry.source)), { className: 'dsh-gw-fb-source-cell' }),
               compact ? null : h('td', null, mood),
               compact ? null : cell('content', editingThis
                 ? h(AutoGrowTextarea, { className: 'dsh-gw-cell-in', 'data-cell': 'content', rows: 3, value: editing.content, placeholder: '客户原话', onChange: (event) => setEditing({ ...editing, content: event.target.value }), onBlur: () => { void saveEditSilent() }, onKeyDown: (event) => { if (event.key === 'Enter') { event.preventDefault(); void saveEditSilent(); setEditing(null) } if (event.key === 'Escape') setEditing(null) } })
@@ -9197,8 +9548,8 @@ const STAGE_OF_STATUS = {
       const [rows, setRows] = React.useState([])
       const rowsBaseline = React.useRef('[]')
       const [busy, setBusy] = React.useState(false)
-      const [metricWidths, setMetricWidths, metricFitRef] = usePixelColumnWidths([340, 290, 290, 110], [120, 96, 96, 56], 'metric')
-      const startMetricResize = expandingPixelColResizeStart(metricWidths, setMetricWidths, [120, 96, 96, 56])
+      const [metricWidths, setMetricWidths, metricFitRef, metricSized] = usePixelColumnWidths([340, 290, 290, 110], [56, 48, 48, 36], 'metric')
+      const startMetricResize = expandingPixelColResizeStart(metricWidths, setMetricWidths, [56, 48, 48, 36])
       React.useEffect(() => {
         if (detail.data?.record === undefined) return
         const parsed = parseCampaignMetrics(detail.data.record.body)
@@ -9236,10 +9587,10 @@ const STAGE_OF_STATUS = {
       return h(Fold, { title: '效果对比（结构化编辑）', open: true, count: h(Pill, null, String(rows.filter((row) => String(row.metric ?? '').trim() !== '').length) + ' 项') },
         h('div', { className: 'dsh-gw-hint' }, '对应正文「### 效果对比」那张表；填指标 / 预期 / 实际，保存时只改这张表。'),
         h('div', { className: 'dsh-gw-tablebox dsh-gw-adjustable-box', role: 'region', tabIndex: 0, 'aria-label': '效果对比表：可横向滚动并拖动表头调整列宽', style: { marginTop: 6, marginBottom: 8 } },
-          h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table', ref: metricFitRef, style: { width: 'max(100%, ' + metricWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+          h('table', { className: 'dsh-gw-table dsh-gw-adjustable-table', ref: metricFitRef, style: { width: pixelTableWidth(metricWidths, metricSized) } },
             h('colgroup', null, metricWidths.map((width, index) => h('col', { key: index, style: { width } }))),
             h('thead', null, h('tr', null, ['指标', '预期', '实际', ''].map((label, index) => h('th', { key: label || 'actions' }, label,
-              index < 3 ? h(ColumnGrip, { label: label || '操作', pixel: true, onPointerDown: startMetricResize(index), onResize: (delta) => setMetricWidths((current) => expandedPixelColumnWidths(current, index, delta, [120, 96, 96, 56])) }) : null)))),
+              index < 3 ? h(ColumnGrip, { label: label || '操作', pixel: true, onPointerDown: startMetricResize(index), onResize: (delta) => setMetricWidths((current) => transferPixelColumnWidths(current, index, delta, [120, 96, 96, 56])) }) : null)))),
             h('tbody', null, rows.map((row, index) => h('tr', { key: String(index) },
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.metric, placeholder: '如：播放量', onChange: (event) => updateRow(index, { metric: event.target.value }), style: { width: '100%' } })),
               h('td', null, h('input', { className: 'dsh-gw-cell-in', value: row.expected, placeholder: '预期值', onChange: (event) => updateRow(index, { expected: event.target.value }), style: { width: '100%' } })),
@@ -10345,7 +10696,11 @@ const STAGE_OF_STATUS = {
       return Math.max(160, Math.min(760, window.innerHeight - 240))
     }
 
-    function ChatSourcePreviewDock() {
+    function ChatSourcePreviewDock(props) {
+      // 这里同样是 session 作用域，标准 props 里带着 inputActions：
+      // 顺手收进桥里，工作台占主区域、宿主不画会话头时也有得用。
+      const bridgeActions = props === null || props === undefined ? null : props.inputActions
+      React.useEffect(() => attachInputActions('dock', bridgeActions), [bridgeActions])
       const url = useChatPreview()
       const safe = safeLinkTarget(url)
       const embed = embedFor(safe)
@@ -10720,8 +11075,8 @@ const STAGE_OF_STATUS = {
       }, [editing === null ? '' : String(editing.rowKey) + '@' + String(editing.focus ?? '')])
       // 列宽可拖：一份宽度所有分组共用；把手放在表头右缘，拖动时相邻两列此消彼长。
       // （state 必须放在下面的 loading 早退之前，否则 React #310。）
-      const [ruleWidths, setRuleWidths, ruleFitRef] = usePixelColumnWidths([80, 280, 360, 310], [56, 120, 160, 120], 'rules')
-      const startRuleResize = expandingPixelColResizeStart(ruleWidths, setRuleWidths, [56, 120, 160, 120])
+      const [ruleWidths, setRuleWidths, ruleFitRef, ruleSized] = usePixelColumnWidths([80, 280, 360, 310], [36, 56, 72, 56], 'rules')
+      const startRuleResize = expandingPixelColResizeStart(ruleWidths, setRuleWidths, [36, 56, 72, 56])
       // 语调库一屏三段：上面标签筛选，中间只显示选中的那一组，下面加规则。
       const [activeSection, setActiveSection] = React.useState('hard')
       React.useEffect(() => {
@@ -10779,7 +11134,7 @@ const STAGE_OF_STATUS = {
             : activeItems.length === 0
               ? h(Empty, null, '「' + activeMeta.label + '」还没有规则。')
               : h('div', { className: 'dsh-gw-tablebox dsh-gw-rules-frame' },
-                h('table', { className: 'dsh-gw-rules dsh-gw-adjustable-table', ref: ruleFitRef, style: { width: 'max(100%, ' + ruleWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+                h('table', { className: 'dsh-gw-rules dsh-gw-adjustable-table', ref: ruleFitRef, style: { width: pixelTableWidth(ruleWidths, ruleSized) } },
                   h('colgroup', null,
                     h('col', { className: 'c-id', style: { width: ruleWidths[0] } }),
                     h('col', { className: 'c-title', style: { width: ruleWidths[1] } }),
@@ -10791,7 +11146,7 @@ const STAGE_OF_STATUS = {
                       label,
                       pixel: true,
                       onPointerDown: startRuleResize(i),
-                      onResize: (delta) => setRuleWidths((current) => expandedPixelColumnWidths(current, i, delta, [56, 120, 160, 120])),
+                      onResize: (delta) => setRuleWidths((current) => transferPixelColumnWidths(current, i, delta, [56, 120, 160, 120])),
                     }) : null)))),
                   h('tbody', null, activeItems.map((item, index) => {
                     // 用「分组 + 编号 + 序号」做行键：只可能有一行进编辑态，
@@ -11494,8 +11849,8 @@ const STAGE_OF_STATUS = {
       const [sortDir, setSortDir] = React.useState(1)
       const [busy, setBusy] = React.useState(false)
       // 列宽可拖（语调库同款）：领域→标签→中文→英文→备注；删除按钮在备注格内悬停出现。
-      const [glossWidths, setGlossWidths, glossFitRef] = usePixelColumnWidths([120, 140, 160, 160, 420], [72, 72, 88, 88, 140], 'gloss')
-      const startGlossResize = expandingPixelColResizeStart(glossWidths, setGlossWidths, [72, 72, 88, 88, 140])
+      const [glossWidths, setGlossWidths, glossFitRef, glossSized] = usePixelColumnWidths([120, 140, 160, 160, 420], [40, 40, 44, 44, 72], 'gloss')
+      const startGlossResize = expandingPixelColResizeStart(glossWidths, setGlossWidths, [40, 40, 44, 44, 72])
       const entries = list.data?.entries ?? []
       // 标签字段可能一次写好几个（「物流 / 尺码」），按 / 、 , ; 拆开各自算候选。
       const splitTags = (raw) => String(raw ?? '')
@@ -11680,7 +12035,7 @@ const STAGE_OF_STATUS = {
         h('div', { className: 'dsh-gw-card-top dsh-gw-rules-filter' },
           h(Sect, null,
             h('div', { style: { display: 'flex', alignItems: 'center', gap: 4, flex: '1 1 140px', minWidth: 0, position: 'relative' } },
-              h('input', { style: { width: '100%', height: 26, borderRadius: 7, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'inherit', padding: filter ? '0 24px 0 8px' : '0 8px' }, placeholder: '过滤：中文 / 英文 / 领域 / 标签', value: filter, onChange: (event) => setFilter(event.target.value) }),
+              h('input', { className: 'dsh-gw-gloss-search', style: { width: '100%', padding: filter ? '0 24px 0 8px' : '0 8px' }, placeholder: '过滤：中文 / 英文 / 领域 / 标签', value: filter, onChange: (event) => setFilter(event.target.value) }),
               filter === '' ? null : h('button', { className: 'dsh-gw-ibtn', style: { position: 'absolute', right: 3, top: '50%', transform: 'translateY(-50%)', width: 20, height: 20 }, onClick: () => setFilter(''), title: '清空过滤', 'aria-label': '清空过滤' }, h(Icon, { name: 'close', size: 12 }))
             ),
             domainOptions.length > 0 ? h(MultiSelect, { label: '领域', options: domainOptions, value: domainFilter, onChange: setDomainFilter }) : null,
@@ -11697,7 +12052,7 @@ const STAGE_OF_STATUS = {
           list.loading ? h(Empty, null, t('loading')) : shown.length === 0
             ? h(Empty, null, '还没有术语。先把团队天天吵的那几个指标口径记下来。')
             : h('div', { className: 'dsh-gw-tablebox dsh-gw-gloss-box', role: 'region', tabIndex: 0, 'aria-label': '术语表：可横向滚动', style: { marginTop: 4 } },
-              h('table', { className: 'dsh-gw-table dsh-gw-gloss-table', ref: glossFitRef, style: { width: 'max(100%, ' + glossWidths.reduce((sum, width) => sum + width, 0) + 'px)' } },
+              h('table', { className: 'dsh-gw-table dsh-gw-gloss-table', ref: glossFitRef, style: { width: pixelTableWidth(glossWidths, glossSized) } },
               h('colgroup', null,
                 ['c-domain', 'c-tags', 'c-zh', 'c-en', 'c-note'].map((name, index) => h('col', { key: name, className: name, style: { width: glossWidths[index] } })),
               ),
@@ -11715,7 +12070,7 @@ const STAGE_OF_STATUS = {
                   onKeyDown: (event) => keyboardActivate(event, () => toggleSort(col.key)),
                   onClick: () => toggleSort(col.key),
                 }, col.label + (sortKey === col.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''),
-                  index < 5 ? h(ColumnGrip, { label: col.label, pixel: true, onPointerDown: startGlossResize(index), onResize: (delta) => setGlossWidths((current) => expandedPixelColumnWidths(current, index, delta, [72, 72, 88, 88, 140])) }) : null)))),
+                  index < 5 ? h(ColumnGrip, { label: col.label, pixel: true, onPointerDown: startGlossResize(index), onResize: (delta) => setGlossWidths((current) => transferPixelColumnWidths(current, index, delta, [72, 72, 88, 88, 140])) }) : null)))),
               h('tbody', null, shown.map((entry) => {
                 const editingThis = editing !== null && editing.id === entry.id
                 const cell = (key, text) => h('td', { key: 'cell-' + key, onClick: pickRow(entry, key), title: String(text ?? '') + '（点一下就能改）' }, String(text ?? '') === '' ? '—' : String(text ?? ''))
@@ -12178,8 +12533,10 @@ const STAGE_OF_STATUS = {
       const [editing, setEditing] = React.useState(null)
       const [visibleCount, setVisibleCount] = React.useState(50)
       const [pendingWidths, setPendingWidthsRaw] = React.useState(() => readSavedWidths('pending', 11) ?? [64, 88, 176, 88, 76, 70, 70, 70, 70, 68, 104])
-      const setPendingWidths = React.useCallback((updater) => setPendingWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('pending', next); return next }), [])
-      const startPendingResize = expandingPixelColResizeStart(pendingWidths, setPendingWidths, [56, 72, 120, 84, 68, 64, 64, 64, 64, 60, 96])
+      // 拖过列宽之后表宽按像素走（不再强行铺满），列才能继续压窄 —— 2026-11-20 用户要求。
+      const [pendingSized, setPendingSized] = React.useState(() => readSavedWidths('pending', 11) !== null)
+      const setPendingWidths = React.useCallback((updater) => setPendingWidthsRaw((current) => { const next = typeof updater === 'function' ? updater(current) : updater; writeSavedWidths('pending', next); setPendingSized(true); return next }), [])
+      const startPendingResize = expandingPixelColResizeStart(pendingWidths, setPendingWidths, [40, 40, 64, 48, 44, 40, 40, 40, 40, 40, 48])
       const allowEditingLeave = useDraftGuard(metricDraftChanged(editing), busy !== null)
       // 从我的选题那一行的「回流」跳进来：把那一版滚到眼前，别让人在几十行里找。
       const [hlId, setHlId] = React.useState('')
@@ -12457,7 +12814,7 @@ const STAGE_OF_STATUS = {
       if (v2list.error !== null && v2list.data === null) return h(ErrorBar, { error: v2list.error, onRetry: v2list.reload })
       const pendingTotalWidth = pendingWidths.reduce((sum, width) => sum + width, 0)
       const pendingTableStyle = {
-        '--gw-pending-width': pendingTotalWidth + 'px',
+        '--gw-pending-width': pixelTableWidth(pendingWidths, pendingSized),
         '--gw-pending-left-2': pendingWidths[0] + 'px',
         '--gw-pending-left-3': pendingWidths[0] + pendingWidths[1] + 'px',
       }
@@ -12499,7 +12856,7 @@ const STAGE_OF_STATUS = {
               h('colgroup', null, pendingWidths.map((width, index) => h('col', { key: index, style: { width } }))),
               h('thead', null, h('tr', null,
                 ['平台', '账号', '选题', '日期', '任务', '播放/阅读', '赞/收藏', '评论', '转发', '链接', '操作'].map((label, index) => h('th', { key: label }, label,
-                  index < 11 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startPendingResize(index), onResize: (delta) => setPendingWidths((current) => expandedPixelColumnWidths(current, index, delta, [56, 72, 120, 84, 68, 64, 64, 64, 64, 60, 96])) }) : null)))),
+                  index < 11 ? h(ColumnGrip, { label, pixel: true, onPointerDown: startPendingResize(index), onResize: (delta) => setPendingWidths((current) => transferPixelColumnWidths(current, index, delta, [56, 72, 120, 84, 68, 64, 64, 64, 64, 60, 96])) }) : null)))),
               h('tbody', null,
                 flatRows.slice(0, visibleCount).map((entry, index) => (editingKey !== '' && editingKey === String(entry.key) ? editRow(entry) : viewRow(entry, index))),
                 editingNew ? editRow(null) : null))))
@@ -13623,15 +13980,17 @@ const STAGE_OF_STATUS = {
 
     // 拿一场能给工作台用的会话：优先当前这一场（同一场对话，上下文是连着的）；
     // 主区域没有会话时再新建一场，放进第一个工作区。
-    async function acquireChatSession() {
+    async function acquireChatSession(options = null) {
       const scope = chatScope
       if (scope === null || scope === void 0) throw new Error(t('chatNoService'))
       const { sessions, uiSession, uiWorkspace } = scope
       if (sessions === void 0 || uiSession === void 0) throw new Error(t('chatNoService'))
+      const fresh = options !== null && options !== undefined && options.fresh === true
       const binding = uiSession.current.getSnapshot()
       const currentId = binding === null || binding === void 0 ? void 0 : binding.key
       let sessionId = typeof currentId === 'string' && currentId !== '' ? currentId : undefined
-      if (sessionId === void 0) {
+      // fresh：强制新开一场（页头那颗「＋ 新对话」），不改主区域，所以工作台不会被顶掉。
+      if (fresh || sessionId === undefined) {
         const items = (uiWorkspace !== void 0 && uiWorkspace.workspaces.list.getSnapshot().items) || []
         const workspaceId = items.length > 0 ? items[0].workspaceId : undefined
         if (typeof workspaceId !== 'string' || workspaceId === '') throw new Error(t('chatNoWorkspace'))
@@ -13640,7 +13999,8 @@ const STAGE_OF_STATUS = {
       const reference = sessions.retain(sessionId, { source: CHAT_SOURCE })
       logChat('chat session:acquired', {
         sessionId,
-        reused: typeof currentId === 'string' && currentId !== '',
+        fresh,
+        reused: fresh === false && typeof currentId === 'string' && currentId !== '',
         release: typeof reference.release,
       })
       return {
@@ -13659,10 +14019,13 @@ const STAGE_OF_STATUS = {
     // 用的就是同一条：conversation.content 的 embedded 变体 =
     // 消息流 + 输入框 + 工具卡/审批。phase/hero 按会话真实状态算（乔木 RSS 的
     // NativeConversation 同款判断）：写死 'active' 会让空会话直接进聊天态、丢掉开场那一屏。
-    function WorkbenchChat({ sessionId, useSession, useConversation, useSessions, renderFactorySlot, renderSlot }) {
+    function WorkbenchChat({ sessionId, inputActions, useSession, useConversation, useSessions, renderFactorySlot, renderSlot }) {
       const session = useSession((s) => s)
       const conversation = useConversation((s) => s)
       const blank = useSessions((s) => s.byId[sessionId]?.blank)
+      // 工作台占主区域时宿主不画会话头，header 那个桥挂不上；
+      // 这个子槽本身是 session 作用域的，标准 props 里就带着 inputActions，直接收下来。
+      React.useEffect(() => attachInputActions('chat', inputActions), [inputActions])
       // 挂载一次就记一笔：这一格到底有没有拿到会话、宿主给没给工厂槽。
       // 空白的时候，日志比截图可靠（这里看不到宿主的控制台）。
       const mounted = React.useRef(false)
@@ -13739,6 +14102,10 @@ const STAGE_OF_STATUS = {
       }
     }
 
+    // 主区域工作台的「对话栏」开关登记在这里：推送时要是没接上输入框，
+    // 可以先把对话栏叫出来，再把文字填进去（见 domSetComposer 的退路）。
+    const chatColumn = { open: null }
+
     // 工作台与对话之间的分隔条。实现照抄 SOP 目录/批注栏那两个 splitter：
     // 按父容器的右边缘算宽度（对话贴右），并给左边的工作台留出最小宽度。
     function ChatSplitter({ onResize }) {
@@ -13808,12 +14175,12 @@ const STAGE_OF_STATUS = {
         }
       }, [])
 
-      const openChat = React.useCallback(async () => {
+      const openChat = React.useCallback(async (fresh) => {
         const current = ++generation.current
         releaseOwned()
         setState({ phase: 'loading', chat: null, error: '' })
         try {
-          const chat = await acquireChatSession()
+          const chat = await acquireChatSession({ fresh: fresh === true })
           if (current !== generation.current) {
             chat.release()
             return
@@ -13846,6 +14213,17 @@ const STAGE_OF_STATUS = {
         setOpen(true)
       }, [open, closeChat])
 
+      // 把「打开对话栏」这件事登记给推送逻辑：输入框没接上时，先开栏再填字。
+      React.useEffect(() => {
+        chatColumn.open = () => {
+          saveChatOpen(true)
+          setOpen(true)
+        }
+        return () => {
+          if (chatColumn.open !== null) chatColumn.open = null
+        }
+      }, [])
+
       // 页面卸载就还掉引用，不然宿主会以为这场会话一直有人看。
       React.useEffect(() => () => {
         generation.current += 1
@@ -13866,6 +14244,13 @@ const STAGE_OF_STATUS = {
         },
           h('div', { className: 'dsh-gw-chatcol-head' },
             h('span', { className: 'dsh-gw-chatcol-title' }, t('chat')),
+            h('button', {
+              type: 'button',
+              className: 'dsh-gw-btn dsh-gw-chatcol-new',
+              title: '在这个对话栏里新开一场对话：工作台不关，主区域也不动',
+              disabled: state.phase === 'loading',
+              onClick: () => { void openChat(true) },
+            }, '＋ 新对话'),
             h('button', {
               type: 'button',
               className: 'dsh-gw-ibtn',

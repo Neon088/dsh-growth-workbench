@@ -552,14 +552,23 @@ test('card filters search their own collection and do not expose a duplicate pag
   assert.doesNotMatch(pager, /搜索全库/)
   assert.match(pager, /搜索' \+ scopeLabel \+ '（含正文）/)
 })
-test('feedback full-vault search exposes clickable source results for create and edit', () => {
+test('feedback source linking is one dropdown inside the record form and the table link wraps', () => {
   const body = actualFunction('FeedbackCard')
-  assert.match(body, /FeedbackSourceResults, \{ list: sourceTopicList/)
-  assert.match(body, /FeedbackSourceResults, \{ list: sourceProductList/)
+  // 2026-11-20 用户要求：收进「记一条」，而且别平铺十几条 —— 一个下拉，点开再搜索勾选。
+  assert.match(body, /h\(Fold, \{ title: '记一条' \},[\s\S]*SourcePicker, \{/)
+  assert.match(body, /options: sourceOptions/)
+  assert.doesNotMatch(body, /FeedbackSourceChecks/)
+  assert.doesNotMatch(body, /dsh-gw-source-pages/)
   assert.match(body, /function pickSource\(value\)[\s\S]*saveEditSilent\(next\)/)
-  const helper = actualFunction('FeedbackSourceResults')
-  assert.match(helper, /list\.query/)
-  assert.match(helper, /records\.slice\(0, 12\)/)
+  const helper = actualFunction('SourcePicker')
+  assert.match(helper, /h\('details', \{/)
+  assert.match(helper, /dsh-gw-sourcepicker-sum/)
+  assert.match(helper, /option\.title\.includes\(q\)/)
+  assert.match(helper, /type: 'checkbox'/)
+  // 反馈明细的「来源」是链接，长标题必须换行（以前撞到别的链接样式，被截成省略号）。
+  assert.match(src, /\.dsh-gw-fb-source-link\{[^}]*white-space:normal/)
+  assert.match(src, /\.dsh-gw-fb-source-link\{[^}]*overflow-wrap:anywhere/)
+  assert.match(body, /className: 'dsh-gw-fb-source-cell'/)
 })
 test('feedback table keeps status visible in a real column and expands later boundaries together', () => {
   const body = actualFunction('FeedbackCard')
@@ -570,8 +579,12 @@ test('feedback table keeps status visible in a real column and expands later bou
   assert.match(body, /className: 'dsh-gw-fb-state-cell'[\s\S]*className: 'dsh-gw-fb-state'/)
   assert.match(body, /className: 'dsh-gw-fb-actions-cell'[\s\S]*className: 'dsh-gw-acts'/)
   assert.match(body, /expandingPixelColResizeStart\(fbFullWidths/)
-  assert.match(body, /expandedPixelColumnWidths\(current, index, delta/)
-  assert.match(body, /width: 'max\(100%, ' \+ fbWidths\.reduce\(\(sum, width\) => sum \+ width, 0\) \+ 'px\)'/)
+  // 键盘微调也走 transferPixelColumnWidths：只缩放这一列，差额由右边相邻列让出来，整表不溢出。
+  assert.match(body, /transferPixelColumnWidths\(current, index, delta/)
+  // 2026-11-20 用户要求：列必须能继续拉窄。拖过之后表宽按像素走，没拖过才铺满容器。
+  assert.match(body, /const fbTableWidth = compact \|\| fbSized !== true \? 'max\(100%, ' \+ fbWidthSum \+ 'px\)' : fbWidthSum \+ 'px'/)
+  assert.match(body, /style: \{ width: fbTableWidth \}/)
+  assert.match(src, /\.dsh-gw-fb-box>\.dsh-gw-fb-table:not\(\.dsh-gw-fb-compact\)\{min-width:0;table-layout:fixed\}/)
 })
 test('account rows and product rollups have bounded identity layout and stable platform badges', () => {
   assert.match(src, /\.dsh-gw-account-row\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/)
@@ -633,6 +646,19 @@ test('workbench fills the main page and its own chat column hosts the native con
   const splitter = actualFunction('ChatSplitter')
   assert.match(splitter, /parentElement/)
   assert.match(splitter, /rect\.right - event\.clientX/)
+})
+test('workbench chat column starts a new conversation in place instead of closing the page', () => {
+  // 2026-11-20 用户反馈：点宿主左侧栏的「新话题」会把工作台整页顶掉（主区域被换成对话）。
+  // 解法是对话栏自己带一颗「＋ 新对话」：只建会话塞进这一列，不动主区域。
+  const acquire = src.slice(src.indexOf('async function acquireChatSession('), src.indexOf('\n    }', src.indexOf('async function acquireChatSession(')))
+  assert.ok(acquire.length > 0, 'acquireChatSession exists')
+  assert.match(acquire, /acquireChatSession\(options = null\)/)
+  assert.match(acquire, /fresh === true/)
+  assert.match(acquire, /sessions\.create\(\{ workspaceId \}\)/)
+  const page = actualFunction('MainPanel')
+  assert.match(page, /void openChat\(true\)/)
+  assert.match(page, /className: 'dsh-gw-btn dsh-gw-chatcol-new'/)
+  assert.match(src, /\.dsh-gw-chatcol-new\{/)
 })
 test('page mode neutralizes the panel veil so it cannot cover the app', () => {
   // 2026-11-15 事故：页面模式把 Panel 包进 .dsh-gw-page-main 之后，veil 不再是
@@ -729,8 +755,10 @@ test('all list tables use the shared local-scroll and resize contract', () => {
   assert.match(pending, /expandingPixelColResizeStart\(pendingWidths, setPendingWidths/)
   assert.match(src, /\.dsh-gw-rules-scroll>\.dsh-gw-rules-frame\{overflow:visible;min-width:0\}/)
   assert.match(src, /\.dsh-gw-rules thead th\{[^}]*position:sticky;top:0/)
-  // 推动式列宽契约：所有拖宽都走 expandedPixelColumnWidths（只改被拖列，右侧列整体平移），旧「此消彼长」函数必须保持删除状态。
-  assert.doesNotMatch(src, /shiftedColumnWidths|shiftedPixelColumnWidths|colResizeStart|pixelColResizeStart|installColumnDrag|installPixelColumnDrag/)
+  // 2026-11-20 用户要求：拖列只缩放这一列，额度由右边相邻列让出来 —— 整表总宽不变，
+  // 往右拖不会再把自己撑出容器、拖出横向滚动条。键盘微调仍走 expandedPixelColumnWidths。
+  assert.match(src, /function transferPixelColumnWidths\(/)
+  assert.match(src, /setWidths\(transferPixelColumnWidths\(widths, index, next\.clientX - startX, minimums\)\)/)
   assert.match(src, /function expandingPixelColResizeStart/)
   assert.match(src, /function usePixelColumnWidths/)
 })
@@ -775,18 +803,24 @@ test('tables refit into one screen and every scrollbar stays visible', () => {
   assert.doesNotMatch(src, /\.dsh-gw-ledger-table\{min-width:1080px\}/)
   assert.match(src, /\.dsh-gw-ledger-table\{min-width:0\}/)
   assert.match(src, /\.dsh-gw-ledger-table td\{white-space:normal;overflow-wrap:anywhere\}/)
-  // 表格必须铺满所在容器：宽度取 max(100%, 各列之和)，列宽和小于容器时由浏览器
-// 把余量分给各列，右缘不留一条空白；列宽和大于容器时才横向滚动。
-  assert.equal((src.match(/width: 'max\(100%, ' \+/g) ?? []).length, 10, 'every adjustable table must fill its box')
-  // 待回填表同理：宽度跟着列宽变量走，但至少铺满容器；伸缩时前三列的 sticky 偏移跟着列宽走。
-  assert.match(src, /\.dsh-gw-pending-box \.dsh-gw-pending-table\{width:max\(100%,var\(--gw-pending-width,852px\)\);min-width:0\}/)
+  // 表格宽度：没拖过时铺满容器，拖过之后按像素宽度走（2026-11-20 用户要求「列要能继续拉窄」）。
+  assert.match(src, /function pixelTableWidth\(widths, sized\)/)
+  assert.ok((src.match(/width: pixelTableWidth\(/g) ?? []).length >= 9, 'every adjustable table switches to pixel width after a manual resize')
+  assert.match(src, /return sized === true \? Math\.round\(total\) \+ 'px' : 'max\(100%, ' \+ Math\.round\(total\) \+ 'px\)'/)
+  assert.match(src, /const fbTableWidth = compact \|\| fbSized !== true \? 'max\(100%, ' \+ fbWidthSum \+ 'px\)' : fbWidthSum \+ 'px'/)
+  // 待回填表同理：宽度由列宽变量给，拖过之后是像素宽度；伸缩时前三列的 sticky 偏移跟着列宽走。
+  assert.match(src, /\.dsh-gw-pending-box \.dsh-gw-pending-table\{width:var\(--gw-pending-width,100%\);min-width:0\}/)
   assert.match(src, /left:var\(--gw-pending-left-2,64px\)/)
   assert.match(src, /left:var\(--gw-pending-left-3,152px\)/)
-  for (const rule of [/\.dsh-gw-notetable-head,\.dsh-gw-notetable-row\{width:100%;min-width:(\d+)px\}/, /\.dsh-gw-rank-table\{width:100%;min-width:(\d+)px;/]) {
-    const found = rule.exec(src)
-    assert.ok(found !== null, 'expected a bounded min-width rule: ' + rule)
-    assert.ok(Number(found[1]) <= 900, 'table min-width must stay bounded: ' + found[0])
-  }
+  // 原来那几道整表地板（520 / 540 / 560 / 640px）全撤了 —— 有地板就压不到更窄。
+  for (const rule of [
+    /\.dsh-gw-notetable-head,\.dsh-gw-notetable-row\{width:100%;min-width:0\}/,
+    /\.dsh-gw-rank-table\{width:100%;min-width:0;/,
+    /\.dsh-gw-matrixbox>\.dsh-gw-matrix\{min-width:0\}/,
+    /\.dsh-gw-topiclist\{min-width:0\}/,
+    /\.dsh-gw-fb-box>\.dsh-gw-fb-compact\{min-width:0;/,
+    /\.dsh-gw-pending-box \.dsh-gw-pending-table\{min-width:0\}/,
+  ]) assert.match(src, rule)
 })
 
 test('upcoming schedule list paginates at ten rows with explicit pager controls', () => {

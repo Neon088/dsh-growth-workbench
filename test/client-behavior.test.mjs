@@ -481,11 +481,11 @@ test('expanding pixel widths change only the dragged column and honor its minimu
   assert.deepEqual(plain(api.expandedPixelColumnWidths([64, 88, 96], 1, -100, [56, 72, 80])), [64, 72, 96])
   assert.deepEqual(plain(api.expandedPixelColumnWidths([64, 88], 3, 20, [56, 72])), [64, 88])
 })
-test('expanding pixel drag cleans up and grows table width instead of shrinking its neighbor', () => {
+test('column drag keeps the table width by taking space from the right neighbor', () => {
   const doc = new EventBus(), host = new EventBus(), classes = new Set(); doc.body = { classList: { add: (value) => classes.add(value), remove: (value) => classes.delete(value) } }
   const table = { isConnected: true }; let widths
   const stop = api.installExpandingPixelColumnDrag({ currentTarget: { closest: () => table }, clientX: 10, preventDefault() {}, stopPropagation() {} }, [64, 88, 96], 1, (value) => { widths = value }, [56, 72, 80], doc, host)
-  doc.emit('pointermove', { clientX: 42 }); assert.deepEqual(plain(widths), [64, 120, 96])
+  doc.emit('pointermove', { clientX: 42 }); assert.deepEqual(plain(widths), [64, 104, 80])
   doc.emit('pointerup'); stop(); assert.equal(doc.count(), 0); assert.equal(host.count(), 0); assert.equal(classes.size, 0)
 })
 test('pointercancel, blur and explicit unmount cleanup remove all column drag listeners', () => {
